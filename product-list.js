@@ -23,9 +23,27 @@ async function loadPLData(){
       plData.dist   = r.dist   || [];
       plData.retail = r.retail || [];
       plLoaded = true;
+      updateLowStockBadge();
     }
   }catch(e){
     console.error('loadPLData failed', e);
+  }
+}
+
+function countLowStock(){
+  const all = [...(plData.dist||[]), ...(plData.retail||[])];
+  return all.filter(i=> i.parLevel > 0 && i.stock !== null && Number(i.stock) < i.parLevel).length;
+}
+
+function updateLowStockBadge(){
+  const badge = document.getElementById('ls-alert-badge');
+  if(!badge) return;
+  const n = countLowStock();
+  if(n > 0){
+    badge.textContent = n;
+    badge.style.display = 'inline-flex';
+  } else {
+    badge.style.display = 'none';
   }
 }
 
@@ -44,6 +62,17 @@ function buildPLChips(){
   const bar = document.getElementById('pl-chips');
   bar.innerHTML = '';
   const items = plData[plTab];
+
+  // Low Stock chip — shown when any items in this tab have par levels set
+  const lowCount = items.filter(i=> i.parLevel > 0 && i.stock !== null && Number(i.stock) < i.parLevel).length;
+  if(lowCount > 0){
+    const lc = document.createElement('div');
+    lc.className = 'pl-chip pl-chip-alert' + (plCat==='__lowstock__'?' active':'');
+    lc.textContent = '⚠️ Low Stock (' + lowCount + ')';
+    lc.onclick = ()=>{ plCat='__lowstock__'; buildPLChips(); renderPL(); };
+    bar.appendChild(lc);
+  }
+
   const cats = ['All', ...new Set(items.map(i=>i.category).filter(Boolean))];
   cats.forEach(cat=>{
     const c = document.createElement('div');
@@ -70,7 +99,12 @@ function renderPL(){
   }
 
   // Filter
-  let visible = plCat==='All' ? items : items.filter(i=>i.category===plCat);
+  let visible;
+  if(plCat==='__lowstock__'){
+    visible = items.filter(i=> i.parLevel > 0 && i.stock !== null && Number(i.stock) < i.parLevel);
+  } else {
+    visible = plCat==='All' ? items : items.filter(i=>i.category===plCat);
+  }
   if(plSearch){
     visible = visible.filter(i=>
       i.name.toLowerCase().includes(plSearch) ||
@@ -102,7 +136,8 @@ function renderPL(){
   body.innerHTML = '';
 
   // Group by category
-  const cats = plCat==='All'
+  const groupAll = plCat==='All' || plCat==='__lowstock__';
+  const cats = groupAll
     ? [...new Set(visible.map(i=>i.category))]
     : [plCat];
 
@@ -110,7 +145,7 @@ function renderPL(){
     const catItems = visible.filter(i=>i.category===cat);
     if(!catItems.length) return;
 
-    if(plCat==='All'){
+    if(groupAll){
       const hdr = document.createElement('div');
       hdr.className = 'pl-cat-header';
       hdr.textContent = cat + ' (' + catItems.length + ')';
@@ -130,8 +165,15 @@ function renderPL(){
         </div>`;
       } else {
         const qty = Number(item.stock);
-        const cls = qty <= 0 ? 'pl-stock-out' : qty <= 5 ? 'pl-stock-low' : 'pl-stock-ok';
-        const label = qty <= 0 ? 'FOR BACKORDER' : qty <= 5 ? 'LOW' : 'IN STOCK';
+        const par = Number(item.parLevel) || 0;
+        let cls, label;
+        if(qty <= 0){
+          cls = 'pl-stock-out'; label = 'FOR BACKORDER';
+        } else if(par > 0 && qty < par){
+          cls = 'pl-stock-low'; label = 'LOW (par ' + par + ')';
+        } else {
+          cls = 'pl-stock-ok'; label = 'IN STOCK';
+        }
         stockHtml = `<div class="pl-stock">
           <div class="pl-stock-val ${cls}">${qty <= 0 ? '0' : qty}</div>
           <div class="pl-stock-label">${label}</div>

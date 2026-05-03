@@ -43,7 +43,7 @@ function buildHomeTiles(){
   const tiles=[];
   // 0. Product List — always visible if canViewProductList
   const canPL = currentUser.role==='admin' || currentUser.canViewProductList===true;
-  if(canPL) tiles.push({icon:'📋',name:'Product List',desc:'Item prices & current stock levels',cls:'t-product',fn:'openPL()'});
+  if(canPL) tiles.push({icon:'📋',name:'Product List',desc:'Item prices & current stock levels',cls:'t-product',fn:'openPL()',badge:'ls-alert-badge'});
   // 1. Stock Movement — always visible
   tiles.push({icon:'📦',name:'Stock Movement',desc:'Load & return stocks for Bajaj routes',cls:'t-movement',fn:'showMovement()'});
   // 2. Transfer
@@ -78,6 +78,30 @@ function buildHomeTiles(){
     grid.appendChild(div);
   });
   if(currentUser.role==='admin') loadPendingBadge();
+  if(canPL) loadLowStockBadge();
+}
+
+async function loadLowStockBadge(){
+  // If plData is already loaded (user visited Product List this session), compute directly
+  if(typeof plLoaded !== 'undefined' && plLoaded){
+    if(typeof updateLowStockBadge === 'function') updateLowStockBadge();
+    return;
+  }
+  // Otherwise fetch fresh from API
+  try{
+    const r = await api({action:'getProductList'});
+    if(r.status==='ok'){
+      const all = [...(r.dist||[]), ...(r.retail||[])];
+      const n = all.filter(i=> i.parLevel > 0 && i.stock !== null && Number(i.stock) < i.parLevel).length;
+      const badge = document.getElementById('ls-alert-badge');
+      if(badge){
+        if(n > 0){ badge.textContent = n; badge.style.display = 'inline-flex'; }
+        else { badge.style.display = 'none'; }
+      }
+    }
+  }catch(e){
+    console.error('loadLowStockBadge failed', e);
+  }
 }
 
 function showMovement(){

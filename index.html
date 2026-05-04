@@ -41,7 +41,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .driver-banner-text{font-size:12px;font-weight:600}
 .driver-banner-unit{font-size:11px;background:rgba(255,255,255,0.2);padding:3px 10px;border-radius:20px}
 .driver-refresh-btn{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600}
-.driver-pl-btn{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600;white-space:nowrap}
+.driver-pl-btn{background:rgba(255,255,255,0.18);border:1.5px solid rgba(255,255,255,0.45);color:white;padding:10px 16px;border-radius:10px;font-size:14px;cursor:pointer;font-weight:700;white-space:nowrap;letter-spacing:.2px}
 
 /* UNIT BAR (staff/admin only) */
 .unit-bar{padding:8px 12px;background:white;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;gap:10px;flex-shrink:0}
@@ -1856,6 +1856,48 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
             </div>
             <label class="edit-toggle">
               <input type="checkbox" id="edit-can-bo-retail">
+              <span class="edit-toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Product List Permissions -->
+      <div class="edit-section">
+        <div class="edit-section-title">Product List</div>
+        <div class="edit-perm-grid">
+          <div class="edit-perm-row">
+            <div>
+              <div class="edit-perm-label">📋 Can View Product List</div>
+              <div class="edit-perm-sub">Can access item prices and current stock levels</div>
+            </div>
+            <label class="edit-toggle">
+              <input type="checkbox" id="edit-can-pl" onchange="onEditPlToggle()">
+              <span class="edit-toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+        <div id="edit-pl-view-field" style="margin-top:10px">
+          <span class="edit-field-label">Which list can they see?</span>
+          <select class="edit-select" id="edit-pl-view">
+            <option value="both">Both (Distribution &amp; Retail)</option>
+            <option value="dist">Distribution only</option>
+            <option value="retail">Retail only</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Stock Adjustment Permissions -->
+      <div class="edit-section">
+        <div class="edit-section-title">Stock Adjustment</div>
+        <div class="edit-perm-grid">
+          <div class="edit-perm-row">
+            <div>
+              <div class="edit-perm-label">📊 Stock Adjustment</div>
+              <div class="edit-perm-sub">Can receive, count, remove or record damage</div>
+            </div>
+            <label class="edit-toggle">
+              <input type="checkbox" id="edit-can-sa">
               <span class="edit-toggle-slider"></span>
             </label>
           </div>

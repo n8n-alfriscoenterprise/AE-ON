@@ -53,7 +53,7 @@ function openEditStaff(idx){
   // Permissions — admin gets all locked ON, others use stored values
   const isAdmin = s.role === 'admin';
   const perms = [
-    ['edit-can-pl',          isAdmin || s.canViewProductList === true],
+    ['edit-can-pl',          isAdmin || s.canViewProductList !== false],
     ['edit-can-sa',          isAdmin || s.canStockAdjust === true],
     ['edit-can-count-dist',  isAdmin || s.canCountDist !== false],
     ['edit-can-count-retail',isAdmin || s.canCountRetail !== false],
@@ -69,6 +69,14 @@ function openEditStaff(idx){
     const el = document.getElementById(id);
     if(el){ el.checked = val; el.disabled = isAdmin; }
   });
+
+  // PL View selector
+  const plViewEl = document.getElementById('edit-pl-view');
+  if(plViewEl){
+    plViewEl.value = s.plView || 'both';
+    plViewEl.disabled = isAdmin;
+  }
+  onEditPlToggle();
 
   document.getElementById('edit-staff-err').textContent = '';
   document.getElementById('edit-save-btn').disabled = false;
@@ -95,6 +103,22 @@ function onEditRoleChange(){
     const el = document.getElementById(id);
     if(el){ if(isAdmin) el.checked = true; el.disabled = isAdmin; }
   });
+
+  // PL view — admins locked to 'both'
+  const plViewEl = document.getElementById('edit-pl-view');
+  if(plViewEl){
+    if(isAdmin){ plViewEl.value = 'both'; plViewEl.disabled = true; }
+    else { plViewEl.disabled = false; }
+  }
+  onEditPlToggle();
+}
+
+function onEditPlToggle(){
+  const canPL = document.getElementById('edit-can-pl');
+  const viewField = document.getElementById('edit-pl-view-field');
+  if(canPL && viewField){
+    viewField.style.display = canPL.checked ? 'block' : 'none';
+  }
 }
 
 async function saveStaffEdit(){
@@ -140,16 +164,19 @@ async function saveStaffEdit(){
   btn.disabled = true; btn.textContent = 'Saving...';
   errEl.textContent = '';
 
+  const plViewEl = document.getElementById('edit-pl-view');
+  const plView = plViewEl ? plViewEl.value : 'both';
+
   try{
     const r = await api(Object.assign(
-      { action:'updateStaff', username:s.username, role, assignedUnit:unit },
+      { action:'updateStaff', username:s.username, role, assignedUnit:unit, plView },
       perms
     ));
 
     if(r.status === 'ok'){
       // Update local cache — merge new values over existing account
       staff[editingStaffIndex] = Object.assign({}, s,
-        { role, assignedUnit:unit }, perms
+        { role, assignedUnit:unit, plView }, perms
       );
       LS.set('alf_staff_cache', staff);
       closeEditStaff();

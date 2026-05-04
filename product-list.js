@@ -3,10 +3,29 @@
   updateFabVisibility();
   document.getElementById('pl-search').value = '';
   plSearch = '';
-  plTab = 'dist';
   plCat = 'All';
+
+  // Enforce plView permission — show/hide tabs and set default
+  const view = (currentUser && currentUser.plView) || 'both';
+  const distTab   = document.getElementById('pl-tab-dist');
+  const retailTab = document.getElementById('pl-tab-retail');
+  const subtabBar = document.querySelector('.pl-subtabs');
+
+  if(view === 'dist'){
+    plTab = 'dist';
+    if(subtabBar) subtabBar.style.display = 'none'; // only one list — hide tabs
+  } else if(view === 'retail'){
+    plTab = 'retail';
+    if(subtabBar) subtabBar.style.display = 'none';
+  } else {
+    plTab = 'dist';
+    if(subtabBar) subtabBar.style.display = '';     // show both tabs
+  }
+
   document.querySelectorAll('.pl-subtab').forEach(t=>t.classList.remove('active'));
-  document.getElementById('pl-tab-dist').classList.add('active');
+  const activeTab = document.getElementById('pl-tab-' + plTab);
+  if(activeTab) activeTab.classList.add('active');
+
   document.getElementById('pl-body').innerHTML = '<div class="pl-empty">Loading product list...</div>';
   document.getElementById('pl-summary-count').textContent = 'Loading...';
   await loadPLData();

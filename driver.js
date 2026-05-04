@@ -4,6 +4,9 @@
   const unit=currentUser.assignedUnit||'Bajaj1';
   document.getElementById('driver-topbar-user').textContent=`${currentUser.username} · driver`;
   document.getElementById('driver-unit-badge').textContent=unit;
+  // Show Price List button only if driver has permission
+  const plBtn=document.getElementById('driver-pl-btn');
+  if(plBtn) plBtn.style.display=(currentUser.canViewProductList!==false)?'block':'none';
   driverCat='All';
   await loadDriverManifest();
 }

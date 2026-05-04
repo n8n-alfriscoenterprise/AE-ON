@@ -14,7 +14,10 @@
   renderPL();
 }
 
-function closePL(){ showHome(); }
+function closePL(){
+  if(currentUser && currentUser.role === 'driver') showDriver();
+  else showHome();
+}
 
 async function loadPLData(){
   try{

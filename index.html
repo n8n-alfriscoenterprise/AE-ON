@@ -41,6 +41,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .driver-banner-text{font-size:12px;font-weight:600}
 .driver-banner-unit{font-size:11px;background:rgba(255,255,255,0.2);padding:3px 10px;border-radius:20px}
 .driver-refresh-btn{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600}
+.driver-pl-btn{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600;white-space:nowrap}
 
 /* UNIT BAR (staff/admin only) */
 .unit-bar{padding:8px 12px;background:white;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;gap:10px;flex-shrink:0}
@@ -872,7 +873,10 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 </svg>
       <div class="topbar-user" id="driver-topbar-user" style="margin-top:2px"></div>
     </div>
-    <button class="logout-btn" onclick="doLogout()">Sign out</button>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <button class="logout-btn" onclick="doLogout()">Sign out</button>
+      <button class="driver-pl-btn" id="driver-pl-btn" onclick="openPL()" style="display:none">📋 Price List</button>
+    </div>
     <div style="display:none">
     </div>
   </div>

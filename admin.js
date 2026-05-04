@@ -14,8 +14,8 @@ function verifyAdmin(){
 // ── ADMIN SCREEN ──
 function showAdmin(){showScreen('admin-screen');renderStaff();renderCs();renderLog();}
 function closeAdmin(){
-  if(currentUser.role==='driver')showDriver();
-  else showApp();
+  if(currentUser.role==='driver') showDriver();
+  else showHome();
 }
 
 // Show/hide unit field based on role selection

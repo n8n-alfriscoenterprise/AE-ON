@@ -141,15 +141,10 @@ function setTNav(activeId){
 }
 
 function openAdminFromHome(){
-  showScreen('app-screen');
-  document.querySelector('.fab').style.display='flex';
-  document.getElementById('topbar-user').textContent=`${currentUser.username} · ${currentUser.role}`;
-  document.getElementById('movement-area').style.display='none';
-  document.getElementById('mode-btn').style.display='none';
-  if(document.getElementById('tnav-po')) document.getElementById('tnav-po').style.display=(_canAnyPO)?'block':'none';
-  if(document.getElementById('tnav-admin')) document.getElementById('tnav-admin').style.display='block';
-  setTNav('tnav-admin');
-  openAdminModal();
+  // Go directly to admin-screen — no intermediate app-screen, no redundant password prompt
+  showScreen('admin-screen');
+  updateFabVisibility();
+  showAdmin();
 }
 
 function setTab(tab,el){

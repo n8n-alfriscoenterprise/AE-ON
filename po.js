@@ -236,7 +236,7 @@ function addPOLineItem(preData){
 }
 
 function editPODraft(){
-  if(!currentPO||currentPO.status!=='DRAFT') return;
+  if(!currentPO||!['DRAFT','REJECTED'].includes(currentPO.status)) return;
   poEditMode      = true;
   poEditingNumber = currentPO.poNumber;
 
@@ -274,12 +274,13 @@ function editPODraft(){
     updatePOTotals();
 
     // Update button labels + title
+    const isRejected = currentPO.status === 'REJECTED';
     const titleEl = document.getElementById('po-create-title');
-    if(titleEl) titleEl.textContent = 'Editing Draft: ' + currentPO.poNumber;
+    if(titleEl) titleEl.textContent = (isRejected ? 'Edit & Resubmit: ' : 'Editing Draft: ') + currentPO.poNumber;
     const draftBtn = document.getElementById('po-save-draft-btn');
-    if(draftBtn) draftBtn.textContent = 'Update Draft';
+    if(draftBtn) draftBtn.textContent = isRejected ? 'Save as Draft' : 'Update Draft';
     const subBtn = document.getElementById('po-submit-btn');
-    if(subBtn) subBtn.textContent = 'Update & Submit for Approval';
+    if(subBtn) subBtn.textContent = isRejected ? 'Resubmit for Approval' : 'Update & Submit for Approval';
   }, 80); // short delay to let supplier dropdown render
 }
 
@@ -404,11 +405,12 @@ function renderPODetail(){
     + '</div>';
   body.appendChild(hdr);
 
-  // ── EDIT DRAFT (creator or admin) ──
-  if(po.status === 'DRAFT' && (isAdmin || isCreator)){
+  // ── EDIT DRAFT / REJECTED (creator or admin) ──
+  if(['DRAFT','REJECTED'].includes(po.status) && (isAdmin || isCreator)){
     const editDiv = document.createElement('div');
     editDiv.className = 'po-action-row';
-    editDiv.innerHTML = '<button class="po-btn po-btn-primary" onclick="editPODraft()">✏️ Edit Draft</button>';
+    const editLabel = po.status === 'REJECTED' ? '✏️ Edit Before Resubmitting' : '✏️ Edit Draft';
+    editDiv.innerHTML = '<button class="po-btn po-btn-primary" onclick="editPODraft()">' + editLabel + '</button>';
     body.appendChild(editDiv);
   }
 

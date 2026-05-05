@@ -1123,7 +1123,8 @@ function doPost(e) {
       let found = false;
       for (let i = 1; i < poRows.length; i++) {
         if (String(poRows[i][0]) === data.poNumber) {
-          if (String(poRows[i][3]) !== 'DRAFT') return err('Only DRAFT POs can be edited');
+          const editableStatuses = ['DRAFT','REJECTED'];
+          if (!editableStatuses.includes(String(poRows[i][3]))) return err('Only DRAFT or REJECTED POs can be edited');
           poSheet.getRange(i+1, 2).setValue(data.type         || poRows[i][1]);
           poSheet.getRange(i+1, 3).setValue(data.supplier     || poRows[i][2]);
           poSheet.getRange(i+1, 4).setValue(data.status       || 'DRAFT');

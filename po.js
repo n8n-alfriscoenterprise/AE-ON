@@ -775,6 +775,14 @@ async function receiveItems(){
         + (docRef ? ' — Doc Ref: ' + docRef : '')
         + ' — inventory updated as STOCK IN ✓';
       showBanner('po-success-bar', summary);
+      if(r.calendarNote){
+        const isErr = r.calendarNote.startsWith('ERROR:') || r.calendarNote.includes('not found');
+        showToast(
+          isErr ? 'Calendar: ' + r.calendarNote : 'Calendar event created — ' + r.calendarNote,
+          isErr ? 'error' : 'success',
+          isErr ? 6000 : 4000
+        );
+      }
       await openPODetail(currentPO.poNumber);
       await loadPOs();
     }else alert('Error: '+r.msg);

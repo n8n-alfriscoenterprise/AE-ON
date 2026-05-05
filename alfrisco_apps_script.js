@@ -499,6 +499,7 @@ function doPost(e) {
       // Due date is always based on actual receipt date so the reminder is accurate.
       //   COD / Cash / E-Wallet / Bank Transfer / Cheque "Upon Delivery" → due = receipt date
       //   Cheque with terms → due = receipt date + termsDays
+      var calendarNote = '';
       try {
         const poRowData = poRows.find(function(r){ return String(r[0])===data.poNumber; });
         if(poRowData){
@@ -513,7 +514,7 @@ function doPost(e) {
           const chequeRef = String(poRowData[13] || '');
           const docRef    = data.docRef || '';
 
-          const title = '💳 Payment Due — ' + data.poNumber
+          const title = 'Payment Due — ' + data.poNumber
             + ' · ' + supplier
             + ' · ₱' + amount.toLocaleString('en-PH',{minimumFractionDigits:2})
             + ' · ' + (paymentMode || 'Payment')
@@ -523,7 +524,7 @@ function doPost(e) {
           const desc = [
             'PO: '           + data.poNumber,
             'Supplier: '     + supplier,
-            'Amount: ₱'      + amount.toLocaleString('en-PH',{minimumFractionDigits:2}),
+            'Amount: ₱' + amount.toLocaleString('en-PH',{minimumFractionDigits:2}),
             'Payment Mode: ' + (paymentMode || 'N/A'),
             'Terms: '        + (termsDays > 0 ? termsDays+' days from receipt' : 'Upon Delivery'),
             'Receipt Date: ' + receiptDate.toLocaleDateString('en-PH'),
@@ -541,13 +542,18 @@ function doPost(e) {
           if(msLeft > 7*24*60*60000) event.addPopupReminder(7*24*60);
           if(msLeft > 3*24*60*60000) event.addPopupReminder(3*24*60);
           if(msLeft > 1*24*60*60000) event.addPopupReminder(1*24*60);
+
+          calendarNote = 'Event created for ' + dueDate.toLocaleDateString('en-PH');
+        } else {
+          calendarNote = 'PO row not found in poRows — no event created';
         }
       } catch(calErr) {
+        calendarNote = 'ERROR: ' + calErr.toString();
         Logger.log('Calendar event creation failed: ' + calErr.toString());
       }
       // ─────────────────────────────────────────────────────────────────
 
-      return ok({newStatus});
+      return ok({newStatus, calendarNote});
     }
 
 
@@ -1350,4 +1356,17 @@ function err(msg) {
 
 function doGet(e) {
   return ok({msg:'Alfrisco Inventory webhook active'});
+}
+
+// ── RUN THIS ONCE from the Apps Script editor to authorize Calendar access ──
+// Extensions → Apps Script → select testCalendar → Run
+// Google will show a consent dialog — click Allow.
+// Then re-deploy (Deploy → Manage Deployments → pencil → New version → Deploy).
+function testCalendar() {
+  const cal   = CalendarApp.getDefaultCalendar();
+  const today = new Date();
+  const event = cal.createAllDayEvent('[TEST] AE-ON Calendar Auth OK', today, {
+    description: 'You can delete this event — it confirms Calendar access is authorized.'
+  });
+  Logger.log('Calendar test passed. Event ID: ' + event.getId());
 }

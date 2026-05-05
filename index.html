@@ -62,6 +62,14 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 
 .success-bar{display:none;background:#0A5C46;color:white;padding:9px 14px;font-size:12px;font-weight:600;text-align:center;flex-shrink:0}
 .main-content{flex:1;overflow-y:auto;background:#f0f2f5}
+
+/* TOAST */
+#ae-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(16px);padding:11px 20px;border-radius:12px;font-size:13px;font-weight:600;max-width:calc(100% - 32px);text-align:center;z-index:9999;opacity:0;transition:opacity 0.22s ease,transform 0.22s ease;pointer-events:none;white-space:pre-line;box-shadow:0 4px 16px rgba(0,0,0,0.22);line-height:1.4}
+#ae-toast.ae-toast-show{opacity:1;transform:translateX(-50%) translateY(0)}
+#ae-toast.ae-toast-success{background:#0A5C46;color:#fff}
+#ae-toast.ae-toast-error{background:#C0392B;color:#fff}
+#ae-toast.ae-toast-warning{background:#C07000;color:#fff}
+#ae-toast.ae-toast-info{background:#1A3A5C;color:#fff}
 .cat-header{padding:8px 14px 5px;font-size:10px;font-weight:700;letter-spacing:1px;color:#999;background:#f0f2f5;text-transform:uppercase;border-bottom:1px solid #e8e8e8}
 
 /* STAFF SKU ROW */
@@ -2197,6 +2205,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 </div>
 
 <script src="config.js"></script>
+<script src="js/toast.js"></script>
 <script src="state.js"></script>
 <script src="auth.js"></script>
 <script src="nav.js"></script>

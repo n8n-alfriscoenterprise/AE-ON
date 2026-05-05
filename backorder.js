@@ -438,6 +438,8 @@ async function openBoScreen() {
   if (activeTab) activeTab.classList.add('active');
 
   boListFilter = 'All';
+  boListLoaded = false;
+  boListData   = { dist: [], retail: [] };
   document.getElementById('bo-list-body').innerHTML = '<div class="pl-empty">Loading backorders...</div>';
   buildBoStatusChips();
   await loadBoData();
@@ -456,11 +458,11 @@ async function loadBoData() {
     if (r.status === 'ok') {
       boListData.dist   = r.dist   || [];
       boListData.retail = r.retail || [];
-      boListLoaded = true;
     }
   } catch(e) {
     console.error('loadBoData failed', e);
   }
+  boListLoaded = true; // always mark done so renderBoList doesn't stay stuck
 }
 
 function setBoListTab(tab, el) {
@@ -493,10 +495,6 @@ function renderBoList() {
   const body  = document.getElementById('bo-list-body');
   const items = boListData[boListTab] || [];
 
-  if (!boListLoaded) {
-    body.innerHTML = '<div class="pl-empty">Loading...</div>';
-    return;
-  }
   if (!items.length) {
     body.innerHTML = '<div class="pl-empty">No backorders logged yet.</div>';
     return;

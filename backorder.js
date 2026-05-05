@@ -402,6 +402,228 @@ async function submitRetailBackorder(){
 
 
 // ════════════════════════════════════════════════════════
+// BACKORDER LIST / MONITORING SCREEN
+// Opens from tile; FABs still handle quick logging
+// Status flow: OPEN → PARTIAL → FULFILLED | CANCELLED
+// Only the submitter or admin can change status
+// ════════════════════════════════════════════════════════
+let boListTab    = 'dist';
+let boListFilter = 'All';
+let boListData   = { dist: [], retail: [] };
+let boListLoaded = false;
+let _boStatusTarget = null;
+
+async function openBoScreen() {
+  showScreen('bo-screen');
+  updateFabVisibility();
+
+  const isAdmin   = currentUser && currentUser.role === 'admin';
+  const canDist   = isAdmin || (currentUser && currentUser.canBackorderDist !== false);
+  const canRetail = isAdmin || (currentUser && currentUser.canBackorderRetail === true);
+  const subtabs   = document.getElementById('bo-subtabs');
+
+  if (canDist && canRetail) {
+    boListTab = 'dist';
+    if (subtabs) subtabs.style.display = '';
+  } else if (canRetail) {
+    boListTab = 'retail';
+    if (subtabs) subtabs.style.display = 'none';
+  } else {
+    boListTab = 'dist';
+    if (subtabs) subtabs.style.display = 'none';
+  }
+
+  document.querySelectorAll('.bo-subtab').forEach(t => t.classList.remove('active'));
+  const activeTab = document.getElementById('bo-tab-' + boListTab);
+  if (activeTab) activeTab.classList.add('active');
+
+  boListFilter = 'All';
+  document.getElementById('bo-list-body').innerHTML = '<div class="pl-empty">Loading backorders...</div>';
+  buildBoStatusChips();
+  await loadBoData();
+  buildBoStatusChips();
+  renderBoList();
+}
+
+function closeBoScreen() {
+  if (currentUser && currentUser.role === 'driver') showDriver();
+  else showHome();
+}
+
+async function loadBoData() {
+  try {
+    const r = await api({ action: 'getBackorders' });
+    if (r.status === 'ok') {
+      boListData.dist   = r.dist   || [];
+      boListData.retail = r.retail || [];
+      boListLoaded = true;
+    }
+  } catch(e) {
+    console.error('loadBoData failed', e);
+  }
+}
+
+function setBoListTab(tab, el) {
+  boListTab    = tab;
+  boListFilter = 'All';
+  document.querySelectorAll('.bo-subtab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
+  buildBoStatusChips();
+  renderBoList();
+}
+
+function buildBoStatusChips() {
+  const bar = document.getElementById('bo-status-chips');
+  if (!bar) return;
+  bar.innerHTML = '';
+  const items = boListData[boListTab] || [];
+  ['All','OPEN','PARTIAL','FULFILLED','CANCELLED'].forEach(s => {
+    const count = s === 'All' ? items.length
+      : items.filter(i => i.status === s).length;
+    if (s !== 'All' && count === 0) return;
+    const c = document.createElement('div');
+    c.className = 'pl-chip bo-chip-' + s.toLowerCase() + (s === boListFilter ? ' active' : '');
+    c.textContent = s + ' (' + count + ')';
+    c.onclick = () => { boListFilter = s; buildBoStatusChips(); renderBoList(); };
+    bar.appendChild(c);
+  });
+}
+
+function renderBoList() {
+  const body  = document.getElementById('bo-list-body');
+  const items = boListData[boListTab] || [];
+
+  if (!boListLoaded) {
+    body.innerHTML = '<div class="pl-empty">Loading...</div>';
+    return;
+  }
+  if (!items.length) {
+    body.innerHTML = '<div class="pl-empty">No backorders logged yet.</div>';
+    return;
+  }
+
+  let visible = boListFilter === 'All'
+    ? items : items.filter(i => i.status === boListFilter);
+
+  if (!visible.length) {
+    body.innerHTML = '<div class="pl-empty">No ' + boListFilter.toLowerCase() + ' backorders.</div>';
+    return;
+  }
+
+  // Sort: OPEN first, PARTIAL second, then by timestamp descending
+  const order = { OPEN:0, PARTIAL:1, FULFILLED:2, CANCELLED:3 };
+  visible = [...visible].sort((a,b) => {
+    const so = (order[a.status]??2) - (order[b.status]??2);
+    if (so !== 0) return so;
+    return new Date(b.timestamp) - new Date(a.timestamp);
+  });
+
+  const isAdmin    = currentUser && currentUser.role === 'admin';
+  const statusMeta = {
+    OPEN:      { color:'#C07000', bg:'#FFF3DC', label:'OPEN'      },
+    PARTIAL:   { color:'#1A6EBD', bg:'#E3EEF9', label:'PARTIAL'   },
+    FULFILLED: { color:'#0A5C46', bg:'#E6F4EF', label:'FULFILLED' },
+    CANCELLED: { color:'#888',    bg:'#F2F2F2', label:'CANCELLED' }
+  };
+
+  body.innerHTML = '';
+  visible.forEach(item => {
+    const canEdit = isAdmin || item.submittedBy === currentUser.username;
+    const meta    = statusMeta[item.status] || statusMeta.OPEN;
+    const row     = document.createElement('div');
+    row.className = 'bo-list-row' + (canEdit ? ' bo-list-row-tap' : '');
+    if (canEdit) row.onclick = () => openBoStatusModal(item);
+
+    const promiseLine = item.promisedDate ? ' · Due: ' + item.promisedDate : '';
+    const notesLine   = item.notes        ? ' · ' + item.notes             : '';
+
+    row.innerHTML = `
+      <div class="bo-list-main">
+        <div class="bo-list-dealer">${item.dealer}
+          <span class="bo-list-phone">${item.phone ? ' · ' + item.phone : ''}</span>
+        </div>
+        <div class="bo-list-item">${item.itemName}</div>
+        <div class="bo-list-meta">${item.qty} ${item.unit}${promiseLine}${notesLine}</div>
+        <div class="bo-list-by">Logged by ${item.submittedBy}</div>
+      </div>
+      <div class="bo-list-right">
+        <span class="bo-status-badge"
+          style="background:${meta.bg};color:${meta.color}">${meta.label}</span>
+        ${canEdit ? '<span class="bo-list-edit-hint">tap to update</span>' : ''}
+      </div>`;
+    body.appendChild(row);
+  });
+}
+
+// ── STATUS PICKER ─────────────────────────────────────
+function openBoStatusModal(item) {
+  _boStatusTarget = item;
+  const meta  = {
+    OPEN:      { color:'#C07000', icon:'📋' },
+    PARTIAL:   { color:'#1A6EBD', icon:'⏳' },
+    FULFILLED: { color:'#0A5C46', icon:'✅' },
+    CANCELLED: { color:'#888',    icon:'❌' }
+  };
+
+  document.getElementById('bo-status-info').innerHTML = `
+    <div class="bo-status-sheet-item">
+      <strong>${item.dealer}</strong> — ${item.itemName}
+      <span style="color:#888"> (${item.qty} ${item.unit})</span>
+    </div>
+    <div class="bo-status-sheet-current">Current status: <strong>${item.status}</strong></div>`;
+
+  const opts = document.getElementById('bo-status-options');
+  opts.innerHTML = '';
+  ['OPEN','PARTIAL','FULFILLED','CANCELLED'].forEach(s => {
+    if (s === item.status) return;
+    const m   = meta[s];
+    const btn = document.createElement('button');
+    btn.className = 'bo-status-option-btn';
+    btn.style.cssText = `color:${m.color};border-color:${m.color}`;
+    btn.textContent   = m.icon + ' ' + s;
+    btn.onclick = () => confirmBoStatus(s, btn);
+    opts.appendChild(btn);
+  });
+
+  document.getElementById('bo-status-modal').style.display = 'flex';
+}
+
+function closeBoStatusModal() {
+  document.getElementById('bo-status-modal').style.display = 'none';
+  _boStatusTarget = null;
+}
+
+async function confirmBoStatus(newStatus, btn) {
+  if (!_boStatusTarget) return;
+  const item    = _boStatusTarget;
+  const origTxt = btn.textContent;
+  btn.disabled  = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    const r = await api({
+      action:   'updateBackorderStatus',
+      boType:   item.type,
+      rowIndex: item.rowIndex,
+      status:   newStatus
+    });
+    if (r.status === 'ok') {
+      item.status = newStatus;   // update local cache
+      closeBoStatusModal();
+      buildBoStatusChips();
+      renderBoList();
+    } else {
+      btn.disabled    = false;
+      btn.textContent = '⚠️ Error — tap to retry';
+    }
+  } catch(e) {
+    btn.disabled    = false;
+    btn.textContent = '⚠️ Network error — tap to retry';
+  }
+}
+
+
+// ════════════════════════════════════════════════════════
 // TRANSFER SYSTEM
 // 4-stage lifecycle: PENDING → IN TRANSIT → PARTIAL/RECEIVED
 // Inventory updates ONLY on acknowledgment

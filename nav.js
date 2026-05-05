@@ -59,11 +59,16 @@ function buildHomeTiles(){
   if(canCount) tiles.push({icon:'🔢',name:'General Inventory',desc:'Physical count for Distribution or Retail',cls:'t-inventory',fn:'openCount()'});
   const canSATile = currentUser.role==='admin' || currentUser.canStockAdjust===true;
   if(canSATile) tiles.push({icon:'📊',name:'Stock Adjustment',desc:'Receive, count, remove or record damage',cls:'t-sa',fn:'openSA()'});
-  // 5. Dealer Backorder
-  tiles.push({icon:'⚠️',name:'Dealer Backorder',desc:'Record out-of-stock distribution dealer requests',cls:'t-backorder',fn:'openBoModal()'});
-  // 6. Retail Backorder
-  if(currentUser.canBackorderRetail===true||currentUser.role==='admin')
-    tiles.push({icon:'🛒',name:'Retail Backorder',desc:'Record retail customer out-of-stock requests',cls:'t-retail-bo',fn:'openRboModal()'});
+  // 5. Backorders — opens monitoring screen; FABs handle quick-log
+  const canBoDist   = currentUser.role==='admin' || currentUser.canBackorderDist!==false;
+  const canBoRetail = currentUser.role==='admin' || currentUser.canBackorderRetail===true;
+  if(canBoDist||canBoRetail){
+    const boDesc = (canBoDist&&canBoRetail)
+      ? 'Track & update dealer and retail backorder status'
+      : canBoDist ? 'Track & update dealer backorder status'
+                  : 'Track & update retail backorder status';
+    tiles.push({icon:'⚠️',name:'Backorders',desc:boDesc,cls:'t-backorder',fn:'openBoScreen()'});
+  }
   // 7. Production
   const canProdTile=currentUser.role==='admin'||currentUser.canProduction===true||currentUser.role==='staff-retail';
   if(canProdTile) tiles.push({icon:'🏭',name:'Production',desc:'Convert bags to smaller retail units',cls:'t-prod',fn:'openProduction()'});

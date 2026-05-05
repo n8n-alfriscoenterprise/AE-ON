@@ -213,26 +213,70 @@ function addPOLineItem(preData){
     skuOpts = '<option value="" disabled>No SKUs found for this supplier</option>';
   }
   const idx=poLineItems.length;
-  const initQty   = preData ? preData.qty     : 1;
-  const initCost  = preData ? preData.unitCost : 0;
-  const initUnit  = preData ? (preData.unit||'bag') : 'bag';
-  poLineItems.push({skuCode:'',skuName:'',qty:initQty,unitCost:initCost,unit:initUnit});
+  const initQty      = preData ? preData.qty          : 1;
+  const initCost     = preData ? preData.unitCost      : 0;
+  const initUnit     = preData ? (preData.unit||'bag') : 'bag';
+  const initDisc     = preData ? (preData.discount||0) : 0;
+  const initDiscType = preData ? (preData.discountType||'%') : '%';
+  poLineItems.push({skuCode:'',skuName:'',qty:initQty,unitCost:initCost,unit:initUnit,
+    discount:initDisc, discountType:initDiscType});
 
   // Pre-select option if restoring from edit-draft
   let selectHtml = '<option value="">-- Select item --</option>' + skuOpts;
   if(preData && preData.skuCode){
     poLineItems[idx].skuCode = preData.skuCode;
     poLineItems[idx].skuName = preData.skuName||preData.skuCode;
-    // Mark the matching option selected
     selectHtml = selectHtml.replace(
       'value="'+preData.skuCode+'|'+preData.skuName+'"',
       'value="'+preData.skuCode+'|'+preData.skuName+'" selected'
     );
   }
 
+  const pctActive = initDiscType==='%'  ? 'po-disc-type-active' : '';
+  const phpActive = initDiscType==='₱'  ? 'po-disc-type-active' : '';
+
   const div=document.createElement('div');div.className='po-line-item';div.id='po-line-'+idx;
-  div.innerHTML=`<div class="po-line-info"><select style="width:100%;padding:6px 8px;border:1.5px solid #e0e0e0;border-radius:7px;font-size:11px;outline:none;color:#222;background:white" onchange="onPOLineSelect(${idx},this)">${selectHtml}</select></div><div class="po-line-inputs"><div style="display:flex;flex-direction:column;align-items:center"><span style="font-size:9px;color:#aaa;margin-bottom:2px">Qty</span><input class="po-line-qty" type="number" min="1" value="${initQty}" oninput="onPOLineQty(${idx},this.value)"></div><div style="display:flex;flex-direction:column;align-items:center"><span style="font-size:9px;color:#aaa;margin-bottom:2px">Unit cost ₱</span><input class="po-line-cost" type="number" min="0" placeholder="0.00" value="${initCost||''}" oninput="onPOLineCost(${idx},this.value)"></div></div><button class="po-line-del" onclick="removePOLine(${idx})">×</button>`;
+  div.innerHTML=`
+    <div class="po-line-info">
+      <select style="width:100%;padding:6px 8px;border:1.5px solid #e0e0e0;border-radius:7px;font-size:11px;outline:none;color:#222;background:white" onchange="onPOLineSelect(${idx},this)">${selectHtml}</select>
+    </div>
+    <div class="po-line-inputs">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <span style="font-size:9px;color:#aaa;margin-bottom:2px">Qty</span>
+        <input class="po-line-qty" type="number" min="1" value="${initQty}" oninput="onPOLineQty(${idx},this.value)">
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <span style="font-size:9px;color:#aaa;margin-bottom:2px">Unit cost ₱</span>
+        <input class="po-line-cost" type="number" min="0" placeholder="0.00" value="${initCost||''}" oninput="onPOLineCost(${idx},this.value)">
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <span style="font-size:9px;color:#aaa;margin-bottom:2px">Discount</span>
+        <div style="display:flex;gap:0">
+          <button type="button" id="po-disc-pct-${idx}" class="po-disc-type-btn ${pctActive}" onclick="onPOLineDiscountType(${idx},'%')">%</button>
+          <button type="button" id="po-disc-php-${idx}" class="po-disc-type-btn ${phpActive}" onclick="onPOLineDiscountType(${idx},'₱')">₱</button>
+        </div>
+        <input class="po-line-disc" type="number" min="0" placeholder="0" value="${initDisc||''}" oninput="onPOLineDiscount(${idx},this.value)" style="width:52px;margin-top:3px">
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <span style="font-size:9px;color:#aaa;margin-bottom:2px">Net total</span>
+        <div class="po-line-net" id="po-line-net-${idx}" style="font-size:11px;font-weight:700;color:#1A3A5C;padding-top:6px">—</div>
+      </div>
+    </div>
+    <button class="po-line-del" onclick="removePOLine(${idx})">×</button>`;
   document.getElementById('po-line-items').appendChild(div);updatePOTotals();
+}
+
+function onPOLineDiscount(idx,val){
+  poLineItems[idx].discount=parseFloat(val)||0;
+  updatePOTotals();
+}
+function onPOLineDiscountType(idx,type){
+  poLineItems[idx].discountType=type;
+  const pctBtn=document.getElementById('po-disc-pct-'+idx);
+  const phpBtn=document.getElementById('po-disc-php-'+idx);
+  if(pctBtn) pctBtn.className='po-disc-type-btn'+(type==='%'?' po-disc-type-active':'');
+  if(phpBtn) phpBtn.className='po-disc-type-btn'+(type==='₱'?' po-disc-type-active':'');
+  updatePOTotals();
 }
 
 function editPODraft(){
@@ -264,11 +308,13 @@ function editPODraft(){
     document.getElementById('po-line-items').innerHTML = '';
     (currentPO.lineItems||[]).forEach(li=>{
       addPOLineItem({
-        skuCode:  li.skuCode,
-        skuName:  li.itemName||li.skuCode,
-        qty:      li.qtyOrdered,
-        unitCost: li.unitCost,
-        unit:     li.unit||'bag'
+        skuCode:      li.skuCode,
+        skuName:      li.itemName||li.skuCode,
+        qty:          li.qtyOrdered,
+        unitCost:     li.unitCost,
+        unit:         li.unit||'bag',
+        discount:     li.discount||0,
+        discountType: li.discountType||'%'
       });
     });
     updatePOTotals();
@@ -289,7 +335,27 @@ function onPOLineQty(idx,val){poLineItems[idx].qty=parseFloat(val)||0;updatePOTo
 function onPOLineCost(idx,val){poLineItems[idx].unitCost=parseFloat(val)||0;updatePOTotals();}
 function removePOLine(idx){poLineItems[idx]={removed:true};const el=document.getElementById('po-line-'+idx);if(el)el.remove();updatePOTotals();}
 function renderPOLineItems(){document.getElementById('po-line-items').innerHTML='';poLineItems=[];}
-function updatePOTotals(){const active=poLineItems.filter(l=>!l.removed&&l.skuCode);const total=active.reduce((s,l)=>s+(l.qty*l.unitCost),0);document.getElementById('po-item-count').textContent=active.length;document.getElementById('po-grand-total').textContent='₱'+total.toLocaleString('en-PH',{minimumFractionDigits:2});}
+function calcLineNet(l){
+  const gross = l.qty * (l.unitCost||0);
+  const disc  = l.discount || 0;
+  if(!disc) return gross;
+  if(l.discountType === '₱') return Math.max(0, gross - (disc * l.qty));
+  return Math.max(0, gross * (1 - disc/100));
+}
+function updatePOTotals(){
+  const active=poLineItems.filter(l=>!l.removed&&l.skuCode);
+  let total=0;
+  active.forEach((l,_)=>{
+    const net=calcLineNet(l);
+    total+=net;
+    // Update per-line net display
+    const origIdx=poLineItems.indexOf(l);
+    const netEl=document.getElementById('po-line-net-'+origIdx);
+    if(netEl) netEl.textContent='₱'+net.toLocaleString('en-PH',{minimumFractionDigits:2});
+  });
+  document.getElementById('po-item-count').textContent=active.length;
+  document.getElementById('po-grand-total').textContent='₱'+total.toLocaleString('en-PH',{minimumFractionDigits:2});
+}
 async function savePODraft(){await savePO('DRAFT');}
 async function submitPOForApproval(){await savePO('PENDING');}
 async function savePO(status){
@@ -308,7 +374,7 @@ async function savePO(status){
     try{
       const r=await api({action:'updatePODraft',poNumber:poEditingNumber,type,supplier,
         status, deliveryDate:delivDate,notes,totalValue:total,
-        lineItems:active.map(l=>[poEditingNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,l.qty*l.unitCost,0,l.qty,'Open'])});
+        lineItems:active.map(l=>[poEditingNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,calcLineNet(l),0,l.qty,'Open',l.discount||0,l.discountType||'%'])});
       if(r.status==='ok'){
         showBanner('po-success-bar','Draft '+poEditingNumber+(status==='PENDING'?' updated & submitted for approval':' updated'));
       } else { alert('Error: '+(r.msg||'Could not update PO')); return; }
@@ -320,7 +386,7 @@ async function savePO(status){
       const r=await api({action:'createPO',poNumber,type,supplier,status,
         createdBy:currentUser.username,createdDate:now,
         deliveryDate:delivDate,notes,totalValue:total,
-        lineItems:active.map(l=>[poNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,l.qty*l.unitCost,0,l.qty,'Open'])});
+        lineItems:active.map(l=>[poNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,calcLineNet(l),0,l.qty,'Open',l.discount||0,l.discountType||'%'])});
       if(r.status==='ok'){
         showBanner('po-success-bar','PO '+poNumber+' '+(status==='DRAFT'?'saved as draft':'submitted for approval'));
       } else { alert('Error: '+(r.msg||'Could not save PO')); return; }
@@ -516,12 +582,23 @@ function renderPODetail(){
     const isFull      = outstanding <= 0;
     const defaultCost = Number(li.unitCost||0);
 
+    const discAmt  = Number(li.discount||0);
+    const discType = li.discountType || '%';
+    const discLabel = discAmt > 0
+      ? (discType==='₱' ? '−₱'+discAmt.toLocaleString('en-PH')+'/unit' : '−'+discAmt+'%') : '';
+    const netUnit = discAmt > 0
+      ? (discType==='₱' ? Number(li.unitCost)-discAmt : Number(li.unitCost)*(1-discAmt/100)) : Number(li.unitCost);
+
     lineHTML += '<div class="po-receive-row">'
       + '<div class="po-receive-info">'
         + '<div class="po-receive-name">' + (li.itemName||li.skuCode) + '</div>'
         + '<div class="po-receive-ordered">Ordered: ' + li.qtyOrdered
           + ' &nbsp;·&nbsp; Received: ' + received
           + ' &nbsp;·&nbsp; Outstanding: ' + outstanding + '</div>'
+        + '<div class="po-receive-ordered">Cost: ₱' + Number(li.unitCost||0).toLocaleString('en-PH',{minimumFractionDigits:2})
+          + (discLabel ? ' &nbsp;<span style="color:#E24B4A;font-weight:600">'+discLabel+'</span>'
+            + ' &nbsp;→ Net ₱'+Math.max(0,netUnit).toLocaleString('en-PH',{minimumFractionDigits:2}) : '')
+          + '</div>'
       + '</div>';
 
     if(isFull){

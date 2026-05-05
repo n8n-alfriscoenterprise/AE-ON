@@ -351,7 +351,8 @@ function doPost(e) {
             qtyOrdered:Number(r[4]||0),unit:String(r[5]||'bag'),
             unitCost:Number(r[6]||0),totalCost:Number(r[7]||0),
             qtyReceived:Number(r[8]||0),qtyOutstanding:Number(r[9]||0),
-            lineStatus:String(r[10]||'Open')}));
+            lineStatus:String(r[10]||'Open'),
+            discount:Number(r[11]||0),discountType:String(r[12]||'%')}));
       }
       return ok({po,lineItems});
     }
@@ -1221,7 +1222,8 @@ function doPost(e) {
       'PO Line Items':[
         'PO Number','SKU Code','Item Name','Category',
         'Qty Ordered','Unit','Unit Cost','Total Cost',
-        'Qty Received','Qty Outstanding','Line Status'
+        'Qty Received','Qty Outstanding','Line Status',
+        'Discount','Discount Type'
       ],
       'Stock Counts - Distribution':['Timestamp','Submitted By','Location','SKU Code',
         'Item Name','Qty On Hand','Unit','Type','Category'],

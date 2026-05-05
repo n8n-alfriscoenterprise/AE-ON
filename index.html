@@ -193,6 +193,39 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
   cursor:pointer;margin-top:14px}
 .bo-submit:disabled{background:#ccc;cursor:not-allowed}
 
+/* ── SUPPLIER SCREEN ── */
+#suppliers-screen{background:#f5f5f7;flex-direction:column}
+.sup-topbar{background:#1A3A5C;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.sup-topbar-title{color:white;font-size:15px;font-weight:700;flex:1}
+.sup-tabs{display:flex;background:white;border-bottom:1.5px solid #eee;flex-shrink:0}
+.sup-tab{flex:1;padding:10px 0;text-align:center;font-size:12px;font-weight:600;color:#aaa;cursor:pointer;border-bottom:2.5px solid transparent;transition:all .15s}
+.sup-tab.active{color:#1A3A5C;border-bottom-color:#1A3A5C}
+.sup-body{flex:1;overflow-y:auto;padding:10px 12px 90px}
+.sup-row{background:white;border-radius:10px;padding:12px 13px;margin-bottom:8px;display:flex;align-items:flex-start;gap:10px;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+.sup-info{flex:1;min-width:0}
+.sup-name-row{display:flex;align-items:center;gap:7px;margin-bottom:5px;flex-wrap:wrap}
+.sup-name{font-size:13px;font-weight:700;color:#222}
+.sup-type-badge{font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px}
+.sup-meta{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:4px}
+.sup-chip{font-size:10px;color:#666;background:#f2f2f4;padding:2px 8px;border-radius:10px}
+.sup-meta2{font-size:10px;color:#aaa}
+.sup-actions{display:flex;gap:6px;flex-shrink:0;padding-top:2px}
+.sup-edit-btn{font-size:11px;padding:5px 12px;background:#E3EEF9;color:#1A3A5C;border:none;border-radius:7px;font-weight:600;cursor:pointer}
+.sup-del-btn{font-size:13px;padding:5px 10px;background:#FEECEC;color:#E24B4A;border:none;border-radius:7px;font-weight:700;cursor:pointer}
+.sup-add-fab{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  background:#1A3A5C;color:white;border:none;border-radius:24px;
+  padding:12px 28px;font-size:14px;font-weight:700;cursor:pointer;
+  box-shadow:0 4px 14px rgba(26,58,92,0.35);z-index:10;white-space:nowrap}
+/* Supplier modal fields */
+.sup-field{margin-bottom:10px}
+.sup-field label{font-size:11px;font-weight:600;color:#666;display:block;margin-bottom:4px}
+.sup-field input,.sup-field select,.sup-field textarea{
+  width:100%;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:9px;
+  font-size:13px;outline:none;background:white;color:#222;box-sizing:border-box}
+.sup-field input:focus,.sup-field select:focus{border-color:#1A3A5C}
+/* tile color */
+.t-supplier{background:linear-gradient(135deg,#1A3A5C,#2C5282)}
+
 /* ── BACKORDER LIST SCREEN ── */
 #bo-screen{background:#f5f5f7;flex-direction:column}
 .bo-topbar{background:#E24B4A;padding:11px 14px;display:flex;align-items:center;
@@ -1963,6 +1996,93 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 </div>
 
 
+<!-- ══ SUPPLIERS SCREEN ══════════════════════════════ -->
+<div id="suppliers-screen" class="screen" style="flex-direction:column">
+
+  <div class="sup-topbar">
+    <span style="font-size:20px;margin-right:8px">🏢</span>
+    <div class="sup-topbar-title">Suppliers</div>
+    <button class="back-btn" onclick="closeSuppliers()">← Back</button>
+  </div>
+
+  <div class="sup-tabs">
+    <div class="sup-tab active" onclick="setSupplierFilter('All',this)">All</div>
+    <div class="sup-tab" onclick="setSupplierFilter('DIST',this)">Distribution</div>
+    <div class="sup-tab" onclick="setSupplierFilter('RETAIL',this)">Retail</div>
+    <div class="sup-tab" onclick="setSupplierFilter('BOTH',this)">Both</div>
+  </div>
+
+  <div class="sup-body" id="suppliers-body">
+    <div class="pl-empty">Loading suppliers...</div>
+  </div>
+
+  <button class="sup-add-fab" onclick="openAddSupplierModal()">+ Add Supplier</button>
+</div>
+
+<!-- ── SUPPLIER ADD / EDIT MODAL ── -->
+<div class="modal-overlay" id="supplier-modal" style="display:none">
+  <div class="modal-card" style="max-width:360px;max-height:90vh;overflow-y:auto">
+    <div class="modal-title" id="sup-modal-title">Add Supplier</div>
+
+    <div class="sup-field">
+      <label>Supplier Name *</label>
+      <input type="text" id="sup-name" placeholder="e.g. Pet Warehouse Inc.">
+    </div>
+    <div class="sup-field">
+      <label>Type</label>
+      <select id="sup-type">
+        <option value="DIST">Distribution</option>
+        <option value="RETAIL">Retail</option>
+        <option value="BOTH">Both</option>
+      </select>
+    </div>
+    <div class="sup-field">
+      <label>Contact Number</label>
+      <input type="text" id="sup-contact" placeholder="e.g. 0917-123-4567">
+    </div>
+    <div class="sup-field">
+      <label>Default Payment Mode</label>
+      <select id="sup-pay-mode">
+        <option value="">-- Not set --</option>
+        <option>Cheque</option>
+        <option>Cash Out</option>
+        <option>GCash</option>
+        <option>Maya</option>
+        <option>Bank Transfer</option>
+      </select>
+    </div>
+    <div class="sup-field">
+      <label>Default Payment Terms</label>
+      <select id="sup-terms">
+        <option value="">-- Not set --</option>
+        <option value="0">Upon Delivery</option>
+        <option value="7">7 days</option>
+        <option value="15">15 days</option>
+        <option value="30">30 days</option>
+        <option value="45">45 days</option>
+        <option value="60">60 days</option>
+      </select>
+    </div>
+    <div class="sup-field">
+      <label>Delivery Day / Schedule</label>
+      <input type="text" id="sup-delivery-day" placeholder="e.g. Monday, Every Mon & Thu">
+    </div>
+    <div class="sup-field">
+      <label>Lead Time / SLA</label>
+      <input type="text" id="sup-lead-time" placeholder="e.g. 3–5 days, 1 week">
+    </div>
+    <div class="sup-field">
+      <label>Notes</label>
+      <input type="text" id="sup-notes" placeholder="Optional notes">
+    </div>
+
+    <div class="modal-err" id="sup-modal-err"></div>
+    <button class="modal-btn" id="sup-save-btn" onclick="saveSupplier()">Add Supplier</button>
+    <button class="modal-cancel" onclick="closeSupplierModal()">Cancel</button>
+  </div>
+</div>
+
+
 <!-- ══ BACKORDER LIST SCREEN ══════════════════════════ -->
 <div id="bo-screen" class="screen" style="flex-direction:column">
 
@@ -2078,6 +2198,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 <script src="admin.js"></script>
 <script src="sku-master.js"></script>
 <script src="backorder.js"></script>
+<script src="suppliers.js"></script>
 <script src="transfer.js"></script>
 <script src="product-list.js"></script>
 <script src="cost-editor.js"></script>

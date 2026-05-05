@@ -7,7 +7,15 @@
 async function openPO(){
   showScreen('po-screen');updateFabVisibility();
   showPOSubtab('list',document.getElementById('po-tab-list'));
-  await loadPOs();
+  await Promise.all([loadPOs(), loadSuppliers()]);
+}
+
+async function loadSuppliers(){
+  if(supplierList.length) return; // already loaded this session
+  try{
+    const r=await api({action:'getSuppliers'});
+    if(r.status==='ok') supplierList=r.suppliers||[];
+  }catch(e){console.error('loadSuppliers failed',e);}
 }
 
 function closePO(){showHome();}
@@ -149,10 +157,16 @@ function onPOSupplierChange(){
 function onPOTypeChange(){
   const type = document.getElementById('po-type').value;
   const sup  = document.getElementById('po-supplier');
-  const assignedSups = [...new Set(liveSKUs.filter(s=>s.type===type&&s.supplier).map(s=>s.supplier))].sort();
-  const allSups = type==='DIST' ? DIST_SUPPLIERS : RETAIL_SUPPLIERS;
-  const supList = assignedSups.length > 0 ? assignedSups : allSups;
-  sup.innerHTML = supList.map(s=>`<option value="${s}">${s}</option>`).join('');
+  // Use Suppliers sheet data when available, fall back to SKU Master derived list
+  let supNames;
+  if(supplierList.length){
+    supNames = supplierList.filter(s=>s.type===type||s.type==='BOTH').map(s=>s.name).sort();
+  }
+  if(!supNames||!supNames.length){
+    const assigned=[...new Set(liveSKUs.filter(s=>s.type===type&&s.supplier).map(s=>s.supplier))].sort();
+    supNames = assigned.length ? assigned : (type==='DIST' ? DIST_SUPPLIERS : RETAIL_SUPPLIERS);
+  }
+  sup.innerHTML = supNames.map(s=>`<option value="${s}">${s}</option>`).join('');
   // Clear all line items when type changes — SKUs are different
   if(poLineItems.length > 0){
     if(confirm('Changing type will clear all current line items. Continue?')){
@@ -166,7 +180,8 @@ function onPOTypeChange(){
   }
 }
 
-function addPOLineItem(){
+// preData = {skuCode, skuName, qty, unitCost, unit} for edit-draft pre-fill
+function addPOLineItem(preData){
   const type=document.getElementById('po-type').value;
   const supplier=document.getElementById('po-supplier').value;
   // Filter strictly to selected supplier — no fallback bleed-through
@@ -197,10 +212,75 @@ function addPOLineItem(){
   if(!filtered.length && !unassigned.length){
     skuOpts = '<option value="" disabled>No SKUs found for this supplier</option>';
   }
-  const idx=poLineItems.length;poLineItems.push({skuCode:'',skuName:'',qty:1,unitCost:0,unit:'bag'});
+  const idx=poLineItems.length;
+  const initQty   = preData ? preData.qty     : 1;
+  const initCost  = preData ? preData.unitCost : 0;
+  const initUnit  = preData ? (preData.unit||'bag') : 'bag';
+  poLineItems.push({skuCode:'',skuName:'',qty:initQty,unitCost:initCost,unit:initUnit});
+
+  // Pre-select option if restoring from edit-draft
+  let selectHtml = '<option value="">-- Select item --</option>' + skuOpts;
+  if(preData && preData.skuCode){
+    poLineItems[idx].skuCode = preData.skuCode;
+    poLineItems[idx].skuName = preData.skuName||preData.skuCode;
+    // Mark the matching option selected
+    selectHtml = selectHtml.replace(
+      'value="'+preData.skuCode+'|'+preData.skuName+'"',
+      'value="'+preData.skuCode+'|'+preData.skuName+'" selected'
+    );
+  }
+
   const div=document.createElement('div');div.className='po-line-item';div.id='po-line-'+idx;
-  div.innerHTML=`<div class="po-line-info"><select style="width:100%;padding:6px 8px;border:1.5px solid #e0e0e0;border-radius:7px;font-size:11px;outline:none;color:#222;background:white" onchange="onPOLineSelect(${idx},this)"><option value="">-- Select item --</option>${skuOpts}</select></div><div class="po-line-inputs"><div style="display:flex;flex-direction:column;align-items:center"><span style="font-size:9px;color:#aaa;margin-bottom:2px">Qty</span><input class="po-line-qty" type="number" min="1" value="1" oninput="onPOLineQty(${idx},this.value)"></div><div style="display:flex;flex-direction:column;align-items:center"><span style="font-size:9px;color:#aaa;margin-bottom:2px">Unit cost ₱</span><input class="po-line-cost" type="number" min="0" placeholder="0.00" oninput="onPOLineCost(${idx},this.value)"></div></div><button class="po-line-del" onclick="removePOLine(${idx})">×</button>`;
+  div.innerHTML=`<div class="po-line-info"><select style="width:100%;padding:6px 8px;border:1.5px solid #e0e0e0;border-radius:7px;font-size:11px;outline:none;color:#222;background:white" onchange="onPOLineSelect(${idx},this)">${selectHtml}</select></div><div class="po-line-inputs"><div style="display:flex;flex-direction:column;align-items:center"><span style="font-size:9px;color:#aaa;margin-bottom:2px">Qty</span><input class="po-line-qty" type="number" min="1" value="${initQty}" oninput="onPOLineQty(${idx},this.value)"></div><div style="display:flex;flex-direction:column;align-items:center"><span style="font-size:9px;color:#aaa;margin-bottom:2px">Unit cost ₱</span><input class="po-line-cost" type="number" min="0" placeholder="0.00" value="${initCost||''}" oninput="onPOLineCost(${idx},this.value)"></div></div><button class="po-line-del" onclick="removePOLine(${idx})">×</button>`;
   document.getElementById('po-line-items').appendChild(div);updatePOTotals();
+}
+
+function editPODraft(){
+  if(!currentPO||currentPO.status!=='DRAFT') return;
+  poEditMode      = true;
+  poEditingNumber = currentPO.poNumber;
+
+  // Switch to create tab and initialise
+  showPOSubtab('create', document.getElementById('po-tab-create'));
+
+  // Pre-fill header
+  const typeEl = document.getElementById('po-type');
+  if(typeEl){ typeEl.value = currentPO.type; onPOTypeChange(); }
+  setTimeout(()=>{
+    const supEl = document.getElementById('po-supplier');
+    if(supEl) supEl.value = currentPO.supplier;
+    onPOSupplierChange();
+
+    // Pre-fill delivery date (YYYY-MM-DD format for date input)
+    const ddEl = document.getElementById('po-delivery-date');
+    if(ddEl && currentPO.deliveryDate){
+      try{ ddEl.value = new Date(currentPO.deliveryDate).toISOString().split('T')[0]; }
+      catch(e){}
+    }
+    document.getElementById('po-notes').value = currentPO.notes || '';
+
+    // Restore line items
+    poLineItems = [];
+    document.getElementById('po-line-items').innerHTML = '';
+    (currentPO.lineItems||[]).forEach(li=>{
+      addPOLineItem({
+        skuCode:  li.skuCode,
+        skuName:  li.itemName||li.skuCode,
+        qty:      li.qtyOrdered,
+        unitCost: li.unitCost,
+        unit:     li.unit||'bag'
+      });
+    });
+    updatePOTotals();
+
+    // Update button labels + title
+    const titleEl = document.getElementById('po-create-title');
+    if(titleEl) titleEl.textContent = 'Editing Draft: ' + currentPO.poNumber;
+    const draftBtn = document.getElementById('po-save-draft-btn');
+    if(draftBtn) draftBtn.textContent = 'Update Draft';
+    const subBtn = document.getElementById('po-submit-btn');
+    if(subBtn) subBtn.textContent = 'Update & Submit for Approval';
+  }, 80); // short delay to let supplier dropdown render
 }
 
 function onPOLineSelect(idx,sel){if(!sel.value)return;const parts=sel.value.split('|');poLineItems[idx].skuCode=parts[0];poLineItems[idx].skuName=parts[1]||parts[0];const skuData=liveSKUs.find(s=>s.code===parts[0]);if(skuData&&skuData.cost){poLineItems[idx].unitCost=skuData.cost;const costInput=document.querySelector('#po-line-'+idx+' .po-line-cost');if(costInput)costInput.value=skuData.cost;}updatePOTotals();}
@@ -212,15 +292,51 @@ function updatePOTotals(){const active=poLineItems.filter(l=>!l.removed&&l.skuCo
 async function savePODraft(){await savePO('DRAFT');}
 async function submitPOForApproval(){await savePO('PENDING');}
 async function savePO(status){
-  const type=document.getElementById('po-type').value;const supplier=document.getElementById('po-supplier').value;const notes=document.getElementById('po-notes').value.trim();const delivDate=document.getElementById('po-delivery-date').value;
+  const type=document.getElementById('po-type').value;
+  const supplier=document.getElementById('po-supplier').value;
+  const notes=document.getElementById('po-notes').value.trim();
+  const delivDate=document.getElementById('po-delivery-date').value;
   const active=poLineItems.filter(l=>!l.removed&&l.skuCode);
-  if(!supplier){alert('Please select a supplier.');return;}if(active.length===0){alert('Please add at least one line item.');return;}
-  const poNumber=generatePONumber();const now=new Date().toLocaleString('en-PH');const total=active.reduce((s,l)=>s+(l.qty*l.unitCost),0);
-  try{
-    const r=await api({action:'createPO',poNumber,type,supplier,status,createdBy:currentUser.username,createdDate:now,deliveryDate:delivDate,notes,totalValue:total,lineItems:active.map(l=>[poNumber,l.skuCode,l.skuName,'',l.qty,'bag',l.unitCost,l.qty*l.unitCost,0,l.qty,'Open'])});
-    if(r.status==='ok'){showBanner('po-success-bar','PO '+poNumber+' '+(status==='DRAFT'?'saved as draft':'submitted for approval'));poLineItems=[];await loadPOs();showPOSubtab('list',document.getElementById('po-tab-list'));}
-    else{alert('Error: '+(r.msg||'Could not save PO'));}
-  }catch(e){alert('Network error: '+e.message);}
+  if(!supplier){alert('Please select a supplier.');return;}
+  if(active.length===0){alert('Please add at least one line item.');return;}
+  const total=active.reduce((s,l)=>s+(l.qty*l.unitCost),0);
+  const now=new Date().toLocaleString('en-PH');
+
+  if(poEditMode && poEditingNumber){
+    // ── UPDATE EXISTING DRAFT ──
+    try{
+      const r=await api({action:'updatePODraft',poNumber:poEditingNumber,type,supplier,
+        status, deliveryDate:delivDate,notes,totalValue:total,
+        lineItems:active.map(l=>[poEditingNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,l.qty*l.unitCost,0,l.qty,'Open'])});
+      if(r.status==='ok'){
+        showBanner('po-success-bar','Draft '+poEditingNumber+(status==='PENDING'?' updated & submitted for approval':' updated'));
+      } else { alert('Error: '+(r.msg||'Could not update PO')); return; }
+    }catch(e){alert('Network error: '+e.message);return;}
+  } else {
+    // ── CREATE NEW PO ──
+    const poNumber=generatePONumber();
+    try{
+      const r=await api({action:'createPO',poNumber,type,supplier,status,
+        createdBy:currentUser.username,createdDate:now,
+        deliveryDate:delivDate,notes,totalValue:total,
+        lineItems:active.map(l=>[poNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,l.qty*l.unitCost,0,l.qty,'Open'])});
+      if(r.status==='ok'){
+        showBanner('po-success-bar','PO '+poNumber+' '+(status==='DRAFT'?'saved as draft':'submitted for approval'));
+      } else { alert('Error: '+(r.msg||'Could not save PO')); return; }
+    }catch(e){alert('Network error: '+e.message);return;}
+  }
+
+  // Reset edit mode and return to list
+  poEditMode=false; poEditingNumber=null;
+  const titleEl=document.getElementById('po-create-title');
+  if(titleEl) titleEl.textContent='New Purchase Order';
+  const draftBtn=document.getElementById('po-save-draft-btn');
+  if(draftBtn) draftBtn.textContent='Save as Draft';
+  const subBtn=document.getElementById('po-submit-btn');
+  if(subBtn) subBtn.textContent='Submit for Approval';
+  poLineItems=[];
+  await loadPOs();
+  showPOSubtab('list',document.getElementById('po-tab-list'));
 }
 
 async function openPODetail(poNumber){
@@ -288,35 +404,57 @@ function renderPODetail(){
     + '</div>';
   body.appendChild(hdr);
 
+  // ── EDIT DRAFT (creator or admin) ──
+  if(po.status === 'DRAFT' && (isAdmin || isCreator)){
+    const editDiv = document.createElement('div');
+    editDiv.className = 'po-action-row';
+    editDiv.innerHTML = '<button class="po-btn po-btn-primary" onclick="editPODraft()">✏️ Edit Draft</button>';
+    body.appendChild(editDiv);
+  }
+
   // ── APPROVAL SECTION (admin only, PENDING status) ──
   if(isAdmin && po.status === 'PENDING'){
+    // Auto-fill supplier defaults if available
+    const supDef = supplierList.find(s=>s.name===po.supplier)||{};
+    const defMode  = supDef.defPayMode || '';
+    const defTerms = supDef.defTerms   || '';
+    // Convert po.deliveryDate to YYYY-MM-DD for date input
+    let delivVal = '';
+    if(po.deliveryDate){ try{ delivVal = new Date(po.deliveryDate).toISOString().split('T')[0]; }catch(e){} }
+
     const approvalDiv = document.createElement('div');
     approvalDiv.innerHTML = ''
-      // Payment terms
       + '<div class="po-payment-section">'
-        + '<div class="po-payment-title">Payment Terms</div>'
+        + '<div class="po-payment-title">Delivery &amp; Payment Terms</div>'
         + '<div class="po-payment-row">'
           + '<div class="po-payment-field">'
-            + '<span class="po-payment-label">Terms (days)</span>'
-            + '<select class="po-payment-select" id="po-terms-days" onchange="updatePODueDate()">'
-              + '<option value="">-- Select --</option>'
-              + ['7','15','30','45','60'].map(d => '<option value="' + d + '">' + d + ' days</option>').join('')
-            + '</select>'
+            + '<span class="po-payment-label">Confirm delivery date</span>'
+            + '<input class="po-cheque-ref" id="po-approval-delivery-date" type="date" value="' + delivVal + '" onchange="updatePODueDate()">'
           + '</div>'
-          + '<div class="po-payment-field">'
-            + '<span class="po-payment-label">Due date (auto)</span>'
-            + '<div class="po-due-date-display" id="po-due-date-display">—</div>'
-          + '</div>'
-        + '</div>'
-        + '<div class="po-payment-row">'
           + '<div class="po-payment-field">'
             + '<span class="po-payment-label">Mode of payment</span>'
             + '<select class="po-payment-select" id="po-payment-mode" onchange="onPOPaymentModeChange()">'
               + '<option value="">-- Select --</option>'
               + ['Cheque','Cash Out','GCash','Maya','Bank Transfer']
-                .map(m => '<option value="' + m + '">' + m + '</option>').join('')
+                .map(m => '<option value="' + m + '"' + (m===defMode?' selected':'') + '>' + m + '</option>').join('')
             + '</select>'
           + '</div>'
+        + '</div>'
+        + '<div class="po-payment-row">'
+          + '<div class="po-payment-field">'
+            + '<span class="po-payment-label">Payment terms</span>'
+            + '<select class="po-payment-select" id="po-terms-days" onchange="updatePODueDate()">'
+              + '<option value="">-- Select --</option>'
+              + '<option value="0"' + (defTerms==='0'?' selected':'') + '>Upon Delivery</option>'
+              + ['7','15','30','45','60'].map(d => '<option value="' + d + '"' + (d===defTerms?' selected':'') + '>' + d + ' days</option>').join('')
+            + '</select>'
+          + '</div>'
+          + '<div class="po-payment-field">'
+            + '<span class="po-payment-label">Est. due date</span>'
+            + '<div class="po-due-date-display" id="po-due-date-display">—</div>'
+          + '</div>'
+        + '</div>'
+        + '<div class="po-payment-row">'
           + '<div class="po-payment-field" id="po-cheque-field" style="display:none">'
             + '<span class="po-payment-label">Cheque ref # (10 chars)</span>'
             + '<input class="po-cheque-ref" id="po-cheque-ref" type="text" maxlength="10" placeholder="XXXXXXXXXX">'
@@ -425,13 +563,19 @@ function renderPODetail(){
 }
 
 function updatePODueDate(){
-  const days  = parseInt(document.getElementById('po-terms-days').value) || 0;
-  const el    = document.getElementById('po-due-date-display');
+  const daysVal  = document.getElementById('po-terms-days')
+    ? document.getElementById('po-terms-days').value : '';
+  const days     = parseInt(daysVal) || 0;
+  const el       = document.getElementById('po-due-date-display');
   if(!el) return;
-  if(!days){ el.textContent = '—'; return; }
-  const due = new Date();
+  if(daysVal === '' ){ el.textContent = '—'; return; }
+  if(days === 0){ el.textContent = 'Upon Delivery'; return; }
+  // Base on confirmed delivery date, fall back to today
+  const delivInput = document.getElementById('po-approval-delivery-date');
+  const base = delivInput && delivInput.value ? new Date(delivInput.value) : new Date();
+  const due  = new Date(base);
   due.setDate(due.getDate() + days);
-  el.textContent = due.toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'});
+  el.textContent = due.toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) + ' (est.)';
 }
 
 function onPOPaymentModeChange(){
@@ -453,10 +597,11 @@ function toggleRejectSection(){
 
 function backToPOList(){currentPO=null;document.getElementById('po-view-detail').style.display='none';showPOSubtab('list',document.getElementById('po-tab-list'));}
 async function approvePO(){
-  const days    = document.getElementById('po-terms-days') ? document.getElementById('po-terms-days').value : '';
-  const mode    = document.getElementById('po-payment-mode') ? document.getElementById('po-payment-mode').value : '';
-  const cheque  = document.getElementById('po-cheque-ref') ? document.getElementById('po-cheque-ref').value.trim().toUpperCase() : '';
-  const dueDisp = document.getElementById('po-due-date-display') ? document.getElementById('po-due-date-display').textContent : '';
+  const days       = document.getElementById('po-terms-days')              ? document.getElementById('po-terms-days').value                              : '';
+  const mode       = document.getElementById('po-payment-mode')            ? document.getElementById('po-payment-mode').value                            : '';
+  const cheque     = document.getElementById('po-cheque-ref')              ? document.getElementById('po-cheque-ref').value.trim().toUpperCase()          : '';
+  const dueDisp    = document.getElementById('po-due-date-display')        ? document.getElementById('po-due-date-display').textContent                   : '';
+  const delivInput = document.getElementById('po-approval-delivery-date')  ? document.getElementById('po-approval-delivery-date').value                   : '';
 
   if(mode==='Cheque' && cheque.length!==10){
     alert('Cheque reference must be exactly 10 characters.');return;
@@ -467,10 +612,11 @@ async function approvePO(){
       action:'approvePO',
       poNumber:currentPO.poNumber,
       approvedBy:currentUser.username,
+      deliveryDate:delivInput||'',
       paymentTermsDays:days||'',
       paymentMode:mode||'',
       chequeRef:cheque||'',
-      dueDate:dueDisp&&dueDisp!=='—'?dueDisp:''
+      dueDate:dueDisp&&dueDisp!=='—'&&dueDisp!=='Upon Delivery'?dueDisp:''
     });
     if(r.status==='ok'){
       showBanner('po-success-bar','PO '+currentPO.poNumber+' approved'+(mode?' — '+mode+' payment':'')+' ✓');

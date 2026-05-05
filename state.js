@@ -2,6 +2,8 @@
 let currentUser=null, isReturnMode=false, currentTab='dist', currentCat='All';
 let quantities={}, staff=[], csskus={}, accessLog=[];
 let driverManifest=[], driverCat='All', deliverTarget=null;
+let supplierList=[];
+let poEditMode=false, poEditingNumber=null;
 
 // ── STORAGE ──
 const LS={

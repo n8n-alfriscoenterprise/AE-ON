@@ -367,6 +367,8 @@ function doPost(e) {
           sheet.getRange(i+1, 4).setValue('APPROVED');
           sheet.getRange(i+1, 7).setValue(data.approvedBy);
           sheet.getRange(i+1, 8).setValue(now);
+          // Delivery date — correctable at approval (col 9)
+          if(data.deliveryDate) sheet.getRange(i+1, 9).setValue(data.deliveryDate);
           // Payment terms — cols 12-15
           sheet.getRange(i+1,12).setValue(data.paymentTermsDays || '');
           sheet.getRange(i+1,13).setValue(data.paymentMode      || '');
@@ -491,6 +493,58 @@ function doPost(e) {
           'bag', data.poType, 'PO Receipt'
         ]);
       });
+
+      // ── GOOGLE CALENDAR PAYMENT REMINDER ─────────────────────────────
+      // Due date is always based on actual receipt date so the reminder is accurate.
+      //   COD / Cash / E-Wallet / Bank Transfer / Cheque "Upon Delivery" → due = receipt date
+      //   Cheque with terms → due = receipt date + termsDays
+      try {
+        const poRowData = poRows.find(function(r){ return String(r[0])===data.poNumber; });
+        if(poRowData){
+          const paymentMode  = String(poRowData[12] || '');
+          const termsDays    = Number(poRowData[11]) || 0;
+          const receiptDate  = new Date();
+          const dueDate      = new Date(receiptDate);
+          if(termsDays > 0) dueDate.setDate(dueDate.getDate() + termsDays);
+
+          const amount    = Number(poRowData[9]  || 0);
+          const supplier  = String(poRowData[2]);
+          const chequeRef = String(poRowData[13] || '');
+          const docRef    = data.docRef || '';
+
+          const title = '💳 Payment Due — ' + data.poNumber
+            + ' · ' + supplier
+            + ' · ₱' + amount.toLocaleString('en-PH',{minimumFractionDigits:2})
+            + ' · ' + (paymentMode || 'Payment')
+            + (chequeRef ? ' — Cheque: ' + chequeRef : '')
+            + (docRef    ? ' — Ref: '    + docRef    : '');
+
+          const desc = [
+            'PO: '           + data.poNumber,
+            'Supplier: '     + supplier,
+            'Amount: ₱'      + amount.toLocaleString('en-PH',{minimumFractionDigits:2}),
+            'Payment Mode: ' + (paymentMode || 'N/A'),
+            'Terms: '        + (termsDays > 0 ? termsDays+' days from receipt' : 'Upon Delivery'),
+            'Receipt Date: ' + receiptDate.toLocaleDateString('en-PH'),
+            'Due Date: '     + dueDate.toLocaleDateString('en-PH'),
+            chequeRef ? 'Cheque Ref: ' + chequeRef : '',
+            docRef    ? 'Doc Ref: '    + docRef    : '',
+            'Received By: '  + (data.receivedBy || '')
+          ].filter(Boolean).join('\n');
+
+          const cal   = CalendarApp.getDefaultCalendar();
+          const event = cal.createAllDayEvent(title, dueDate, { description: desc });
+
+          // Add popup reminders — only if due date is far enough away
+          const msLeft = dueDate.getTime() - new Date().getTime();
+          if(msLeft > 7*24*60*60000) event.addPopupReminder(7*24*60);
+          if(msLeft > 3*24*60*60000) event.addPopupReminder(3*24*60);
+          if(msLeft > 1*24*60*60000) event.addPopupReminder(1*24*60);
+        }
+      } catch(calErr) {
+        Logger.log('Calendar event creation failed: ' + calErr.toString());
+      }
+      // ─────────────────────────────────────────────────────────────────
 
       return ok({newStatus});
     }
@@ -985,6 +1039,118 @@ function doPost(e) {
           importedBy:    String(r[14])
         }));
       return ok({ rows });
+    }
+
+    // ── GET SUPPLIERS ─────────────────────────────────────────────────
+    if (data.action === 'getSuppliers') {
+      const sheet = getOrCreateSheet(ss, 'Suppliers', [
+        'Name','Type','Contact','Default Payment Mode',
+        'Default Terms','Delivery Day','Lead Time','Notes'
+      ]);
+      const rows = sheet.getDataRange().getValues().slice(1)
+        .filter(r => r[0])
+        .map(r => ({
+          name:        String(r[0]),
+          type:        String(r[1] || 'DIST'),
+          contact:     String(r[2] || ''),
+          defPayMode:  String(r[3] || ''),
+          defTerms:    String(r[4] || ''),
+          deliveryDay: String(r[5] || ''),
+          leadTime:    String(r[6] || ''),
+          notes:       String(r[7] || '')
+        }));
+      return ok({ suppliers: rows });
+    }
+
+    // ── ADD SUPPLIER ──────────────────────────────────────────────────
+    if (data.action === 'addSupplier') {
+      const sheet = getOrCreateSheet(ss, 'Suppliers', [
+        'Name','Type','Contact','Default Payment Mode',
+        'Default Terms','Delivery Day','Lead Time','Notes'
+      ]);
+      const exists = sheet.getDataRange().getValues().slice(1)
+        .find(r => String(r[0]).toLowerCase() === String(data.name).toLowerCase());
+      if (exists) return err('Supplier already exists: ' + data.name);
+      sheet.appendRow([
+        data.name, data.type || 'DIST', data.contact || '',
+        data.defPayMode || '', data.defTerms || '',
+        data.deliveryDay || '', data.leadTime || '', data.notes || ''
+      ]);
+      return ok({});
+    }
+
+    // ── UPDATE SUPPLIER ───────────────────────────────────────────────
+    if (data.action === 'updateSupplier') {
+      const sheet = ss.getSheetByName('Suppliers');
+      if (!sheet) return err('Suppliers sheet not found');
+      const rows = sheet.getDataRange().getValues();
+      for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i][0]).toLowerCase() === String(data.originalName).toLowerCase()) {
+          sheet.getRange(i+1,1).setValue(data.name);
+          sheet.getRange(i+1,2).setValue(data.type        || 'DIST');
+          sheet.getRange(i+1,3).setValue(data.contact     || '');
+          sheet.getRange(i+1,4).setValue(data.defPayMode  || '');
+          sheet.getRange(i+1,5).setValue(data.defTerms    || '');
+          sheet.getRange(i+1,6).setValue(data.deliveryDay || '');
+          sheet.getRange(i+1,7).setValue(data.leadTime    || '');
+          sheet.getRange(i+1,8).setValue(data.notes       || '');
+          return ok({});
+        }
+      }
+      return err('Supplier not found: ' + data.originalName);
+    }
+
+    // ── REMOVE SUPPLIER ───────────────────────────────────────────────
+    if (data.action === 'removeSupplier') {
+      const sheet = ss.getSheetByName('Suppliers');
+      if (!sheet) return err('Suppliers sheet not found');
+      const rows = sheet.getDataRange().getValues();
+      for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i][0]).toLowerCase() === String(data.name).toLowerCase()) {
+          sheet.deleteRow(i + 1);
+          return ok({});
+        }
+      }
+      return err('Supplier not found: ' + data.name);
+    }
+
+    // ── UPDATE PO DRAFT ───────────────────────────────────────────────
+    if (data.action === 'updatePODraft') {
+      const poSheet = ss.getSheetByName('Purchase Orders');
+      const liSheet = ss.getSheetByName('PO Line Items');
+      if (!poSheet) return err('Purchase Orders sheet not found');
+      const poRows = poSheet.getDataRange().getValues();
+      let found = false;
+      for (let i = 1; i < poRows.length; i++) {
+        if (String(poRows[i][0]) === data.poNumber) {
+          if (String(poRows[i][3]) !== 'DRAFT') return err('Only DRAFT POs can be edited');
+          poSheet.getRange(i+1, 2).setValue(data.type         || poRows[i][1]);
+          poSheet.getRange(i+1, 3).setValue(data.supplier     || poRows[i][2]);
+          poSheet.getRange(i+1, 4).setValue(data.status       || 'DRAFT');
+          poSheet.getRange(i+1, 9).setValue(data.deliveryDate || '');
+          poSheet.getRange(i+1,10).setValue(data.totalValue   || 0);
+          poSheet.getRange(i+1,11).setValue(data.notes        || '');
+          found = true;
+          break;
+        }
+      }
+      if (!found) return err('PO not found: ' + data.poNumber);
+      // Replace line items: delete existing rows then re-append
+      if (liSheet) {
+        const liRows = liSheet.getDataRange().getValues();
+        const toDelete = [];
+        for (let i = 1; i < liRows.length; i++) {
+          if (String(liRows[i][0]) === data.poNumber) toDelete.push(i + 1);
+        }
+        for (let i = toDelete.length - 1; i >= 0; i--) liSheet.deleteRow(toDelete[i]);
+      }
+      const liNew = getOrCreateSheet(ss, 'PO Line Items', [
+        'PO Number','SKU Code','Item Name','Category',
+        'Qty Ordered','Unit','Unit Cost','Total Cost',
+        'Qty Received','Qty Outstanding','Line Status'
+      ]);
+      (data.lineItems || []).forEach(li => liNew.appendRow(li));
+      return ok({ poNumber: data.poNumber });
     }
 
     // ── GET BACKORDERS ────────────────────────────────────────────────

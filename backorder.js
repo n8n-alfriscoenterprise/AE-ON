@@ -610,6 +610,8 @@ async function confirmBoStatus(newStatus, btn) {
       closeBoStatusModal();
       buildBoStatusChips();
       renderBoList();
+      const statusLabels = { OPEN:'Open', PARTIAL:'Partial', FULFILLED:'Fulfilled', CANCELLED:'Cancelled' };
+      showToast('Backorder updated — ' + item.itemName + ': ' + (statusLabels[newStatus]||newStatus), 'success');
     } else {
       btn.disabled    = false;
       btn.textContent = '⚠️ Error — tap to retry';

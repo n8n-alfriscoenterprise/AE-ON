@@ -8,6 +8,16 @@ async function openPO(){
   showScreen('po-screen');updateFabVisibility();
   showPOSubtab('list',document.getElementById('po-tab-list'));
   await Promise.all([loadPOs(), loadSuppliers()]);
+  // Proactive receipt reminder — show after list loads
+  const needReceipt = poList.filter(p=>p.status==='APPROVED'||p.status==='PARTIAL');
+  if(needReceipt.length){
+    showToast(
+      needReceipt.length === 1
+        ? '1 approved PO is waiting to be received'
+        : needReceipt.length + ' approved POs are waiting to be received',
+      'warning', 5000
+    );
+  }
 }
 
 async function loadSuppliers(){
@@ -377,6 +387,7 @@ async function savePO(status){
         lineItems:active.map(l=>[poEditingNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,calcLineNet(l),0,l.qty,'Open',l.discount||0,l.discountType||'%'])});
       if(r.status==='ok'){
         showBanner('po-success-bar','Draft '+poEditingNumber+(status==='PENDING'?' updated & submitted for approval':' updated'));
+        showToast(status==='PENDING'?poEditingNumber+' updated & submitted for approval':poEditingNumber+' draft updated','info');
       } else { alert('Error: '+(r.msg||'Could not update PO')); return; }
     }catch(e){alert('Network error: '+e.message);return;}
   } else {
@@ -389,6 +400,7 @@ async function savePO(status){
         lineItems:active.map(l=>[poNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,calcLineNet(l),0,l.qty,'Open',l.discount||0,l.discountType||'%'])});
       if(r.status==='ok'){
         showBanner('po-success-bar','PO '+poNumber+' '+(status==='DRAFT'?'saved as draft':'submitted for approval'));
+        showToast(status==='DRAFT'?poNumber+' saved as draft':poNumber+' submitted for approval','info');
       } else { alert('Error: '+(r.msg||'Could not save PO')); return; }
     }catch(e){alert('Network error: '+e.message);return;}
   }
@@ -699,6 +711,7 @@ async function approvePO(){
     });
     if(r.status==='ok'){
       showBanner('po-success-bar','PO '+currentPO.poNumber+' approved'+(mode?' — '+mode+' payment':'')+' ✓');
+      showToast(currentPO.poNumber+' approved'+(mode?' — '+mode:''),'success');
       await openPODetail(currentPO.poNumber);
       await loadPOs();
     }else alert('Error: '+r.msg);
@@ -717,6 +730,7 @@ async function rejectPO(){
     const r=await api({action:'rejectPO',poNumber:currentPO.poNumber,rejectedBy:currentUser.username,reason});
     if(r.status==='ok'){
       showBanner('po-success-bar','PO rejected — '+currentPO.createdBy+' has been notified');
+      showToast(currentPO.poNumber+' rejected — '+currentPO.createdBy+' needs to review','warning',5000);
       await openPODetail(currentPO.poNumber);await loadPOs();
     }else alert('Error: '+r.msg);
   }catch(e){alert('Network error');}
@@ -728,11 +742,22 @@ async function resubmitPO(){
     const r=await api({action:'resubmitPO',poNumber:currentPO.poNumber,resubmittedBy:currentUser.username});
     if(r.status==='ok'){
       showBanner('po-success-bar','PO resubmitted for approval ✓');
+      showToast(currentPO.poNumber+' resubmitted for approval','info');
       await openPODetail(currentPO.poNumber);await loadPOs();
     }else alert('Error: '+r.msg);
   }catch(e){alert('Network error');}
 }
-async function cancelPO(){if(!confirm('Cancel '+currentPO.poNumber+'? This cannot be undone.'))return;try{const r=await api({action:'cancelPO',poNumber:currentPO.poNumber,cancelledBy:currentUser.username});if(r.status==='ok'){showBanner('po-success-bar','PO cancelled');await openPODetail(currentPO.poNumber);await loadPOs();}else alert('Error: '+r.msg);}catch(e){alert('Network error');}}
+async function cancelPO(){
+  if(!confirm('Cancel '+currentPO.poNumber+'? This cannot be undone.'))return;
+  try{
+    const r=await api({action:'cancelPO',poNumber:currentPO.poNumber,cancelledBy:currentUser.username});
+    if(r.status==='ok'){
+      showBanner('po-success-bar','PO cancelled');
+      showToast(currentPO.poNumber+' cancelled','warning');
+      await openPODetail(currentPO.poNumber);await loadPOs();
+    }else alert('Error: '+r.msg);
+  }catch(e){alert('Network error');}
+}
 async function receiveItems(){
   const lines = currentPO.lineItems || [];
   const receipts = [];

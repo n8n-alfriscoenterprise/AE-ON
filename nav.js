@@ -108,6 +108,12 @@ async function loadLowStockBadge(){
         if(n > 0){ badge.textContent = n; badge.style.display = 'inline-flex'; }
         else { badge.style.display = 'none'; }
       }
+      if(n > 0){
+        showToast(
+          n === 1 ? '1 item is below par level' : n + ' items are below par level',
+          'warning', 4500
+        );
+      }
     }
   }catch(e){
     console.error('loadLowStockBadge failed', e);

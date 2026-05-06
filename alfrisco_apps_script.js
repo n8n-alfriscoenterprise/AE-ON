@@ -284,7 +284,9 @@ function doPost(e) {
     if (data.action === 'createPO') {
       const poSheet = getOrCreateSheet(ss,'Purchase Orders',[
         'PO Number','Type','Supplier','Status','Created By','Created Date',
-        'Approved By','Approved Date','Delivery Date','Total Value','Notes']);
+        'Approved By','Approved Date','Delivery Date','Total Value','Notes',
+        'Payment Terms Days','Payment Mode','Cheque Ref','Due Date',
+        'Rejection Reason','Doc Ref','Date Received','Received By','Payment History']);
       const liSheet = getOrCreateSheet(ss,'PO Line Items',[
         'PO Number','SKU Code','Item Name','Category',
         'Qty Ordered','Unit','Unit Cost','Total Cost',
@@ -363,6 +365,7 @@ function doPost(e) {
         createdBy:        String(poRow[4]),
         createdDate:      String(poRow[5]),
         approvedBy:       String(poRow[6]||''),
+        deliveryDate:     String(poRow[8]||''),
         totalValue:       Number(poRow[9]||0),
         notes:            String(poRow[10]||''),
         paymentTermsDays: String(poRow[11]||''),
@@ -372,7 +375,8 @@ function doPost(e) {
         rejectionReason:  String(poRow[15]||''),
         docRef:           String(poRow[16]||''),
         dateReceived:     String(poRow[17]||''),
-        receivedBy:       String(poRow[18]||'')
+        receivedBy:       String(poRow[18]||''),
+        paymentHistory:   String(poRow[19]||'')
       };
       let lineItems=[];
       if(liSheet){
@@ -1171,6 +1175,56 @@ function doPost(e) {
         }
       }
       return ok({ deleted: data.poNumber });
+    }
+
+    // ── UPDATE PO PAYMENT DETAILS (admin — APPROVED or PARTIAL only) ─────
+    if (data.action === 'updatePOPayment') {
+      const poSheet = ss.getSheetByName('Purchase Orders');
+      if (!poSheet) return err('Purchase Orders sheet not found');
+
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+      const poRows = poSheet.getDataRange().getValues();
+      let found = false;
+
+      for (let i = 1; i < poRows.length; i++) {
+        if (String(poRows[i][0]) !== data.poNumber) continue;
+
+        const curStatus = String(poRows[i][3]);
+        if (!['APPROVED','PARTIAL'].includes(curStatus)) {
+          return err('Payment details can only be edited on APPROVED or PARTIAL POs');
+        }
+
+        // Build the history entry from the OLD values before overwriting
+        const oldMode   = String(poRows[i][12] || '');
+        const oldCheque = String(poRows[i][13] || '');
+        const oldTerms  = String(poRows[i][11] || '');
+        const oldDue    = String(poRows[i][14] || '');
+
+        // Only log if there were actual old values to preserve
+        if (oldMode || oldCheque || oldTerms || oldDue) {
+          const histEntry = '[' + now + ' — edited by ' + (data.editedBy || 'admin') + '] '
+            + (oldMode   ? 'Mode: '   + oldMode   : '')
+            + (oldCheque ? ' · Cheque #' + oldCheque : '')
+            + (oldTerms  ? ' · Terms: '  + (oldTerms === '0' ? 'Upon Delivery' : oldTerms + ' days') : '')
+            + (oldDue    ? ' · Due: '    + oldDue    : '');
+
+          const existing = String(poRows[i][19] || '');
+          const newHistory = existing ? existing + '|||' + histEntry : histEntry;
+          poSheet.getRange(i + 1, 20).setValue(newHistory); // col 20 = Payment History
+        }
+
+        // Write new payment values
+        poSheet.getRange(i + 1, 12).setValue(data.paymentTermsDays || '');
+        poSheet.getRange(i + 1, 13).setValue(data.paymentMode      || '');
+        poSheet.getRange(i + 1, 14).setValue(data.chequeRef        || '');
+        poSheet.getRange(i + 1, 15).setValue(data.dueDate          || '');
+
+        found = true;
+        // No break — update ALL matching rows (safety for legacy duplicates)
+      }
+
+      if (!found) return err('PO not found: ' + data.poNumber);
+      return ok({ poNumber: data.poNumber, updatedAt: now });
     }
 
     // ── UPDATE PO DRAFT ───────────────────────────────────────────────

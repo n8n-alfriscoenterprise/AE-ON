@@ -70,6 +70,23 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 #ae-toast.ae-toast-error{background:#C0392B;color:#fff}
 #ae-toast.ae-toast-warning{background:#C07000;color:#fff}
 #ae-toast.ae-toast-info{background:#1A3A5C;color:#fff}
+
+/* EDIT PAYMENT MODAL */
+#edit-payment-modal .modal-card{max-width:340px}
+.epm-title{font-size:15px;font-weight:700;color:#1F4E78;margin-bottom:2px}
+.epm-sub{font-size:11px;color:#888;margin-bottom:14px}
+.epm-label{font-size:11px;font-weight:600;color:#555;margin-bottom:4px;display:block}
+.epm-select,.epm-input{width:100%;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;background:white;outline:none;color:#222;margin-bottom:10px}
+.epm-select:focus,.epm-input:focus{border-color:#1F4E78}
+.epm-due{font-size:12px;color:#666;background:#EEF0FB;border-radius:8px;padding:7px 10px;margin-bottom:12px}
+.epm-btns{display:flex;gap:8px;margin-top:4px}
+.epm-save{flex:1;padding:11px;background:#0A5C46;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
+.epm-cancel{flex:1;padding:11px;background:#f0f2f5;color:#555;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer}
+/* PAYMENT HISTORY LOG */
+.po-pay-history{background:#FFFBF0;border:1.5px solid #FAC775;border-radius:10px;padding:10px 12px;margin-top:10px}
+.po-pay-history-title{font-size:10px;font-weight:700;color:#7D5A00;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
+.po-pay-history-entry{font-size:11px;color:#555;padding:4px 0;border-bottom:1px dashed #FAD898;line-height:1.5}
+.po-pay-history-entry:last-child{border-bottom:none}
 .cat-header{padding:8px 14px 5px;font-size:10px;font-weight:700;letter-spacing:1px;color:#999;background:#f0f2f5;text-transform:uppercase;border-bottom:1px solid #e8e8e8}
 
 /* STAFF SKU ROW */
@@ -1232,6 +1249,53 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 <!-- FLOATING BACKORDER BUTTONS -->
 <button class="fab" id="fab-dist" onclick="openBoModal()" title="Dealer Backorder" style="bottom:90px">⚠️</button>
 <button class="fab" id="fab-retail" onclick="openRboModal()" title="Retail Customer Backorder" style="bottom:152px;background:#C07000;box-shadow:0 4px 14px rgba(192,112,0,0.45);display:none">🛒</button>
+
+<!-- EDIT PAYMENT MODAL -->
+<div class="modal-overlay" id="edit-payment-modal" style="display:none">
+  <div class="modal-card">
+    <div class="epm-title">Edit Payment Details</div>
+    <div class="epm-sub" id="epm-po-label"></div>
+
+    <label class="epm-label">Mode of payment</label>
+    <select class="epm-select" id="epm-mode" onchange="epmOnModeChange()">
+      <option value="">-- Select --</option>
+      <option value="Cheque">Cheque</option>
+      <option value="Cash Out">Cash Out</option>
+      <option value="GCash">GCash</option>
+      <option value="Maya">Maya</option>
+      <option value="Bank Transfer">Bank Transfer</option>
+    </select>
+
+    <div id="epm-cheque-wrap" style="display:none">
+      <label class="epm-label">Cheque ref # (10 chars)</label>
+      <input class="epm-input" id="epm-cheque" type="text" maxlength="10" placeholder="XXXXXXXXXX"
+             oninput="this.value=this.value.toUpperCase()">
+    </div>
+
+    <label class="epm-label">Payment terms</label>
+    <select class="epm-select" id="epm-terms" onchange="epmCalcDue()">
+      <option value="">-- Select --</option>
+      <option value="0">Upon Delivery</option>
+      <option value="7">7 days</option>
+      <option value="15">15 days</option>
+      <option value="30">30 days</option>
+      <option value="45">45 days</option>
+      <option value="60">60 days</option>
+    </select>
+
+    <label class="epm-label">Delivery / base date</label>
+    <input class="epm-input" id="epm-delivery" type="date" onchange="epmCalcDue()">
+
+    <div class="epm-due" id="epm-due-display">Est. due date: —</div>
+
+    <div class="modal-err" id="epm-err" style="margin-top:0;margin-bottom:8px"></div>
+
+    <div class="epm-btns">
+      <button class="epm-cancel" onclick="closeEditPaymentModal()">Cancel</button>
+      <button class="epm-save" id="epm-save-btn" onclick="savePaymentDetails()">Save Changes</button>
+    </div>
+  </div>
+</div>
 
 <!-- BACKORDER MODAL -->
 <div class="modal-overlay" id="bo-modal" style="display:none">

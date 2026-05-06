@@ -503,6 +503,26 @@ function renderPODetail(){
     + '</div>';
   body.appendChild(hdr);
 
+  // ── PAYMENT HISTORY LOG (shown when previous payment edits exist) ──
+  if(po.paymentHistory){
+    const entries = po.paymentHistory.split('|||').map(e=>e.trim()).filter(Boolean);
+    if(entries.length){
+      const histDiv = document.createElement('div');
+      histDiv.className = 'po-pay-history';
+      histDiv.innerHTML = '<div class="po-pay-history-title">Previous Payment Records</div>'
+        + entries.map(e => '<div class="po-pay-history-entry">' + e + '</div>').join('');
+      hdr.appendChild(histDiv);
+    }
+  }
+
+  // ── EDIT PAYMENT DETAILS (admin only — APPROVED or PARTIAL) ──
+  if(isAdmin && ['APPROVED','PARTIAL'].includes(po.status)){
+    const epmDiv = document.createElement('div');
+    epmDiv.className = 'po-action-row';
+    epmDiv.innerHTML = '<button class="po-btn po-btn-primary" onclick="openEditPaymentModal()" style="background:#1F4E78">✏️ Edit Payment Details</button>';
+    body.appendChild(epmDiv);
+  }
+
   // ── EDIT DRAFT / REJECTED (creator or admin) ──
   if(['DRAFT','REJECTED'].includes(po.status) && (isAdmin || isCreator)){
     const editDiv = document.createElement('div');
@@ -866,6 +886,116 @@ async function receiveItems(){
       await loadPOs();
     }else alert('Error: '+r.msg);
   }catch(e){ alert('Network error: '+e.message); }
+}
+
+// ── EDIT PAYMENT DETAILS ──────────────────────────────────────────────────
+function openEditPaymentModal(){
+  const po = currentPO;
+  if(!po) return;
+
+  // Pre-fill label
+  document.getElementById('epm-po-label').textContent =
+    po.poNumber + ' — ' + po.supplier;
+
+  // Pre-fill mode
+  const modeEl = document.getElementById('epm-mode');
+  modeEl.value = po.paymentMode || '';
+  epmOnModeChange();
+
+  // Pre-fill cheque ref
+  const chequeEl = document.getElementById('epm-cheque');
+  chequeEl.value = po.chequeRef || '';
+
+  // Pre-fill terms
+  const termsEl = document.getElementById('epm-terms');
+  termsEl.value = po.paymentTermsDays || '';
+
+  // Pre-fill delivery date — derive from due date or use today
+  const delivEl = document.getElementById('epm-delivery');
+  try {
+    const base = po.deliveryDate
+      ? new Date(po.deliveryDate).toISOString().split('T')[0]
+      : new Date().toISOString().split('T')[0];
+    delivEl.value = base;
+  } catch(e){ delivEl.value = new Date().toISOString().split('T')[0]; }
+
+  epmCalcDue();
+  document.getElementById('epm-err').textContent = '';
+  document.getElementById('edit-payment-modal').style.display = 'flex';
+}
+
+function closeEditPaymentModal(){
+  document.getElementById('edit-payment-modal').style.display = 'none';
+}
+
+function epmOnModeChange(){
+  const mode  = document.getElementById('epm-mode').value;
+  const wrap  = document.getElementById('epm-cheque-wrap');
+  if(wrap) wrap.style.display = mode === 'Cheque' ? 'block' : 'none';
+}
+
+function epmCalcDue(){
+  const terms   = document.getElementById('epm-terms').value;
+  const delivEl = document.getElementById('epm-delivery');
+  const disp    = document.getElementById('epm-due-display');
+  if(!disp) return;
+  if(terms === '') { disp.textContent = 'Est. due date: —'; return; }
+  if(terms === '0'){ disp.textContent = 'Est. due date: Upon Delivery'; return; }
+  try {
+    const base = delivEl && delivEl.value ? new Date(delivEl.value) : new Date();
+    const due  = new Date(base);
+    due.setDate(due.getDate() + parseInt(terms));
+    disp.textContent = 'Est. due date: '
+      + due.toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'});
+  } catch(e){ disp.textContent = 'Est. due date: —'; }
+}
+
+async function savePaymentDetails(){
+  const po      = currentPO;
+  const mode    = document.getElementById('epm-mode').value;
+  const cheque  = document.getElementById('epm-cheque').value.trim().toUpperCase();
+  const terms   = document.getElementById('epm-terms').value;
+  const dueDisp = document.getElementById('epm-due-display').textContent.replace('Est. due date: ','').trim();
+  const errEl   = document.getElementById('epm-err');
+
+  if(!mode){ errEl.textContent = 'Please select a payment mode.'; return; }
+  if(mode === 'Cheque' && cheque.length !== 10){
+    errEl.textContent = 'Cheque reference must be exactly 10 characters.'; return;
+  }
+  errEl.textContent = '';
+
+  const btn = document.getElementById('epm-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+
+  try{
+    const r = await api({
+      action:           'updatePOPayment',
+      poNumber:         po.poNumber,
+      editedBy:         currentUser.username,
+      // old values (for history log)
+      oldPaymentMode:   po.paymentMode     || '',
+      oldChequeRef:     po.chequeRef       || '',
+      oldTermsDays:     po.paymentTermsDays|| '',
+      oldDueDate:       po.dueDate         || '',
+      // new values
+      paymentMode:      mode,
+      chequeRef:        mode === 'Cheque' ? cheque : '',
+      paymentTermsDays: terms,
+      dueDate:          (dueDisp === '—' || dueDisp === 'Upon Delivery') ? dueDisp : dueDisp
+    });
+
+    if(r.status === 'ok'){
+      closeEditPaymentModal();
+      showToast('Payment details updated for ' + po.poNumber, 'success', 4000);
+      await openPODetail(po.poNumber);
+      await loadPOs();
+    } else {
+      errEl.textContent = 'Error: ' + (r.msg || 'Unknown error');
+    }
+  } catch(e){
+    errEl.textContent = 'Save failed: ' + e.message;
+  }
+  btn.disabled = false; btn.textContent = 'Save Changes';
 }
 
 // ── PRODUCTION CONVERSION SYSTEM ──

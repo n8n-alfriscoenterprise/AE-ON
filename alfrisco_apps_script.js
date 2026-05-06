@@ -181,47 +181,46 @@ function doPost(e) {
       //       I-Supplier J-Cost K-SellingPrice
       //       L-IsProductionItem M-DisassemblyUOM N-AssemblyUOM O-StandardRatio
 
-      // allRows used for cross-reference lookups — not filtered so any SKU can be found
+      // allRows — full sheet, used for cross-reference lookups
       const allRows = sheet.getDataRange().getValues().slice(4).filter(r => r[0]);
 
-      // prodRows are the ones flagged Active + IsProductionItem
+      // prodRows — col H Active=YES AND col L IsProductionItem=YES
       const prodRows = allRows.filter(r =>
-        String(r[7]||'').toUpperCase() === 'YES' &&
+        String(r[7]||'').toUpperCase()  === 'YES' &&
         String(r[11]||'').toUpperCase() === 'YES'
       );
 
-      // Helper: find any SKU by code across the full sheet
+      // Find any SKU across the full sheet (not just production rows)
       function findSku(code) {
-        const c = String(code||'').trim();
-        return allRows.find(r => String(r[0]).trim() === c) || null;
+        return allRows.find(r => String(r[0]).trim() === String(code||'').trim()) || null;
       }
 
-      // Helper: extract SKU code from a UOM cell — handles "SKU001 (Name)" or plain "SKU001"
+      // Extract SKU code from cell values like "SKU001 (Name)" or plain "SKU001"
       function parseSkuCode(cell) {
-        const s = String(cell||'').trim();
-        const m = s.match(/^([^\s(]+)/); // take everything before first space or (
-        return m ? m[1] : s;
+        const m = String(cell||'').trim().match(/^([^\s(]+)/);
+        return m ? m[1] : String(cell||'').trim();
       }
 
       const bom = [];
 
       prodRows.forEach(r => {
-        const code    = String(r[0]).trim();
-        const name    = String(r[1]).trim();
-        const ratio   = Number(r[14]) || 0;
-        const disUOM  = String(r[12]||'').trim(); // col M — DisassemblyUOM
-        const asmUOM  = String(r[13]||'').trim(); // col N — AssemblyUOM
+        const code     = String(r[0]).trim();
+        const name     = String(r[1]).trim();
+        const category = String(r[2]||'').trim(); // col C
+        const ratio    = Number(r[14]) || 0;
+        const disUOM   = String(r[12]||'').trim(); // col M — DisassemblyUOM
+        const asmUOM   = String(r[13]||'').trim(); // col N — AssemblyUOM
 
         const hasDisassembly = disUOM && disUOM !== '—';
         const hasAssembly    = asmUOM && asmUOM !== '—';
 
         if (hasDisassembly) {
-          // DISASSEMBLY: this SKU (bag) → output (kg)
           const outCode = parseSkuCode(disUOM);
           const outRow  = findSku(outCode);
           bom.push({
             sourceSku:   code,
             sourceName:  name,
+            category:    category,
             outputSku:   outCode,
             outputName:  outRow ? String(outRow[1]).trim() : outCode,
             ratio:       ratio,
@@ -229,30 +228,30 @@ function doPost(e) {
           });
 
         } else if (hasAssembly) {
-          // ASSEMBLY: this SKU (kg) → output (bag)
           const outCode = parseSkuCode(asmUOM);
           const outRow  = findSku(outCode);
           bom.push({
             sourceSku:   code,
             sourceName:  name,
+            category:    category,
             outputSku:   outCode,
             outputName:  outRow ? String(outRow[1]).trim() : outCode,
-            ratio:       outRow ? (Number(outRow[14])||ratio) : ratio, // ratio from bag SKU
+            ratio:       outRow ? (Number(outRow[14])||ratio) : ratio,
             canAssemble: true
           });
 
-        } else if (ratio > 0) {
-          // Production item with ratio but no UOM pairing — include for disassembly
+        } else {
+          // No UOM pairing yet — still show in dropdown so user knows it's registered
           bom.push({
             sourceSku:   code,
             sourceName:  name,
+            category:    category,
             outputSku:   '',
             outputName:  '(output not configured)',
-            ratio:       ratio,
+            ratio:       ratio || 1,
             canAssemble: false
           });
         }
-        // Items with no ratio AND no UOM are incomplete — skip silently
       });
 
       return ok({bom});

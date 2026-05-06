@@ -1001,4 +1001,5 @@ async function savePaymentDetails(){
 // ── PRODUCTION CONVERSION SYSTEM ──
 let bom = [];
 let prodLines = [];
+let prodCategory = 'All';
 

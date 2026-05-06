@@ -5,9 +5,25 @@
   showScreen('prod-screen');
   updateFabVisibility();
   document.getElementById('prod-lines').innerHTML = '<div class="prod-empty" style="color:#1B5E20">Loading...</div>';
+  prodCategory = 'All';
   await loadBOM();
+  buildProdCategoryChips();
   prodLines = [];
   addProdLine();
+}
+
+function buildProdCategoryChips(){
+  const bar = document.getElementById('prod-cat-bar');
+  if(!bar) return;
+  const cats = ['All', ...new Set(bom.map(b => b.category).filter(Boolean).sort())];
+  bar.innerHTML = '';
+  cats.forEach(cat => {
+    const c = document.createElement('div');
+    c.className = 'chip' + (cat === prodCategory ? ' active' : '');
+    c.textContent = cat;
+    c.onclick = () => { prodCategory = cat; buildProdCategoryChips(); renderProdLines(); };
+    bar.appendChild(c);
+  });
 }
 
 function closeProduction(){ showHome(); }
@@ -43,8 +59,8 @@ function renderProdLines(){
     container.innerHTML='<div class="prod-empty">No production items found.<br>Make sure SKU Master - Retail has Production Item = YES rows.</div>';
     return;
   }
-  const disItems=bom.filter(b=>!b.canAssemble);
-  const asmItems=bom.filter(b=> b.canAssemble);
+  const disItems=bom.filter(b=>!b.canAssemble&&(prodCategory==='All'||b.category===prodCategory));
+  const asmItems=bom.filter(b=> b.canAssemble&&(prodCategory==='All'||b.category===prodCategory));
   prodLines.forEach((line,idx)=>{
     const items=line.direction==='dis'?disItems:asmItems;
     const skuOpts='<option value="">-- Select item --</option>'+

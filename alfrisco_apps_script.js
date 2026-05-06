@@ -306,14 +306,23 @@ function doPost(e) {
       const sheet = ss.getSheetByName('Purchase Orders');
       if (!sheet) return ok({pos:[]});
       const rows = sheet.getDataRange().getValues();
-      const pos = rows.slice(1).filter(r=>r[0]).map(r=>({
+      // Build raw list then deduplicate by PO number (first row = canonical).
+      // This prevents legacy duplicate rows (from double-submit bug) causing
+      // status mismatches between the list view and the detail view.
+      const seen = new Set();
+      const pos = rows.slice(1).filter(r => {
+        if (!r[0]) return false;
+        const num = String(r[0]);
+        if (seen.has(num)) return false;
+        seen.add(num);
+        return true;
+      }).map(r=>({
         poNumber:  String(r[0]),
         type:      String(r[1]),
         supplier:  String(r[2]),
         status:    String(r[3]),
         createdBy: String(r[4]),
-        // Safe date read: Sheets may return a Date object if it auto-detected the cell;
-        // format it consistently so the frontend always gets "yyyy-MM-dd HH:mm:ss"
+        // Safe date read: Sheets may return a Date object if it auto-detected the cell
         createdDate: r[5] instanceof Date
           ? Utilities.formatDate(r[5], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
           : String(r[5]||''),
@@ -325,9 +334,15 @@ function doPost(e) {
       }));
       const liSheet = ss.getSheetByName('PO Line Items');
       if (liSheet) {
-        liSheet.getDataRange().getValues().slice(1).forEach(li=>{
-          const po=pos.find(p=>p.poNumber===String(li[0]));
-          if(po)po.lineCount=(po.lineCount||0)+1;});
+        // Deduplicate line items by PO+SKU so duplicate rows don't inflate counts
+        const liSeen = new Set();
+        liSheet.getDataRange().getValues().slice(1).forEach(li => {
+          const key = String(li[0]) + '|' + String(li[1]);
+          if (liSeen.has(key)) return;
+          liSeen.add(key);
+          const po = pos.find(p => p.poNumber === String(li[0]));
+          if (po) po.lineCount = (po.lineCount||0) + 1;
+        });
       }
       return ok({pos});
     }
@@ -380,19 +395,17 @@ function doPost(e) {
       if(!sheet)return err('Sheet not found');
       const rows=sheet.getDataRange().getValues();
       const now = new Date().toLocaleString('en-PH');
+      // No break — update ALL rows matching this PO number so duplicates stay in sync
       for(let i=1;i<rows.length;i++){
         if(String(rows[i][0])===data.poNumber){
           sheet.getRange(i+1, 4).setValue('APPROVED');
           sheet.getRange(i+1, 7).setValue(data.approvedBy);
           sheet.getRange(i+1, 8).setValue(now);
-          // Delivery date — correctable at approval (col 9)
           if(data.deliveryDate) sheet.getRange(i+1, 9).setValue(data.deliveryDate);
-          // Payment terms — cols 12-15
           sheet.getRange(i+1,12).setValue(data.paymentTermsDays || '');
           sheet.getRange(i+1,13).setValue(data.paymentMode      || '');
           sheet.getRange(i+1,14).setValue(data.chequeRef        || '');
           sheet.getRange(i+1,15).setValue(data.dueDate          || '');
-          break;
         }
       }
       return ok({});
@@ -404,14 +417,13 @@ function doPost(e) {
       if(!sheet)return err('Sheet not found');
       const rows=sheet.getDataRange().getValues();
       const now = new Date().toLocaleString('en-PH');
+      // No break — update ALL rows matching this PO number
       for(let i=1;i<rows.length;i++){
         if(String(rows[i][0])===data.poNumber){
           sheet.getRange(i+1, 4).setValue('REJECTED');
           sheet.getRange(i+1, 7).setValue(data.rejectedBy);
           sheet.getRange(i+1, 8).setValue(now);
-          // Rejection reason col 16
           sheet.getRange(i+1,16).setValue(data.reason||'');
-          break;
         }
       }
       return ok({});
@@ -423,15 +435,14 @@ function doPost(e) {
       if(!sheet)return err('Sheet not found');
       const rows=sheet.getDataRange().getValues();
       const now = new Date().toLocaleString('en-PH');
+      // No break — update ALL rows matching this PO number
       for(let i=1;i<rows.length;i++){
         if(String(rows[i][0])===data.poNumber){
           sheet.getRange(i+1, 4).setValue('PENDING');
-          // Log resubmission in notes col 11
           const existing = String(rows[i][10]||'');
           sheet.getRange(i+1,11).setValue(
             (existing?existing+' | ':'')+'Resubmitted by '+data.resubmittedBy+' on '+now
           );
-          break;
         }
       }
       return ok({});
@@ -442,12 +453,12 @@ function doPost(e) {
       const sheet=ss.getSheetByName('Purchase Orders');
       if(!sheet)return err('Sheet not found');
       const rows=sheet.getDataRange().getValues();
+      // No break — update ALL rows matching this PO number
       for(let i=1;i<rows.length;i++){
         if(String(rows[i][0])===data.poNumber){
           sheet.getRange(i+1,4).setValue('CANCELLED');
           const n=rows[i][10]||'';
           sheet.getRange(i+1,11).setValue(n+(n?' | ':'')+'Cancelled by: '+data.cancelledBy);
-          break;
         }
       }
       return ok({});
@@ -1136,6 +1147,30 @@ function doPost(e) {
         }
       }
       return err('Supplier not found: ' + data.name);
+    }
+
+    // ── DELETE PO (admin only — removes PO row + all line items) ─────────
+    if (data.action === 'deletePO') {
+      const poSheet = ss.getSheetByName('Purchase Orders');
+      const liSheet = ss.getSheetByName('PO Line Items');
+      if (!poSheet) return err('Purchase Orders sheet not found');
+
+      // Delete matching rows in reverse order (bottom-up) to preserve row indices
+      const poRows = poSheet.getDataRange().getValues();
+      for (let i = poRows.length - 1; i >= 1; i--) {
+        if (String(poRows[i][0]) === data.poNumber) {
+          poSheet.deleteRow(i + 1);
+        }
+      }
+      if (liSheet) {
+        const liRows = liSheet.getDataRange().getValues();
+        for (let i = liRows.length - 1; i >= 1; i--) {
+          if (String(liRows[i][0]) === data.poNumber) {
+            liSheet.deleteRow(i + 1);
+          }
+        }
+      }
+      return ok({ deleted: data.poNumber });
     }
 
     // ── UPDATE PO DRAFT ───────────────────────────────────────────────

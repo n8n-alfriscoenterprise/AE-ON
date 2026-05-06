@@ -62,29 +62,52 @@ function renderProdLines(){
   const disItems=bom.filter(b=>!b.canAssemble&&(prodCategory==='All'||b.category===prodCategory));
   const asmItems=bom.filter(b=> b.canAssemble&&(prodCategory==='All'||b.category===prodCategory));
   prodLines.forEach((line,idx)=>{
-    const items=line.direction==='dis'?disItems:asmItems;
+    const items = line.direction==='dis' ? disItems : asmItems;
+
+    // Resolve full BOM item for this line (needed for unit labels throughout the card)
+    const bi = line.skuCode
+      ? bom.find(b=>b.sourceSku===line.skuCode&&(line.direction==='asm'?b.canAssemble:!b.canAssemble))
+      : null;
+    const srcUnit = bi ? (bi.sourceUnit||'unit') : 'unit';
+    const outUnit = bi ? (bi.outputUnit||'unit') : 'unit';
+
+    // Dropdown — ratio label uses actual col E units
     const skuOpts='<option value="">-- Select item --</option>'+
-      items.map(b=>`<option value="${b.sourceSku}|${b.sourceName}|${b.ratio}"${line.skuCode===b.sourceSku?' selected':''}>${b.sourceName} (${line.direction==='dis'?'1:'+b.ratio:b.ratio+':1'})</option>`).join('');
-    let ruleHint='',varianceHtml='';
-    if(line.skuCode&&line.qty>0){
-      const bi=bom.find(b=>b.sourceSku===line.skuCode&&(line.direction==='asm'?b.canAssemble:!b.canAssemble));
-      if(bi){
-        // Disassembly: qty SOURCE bags → qty×ratio OUTPUT kg
-        // Assembly:    qty target bags → requires qty×ratio INPUT kg consumed
-        const std      = line.qty;                  // bags produced (assembly) or bags consumed (disassembly — shown separately)
-        const kgAmount = line.qty * bi.ratio;
-        ruleHint = line.direction==='asm'
-          ? `Requires <strong>${kgAmount}</strong> kg of ${bi.sourceName} → yields <strong>${line.qty}</strong> bag(s) of ${bi.outputName}`
-          : `Standard yield: <strong>${kgAmount}</strong> units of ${bi.outputName}`;
-        const stdForVariance = line.direction==='asm' ? line.qty : kgAmount;
-        if(line.actualYield!==''){
-          const act=parseFloat(line.actualYield)||0;
-          const v=act-stdForVariance;
-          const vc=v<0?'#E24B4A':v>0?'#27AE60':'#888';
-          varianceHtml=`<div class="prod-variance" style="color:${vc}">Variance: ${v>=0?'+':''}${v.toFixed(1)} vs standard (${stdForVariance})</div>`;
-        }
+      items.map(b=>{
+        const su = b.sourceUnit||'unit';
+        const ou = b.outputUnit||'unit';
+        const ratioLabel = line.direction==='dis'
+          ? `1 ${su} → ${b.ratio} ${ou}`
+          : `${b.ratio} ${su} → 1 ${ou}`;
+        return `<option value="${b.sourceSku}|${b.sourceName}|${b.ratio}"${line.skuCode===b.sourceSku?' selected':''}>${b.sourceName} (${ratioLabel})</option>`;
+      }).join('');
+
+    // Hint and variance
+    let ruleHint='', varianceHtml='';
+    if(bi && line.qty>0){
+      const outputAmount = line.qty * bi.ratio;
+      if(line.direction==='asm'){
+        // Assembly: user enters target output qty; show how many source units are consumed
+        ruleHint = `Requires <strong>${outputAmount}</strong> ${srcUnit} of ${bi.sourceName} → yields <strong>${line.qty}</strong> ${outUnit} of ${bi.outputName}`;
+      } else {
+        // Disassembly: user enters source qty; show how many output units are produced
+        ruleHint = `Standard yield: <strong>${outputAmount}</strong> ${outUnit} of ${bi.outputName}`;
+      }
+      const stdForVariance = line.direction==='asm' ? line.qty : outputAmount;
+      if(line.actualYield!==''){
+        const act=parseFloat(line.actualYield)||0;
+        const v=act-stdForVariance;
+        const vc=v<0?'#E24B4A':v>0?'#27AE60':'#888';
+        varianceHtml=`<div class="prod-variance" style="color:${vc}">Variance: ${v>=0?'+':''}${v.toFixed(1)} vs standard (${stdForVariance} ${outUnit})</div>`;
       }
     }
+
+    // Field labels reflect direction and actual units
+    const convertLabel = line.direction==='asm'
+      ? `Target Output (${outUnit})`
+      : `Qty to Convert (${srcUnit})`;
+    const yieldLabel = `Actual Yield (${outUnit})`;
+
     const card=document.createElement('div');
     card.className='prod-line-card';
     card.id='prod-line-'+idx;
@@ -102,11 +125,11 @@ function renderProdLines(){
       </div>
       <div class="prod-nums-row">
         <div class="prod-num-wrap">
-          <span class="prod-field-label">Units to Convert</span>
+          <span class="prod-field-label">${convertLabel}</span>
           <input type="number" class="prod-num-input" min="1" step="1" value="${line.qty||1}" placeholder="Qty" oninput="onProdQty(${idx},this.value)">
         </div>
         <div class="prod-num-wrap">
-          <span class="prod-field-label">Actual Yield</span>
+          <span class="prod-field-label">${yieldLabel}</span>
           <input type="number" class="prod-num-input" min="0" step="0.1" value="${line.actualYield!==''?line.actualYield:''}" placeholder="Optional" style="border-color:${line.actualYield!==''?'#1B5E20':'#e0e0e0'}" oninput="onProdActual(${idx},this.value)">
         </div>
       </div>
@@ -151,7 +174,14 @@ async function submitAllProduction(){
     return{...line,bomItem:bi,standard:stdOutput,actual:act,variance:act-stdOutput,consumed};
   }).filter(Boolean);
   if(!summary.length){alert('No valid BOM rules found for selected items.');return;}
-  const msg=summary.map(s=>`${s.direction==='dis'?'🏭':'🔄'} ${s.skuName} × ${s.qty} → ${s.actual} ${s.bomItem.outputName}`+(s.variance!==0?` (variance: ${s.variance>=0?'+':''}${s.variance.toFixed(1)})`:'') ).join('\n');
+  const msg=summary.map(s=>{
+    const su=s.bomItem.sourceUnit||'unit';
+    const ou=s.bomItem.outputUnit||'unit';
+    const consumedQty = s.direction==='asm' ? s.consumed : s.qty;
+    const producedQty = s.actual;
+    return `${s.direction==='dis'?'🏭':'🔄'} ${s.skuName} × ${consumedQty} ${su} → ${producedQty} ${ou} of ${s.bomItem.outputName}`
+      +(s.variance!==0?` (variance: ${s.variance>=0?'+':''}${s.variance.toFixed(1)})`:'');
+  }).join('\n');
   if(!confirm(`Production batch:
 
 ${msg}

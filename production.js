@@ -47,24 +47,25 @@ function renderProdLines(){
   const asmItems=bom.filter(b=> b.canAssemble);
   prodLines.forEach((line,idx)=>{
     const items=line.direction==='dis'?disItems:asmItems;
-    const ratioLabel = line.direction==='dis'
-      ? b=>`1:${b.ratio}`
-      : b=>`${b.ratio}:1`;
     const skuOpts='<option value="">-- Select item --</option>'+
-      items.map(b=>`<option value="${b.sourceSku}|${b.sourceName}|${b.ratio}"${line.skuCode===b.sourceSku?' selected':''}>${b.sourceName} (${ratioLabel(b)})</option>`).join('');
+      items.map(b=>`<option value="${b.sourceSku}|${b.sourceName}|${b.ratio}"${line.skuCode===b.sourceSku?' selected':''}>${b.sourceName} (${line.direction==='dis'?'1:'+b.ratio:b.ratio+':1'})</option>`).join('');
     let ruleHint='',varianceHtml='';
     if(line.skuCode&&line.qty>0){
       const bi=bom.find(b=>b.sourceSku===line.skuCode&&(line.direction==='asm'?b.canAssemble:!b.canAssemble));
       if(bi){
-        const std = line.direction==='asm'
-          ? +(line.qty/bi.ratio).toFixed(4)
-          : line.qty*bi.ratio;
-        ruleHint=`Standard yield: <strong>${std}</strong> units of ${bi.outputName}`;
+        // Disassembly: qty SOURCE bags → qty×ratio OUTPUT kg
+        // Assembly:    qty target bags → requires qty×ratio INPUT kg consumed
+        const std      = line.qty;                  // bags produced (assembly) or bags consumed (disassembly — shown separately)
+        const kgAmount = line.qty * bi.ratio;
+        ruleHint = line.direction==='asm'
+          ? `Requires <strong>${kgAmount}</strong> kg of ${bi.sourceName} → yields <strong>${line.qty}</strong> bag(s) of ${bi.outputName}`
+          : `Standard yield: <strong>${kgAmount}</strong> units of ${bi.outputName}`;
+        const stdForVariance = line.direction==='asm' ? line.qty : kgAmount;
         if(line.actualYield!==''){
           const act=parseFloat(line.actualYield)||0;
-          const v=act-std;
+          const v=act-stdForVariance;
           const vc=v<0?'#E24B4A':v>0?'#27AE60':'#888';
-          varianceHtml=`<div class="prod-variance" style="color:${vc}">Variance: ${v>=0?'+':''}${v.toFixed(1)} vs standard (${std})</div>`;
+          varianceHtml=`<div class="prod-variance" style="color:${vc}">Variance: ${v>=0?'+':''}${v.toFixed(1)} vs standard (${stdForVariance})</div>`;
         }
       }
     }
@@ -126,11 +127,12 @@ async function submitAllProduction(){
   const summary=valid.map(line=>{
     const bi=bom.find(b=>b.sourceSku===line.skuCode&&(line.direction==='asm'?b.canAssemble:!b.canAssemble));
     if(!bi)return null;
-    const std = line.direction==='asm'
-      ? +(line.qty/bi.ratio).toFixed(4)
-      : line.qty*bi.ratio;
-    const act=line.actualYield!==''?parseFloat(line.actualYield)||0:std;
-    return{...line,bomItem:bi,standard:std,actual:act,variance:act-std};
+    // Disassembly: consume qty bags, produce qty×ratio kg
+    // Assembly:    consume qty×ratio kg, produce qty bags
+    const stdOutput  = line.direction==='asm' ? line.qty            : line.qty*bi.ratio;
+    const consumed   = line.direction==='asm' ? line.qty*bi.ratio   : line.qty;
+    const act        = line.actualYield!==''  ? parseFloat(line.actualYield)||0 : stdOutput;
+    return{...line,bomItem:bi,standard:stdOutput,actual:act,variance:act-stdOutput,consumed};
   }).filter(Boolean);
   if(!summary.length){alert('No valid BOM rules found for selected items.');return;}
   const msg=summary.map(s=>`${s.direction==='dis'?'🏭':'🔄'} ${s.skuName} × ${s.qty} → ${s.actual} ${s.bomItem.outputName}`+(s.variance!==0?` (variance: ${s.variance>=0?'+':''}${s.variance.toFixed(1)})`:'') ).join('\n');
@@ -145,7 +147,7 @@ Update Stock Counts - Retail?`))return;
   let allOk=true;
   for(const s of summary){
     try{
-      const r=await api({action:'submitProduction',submittedBy:currentUser.username,timestamp:now,sourceSku:s.skuCode,sourceName:s.skuName,bagsConsumed:s.qty,outputSku:s.bomItem.outputSku,outputName:s.bomItem.outputName,unitsProduced:s.actual,standardUnits:s.standard,ratio:s.bomItem.ratio,canAssemble:s.direction==='asm',notes:s.variance!==0?`Variance: ${s.variance>=0?'+':''}${s.variance.toFixed(1)} vs standard ${s.standard}`:''});
+      const r=await api({action:'submitProduction',submittedBy:currentUser.username,timestamp:now,sourceSku:s.skuCode,sourceName:s.skuName,bagsConsumed:s.consumed,outputSku:s.bomItem.outputSku,outputName:s.bomItem.outputName,unitsProduced:s.actual,standardUnits:s.standard,ratio:s.bomItem.ratio,canAssemble:s.direction==='asm',notes:s.variance!==0?`Variance: ${s.variance>=0?'+':''}${s.variance.toFixed(1)} vs standard ${s.standard}`:''});
       if(r.status!=='ok')allOk=false;
     }catch(e){allOk=false;}
   }

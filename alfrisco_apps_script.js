@@ -180,63 +180,79 @@ function doPost(e) {
       // Cols: A-Code B-Name C-Cat D-Type E-Unit F-Rev G-Order H-Active
       //       I-Supplier J-Cost K-SellingPrice
       //       L-IsProductionItem M-DisassemblyUOM N-AssemblyUOM O-StandardRatio
-      const rows = sheet.getDataRange().getValues().slice(4)
-        .filter(r => r[0] && String(r[7]).toUpperCase()==='YES'
-                  && String(r[11]||'').toUpperCase()==='YES');
 
-      // Build BOM entries for DISASSEMBLY (bag → kg)
-      // A bag SKU has a DisassemblyUOM (col M) set
+      // allRows used for cross-reference lookups — not filtered so any SKU can be found
+      const allRows = sheet.getDataRange().getValues().slice(4).filter(r => r[0]);
+
+      // prodRows are the ones flagged Active + IsProductionItem
+      const prodRows = allRows.filter(r =>
+        String(r[7]||'').toUpperCase() === 'YES' &&
+        String(r[11]||'').toUpperCase() === 'YES'
+      );
+
+      // Helper: find any SKU by code across the full sheet
+      function findSku(code) {
+        const c = String(code||'').trim();
+        return allRows.find(r => String(r[0]).trim() === c) || null;
+      }
+
+      // Helper: extract SKU code from a UOM cell — handles "SKU001 (Name)" or plain "SKU001"
+      function parseSkuCode(cell) {
+        const s = String(cell||'').trim();
+        const m = s.match(/^([^\s(]+)/); // take everything before first space or (
+        return m ? m[1] : s;
+      }
+
       const bom = [];
-      rows.forEach(r => {
-        const disUOM = String(r[12]||'').trim(); // col M
-        const asmUOM = String(r[13]||'').trim(); // col N
-        if (!disUOM || disUOM === '—') return;  // skip kg SKUs (no disassembly target)
 
-        // Parse output SKU code from format "10461 (Int1/kg)"
-        const outCodeMatch = disUOM.match(/^(\S+)/);
-        const outCode = outCodeMatch ? outCodeMatch[1] : '';
-        // Find output SKU name from sheet
-        const outRow = rows.find(r2 => String(r2[0]).trim() === outCode);
-        const outName = outRow ? String(outRow[1]).trim() : disUOM;
+      prodRows.forEach(r => {
+        const code    = String(r[0]).trim();
+        const name    = String(r[1]).trim();
+        const ratio   = Number(r[14]) || 0;
+        const disUOM  = String(r[12]||'').trim(); // col M — DisassemblyUOM
+        const asmUOM  = String(r[13]||'').trim(); // col N — AssemblyUOM
 
-        bom.push({
-          sourceSku:    String(r[0]).trim(),
-          sourceName:   String(r[1]).trim(),
-          bagSizeKg:    Number(r[4]||0),   // unit col = selling unit (kg size)
-          outputSku:    outCode,
-          outputName:   outName,
-          ratio:        Number(r[14])||0,   // col O = standard ratio
-          active:       'YES',
-          verified:     'YES',
-          notes:        '',
-          // Assembly direction
-          assemblyUOM:  asmUOM,
-          canAssemble:  false   // bag SKUs disassemble only
-        });
-      });
+        const hasDisassembly = disUOM && disUOM !== '—';
+        const hasAssembly    = asmUOM && asmUOM !== '—';
 
-      // Build ASSEMBLY entries (kg → bag) for reverse production
-      rows.forEach(r => {
-        const asmUOM = String(r[13]||'').trim(); // col N
-        if (!asmUOM || asmUOM === '—') return; // skip bag SKUs
+        if (hasDisassembly) {
+          // DISASSEMBLY: this SKU (bag) → output (kg)
+          const outCode = parseSkuCode(disUOM);
+          const outRow  = findSku(outCode);
+          bom.push({
+            sourceSku:   code,
+            sourceName:  name,
+            outputSku:   outCode,
+            outputName:  outRow ? String(outRow[1]).trim() : outCode,
+            ratio:       ratio,
+            canAssemble: false
+          });
 
-        const srcCodeMatch = asmUOM.match(/^(\S+)/);
-        const srcCode = srcCodeMatch ? srcCodeMatch[1] : '';
-        const srcRow  = rows.find(r2 => String(r2[0]).trim() === srcCode);
-        const srcName = srcRow ? String(srcRow[1]).trim() : asmUOM;
+        } else if (hasAssembly) {
+          // ASSEMBLY: this SKU (kg) → output (bag)
+          const outCode = parseSkuCode(asmUOM);
+          const outRow  = findSku(outCode);
+          bom.push({
+            sourceSku:   code,
+            sourceName:  name,
+            outputSku:   outCode,
+            outputName:  outRow ? String(outRow[1]).trim() : outCode,
+            ratio:       outRow ? (Number(outRow[14])||ratio) : ratio, // ratio from bag SKU
+            canAssemble: true
+          });
 
-        bom.push({
-          sourceSku:    String(r[0]).trim(),   // kg SKU = source for assembly
-          sourceName:   String(r[1]).trim(),
-          bagSizeKg:    0,
-          outputSku:    srcCode,               // bag SKU = output
-          outputName:   srcName,
-          ratio:        srcRow ? (Number(srcRow[14])||0) : 0, // ratio from bag SKU row
-          active:       'YES',
-          verified:     'YES',
-          notes:        '',
-          canAssemble:  true    // assembly direction
-        });
+        } else if (ratio > 0) {
+          // Production item with ratio but no UOM pairing — include for disassembly
+          bom.push({
+            sourceSku:   code,
+            sourceName:  name,
+            outputSku:   '',
+            outputName:  '(output not configured)',
+            ratio:       ratio,
+            canAssemble: false
+          });
+        }
+        // Items with no ratio AND no UOM are incomplete — skip silently
       });
 
       return ok({bom});
@@ -263,10 +279,12 @@ function doPost(e) {
       const cs = getOrCreateSheet(ss,'Stock Counts - Retail',[
         'Timestamp','Submitted By','Location','SKU Code',
         'Item Name','Qty On Hand','Unit','Type','Category']);
+      const srcUnit = data.canAssemble ? 'kg'  : 'bag';
+      const outUnit = data.canAssemble ? 'bag' : 'kg';
       cs.appendRow([data.timestamp,data.submittedBy,'Production',
-        data.sourceSku,data.sourceName,-data.bagsConsumed,'bag','RETAIL','Production']);
+        data.sourceSku,data.sourceName,-data.bagsConsumed,srcUnit,'RETAIL','Production']);
       cs.appendRow([data.timestamp,data.submittedBy,'Production',
-        data.outputSku,data.outputName,data.unitsProduced,'kg','RETAIL','Production']);
+        data.outputSku,data.outputName,data.unitsProduced,outUnit,'RETAIL','Production']);
       return ok({});
     }
 

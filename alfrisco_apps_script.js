@@ -231,7 +231,7 @@ function doPost(e) {
           bagSizeKg:    0,
           outputSku:    srcCode,               // bag SKU = output
           outputName:   srcName,
-          ratio:        Number(r[14])||0,
+          ratio:        srcRow ? (Number(srcRow[14])||0) : 0, // ratio from bag SKU row
           active:       'YES',
           verified:     'YES',
           notes:        '',

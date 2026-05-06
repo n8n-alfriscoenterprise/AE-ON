@@ -47,13 +47,18 @@ function renderProdLines(){
   const asmItems=bom.filter(b=> b.canAssemble);
   prodLines.forEach((line,idx)=>{
     const items=line.direction==='dis'?disItems:asmItems;
+    const ratioLabel = line.direction==='dis'
+      ? b=>`1:${b.ratio}`
+      : b=>`${b.ratio}:1`;
     const skuOpts='<option value="">-- Select item --</option>'+
-      items.map(b=>`<option value="${b.sourceSku}|${b.sourceName}|${b.ratio}"${line.skuCode===b.sourceSku?' selected':''}>${b.sourceName} (1:${b.ratio})</option>`).join('');
+      items.map(b=>`<option value="${b.sourceSku}|${b.sourceName}|${b.ratio}"${line.skuCode===b.sourceSku?' selected':''}>${b.sourceName} (${ratioLabel(b)})</option>`).join('');
     let ruleHint='',varianceHtml='';
     if(line.skuCode&&line.qty>0){
       const bi=bom.find(b=>b.sourceSku===line.skuCode&&(line.direction==='asm'?b.canAssemble:!b.canAssemble));
       if(bi){
-        const std=line.qty*bi.ratio;
+        const std = line.direction==='asm'
+          ? +(line.qty/bi.ratio).toFixed(4)
+          : line.qty*bi.ratio;
         ruleHint=`Standard yield: <strong>${std}</strong> units of ${bi.outputName}`;
         if(line.actualYield!==''){
           const act=parseFloat(line.actualYield)||0;
@@ -121,7 +126,9 @@ async function submitAllProduction(){
   const summary=valid.map(line=>{
     const bi=bom.find(b=>b.sourceSku===line.skuCode&&(line.direction==='asm'?b.canAssemble:!b.canAssemble));
     if(!bi)return null;
-    const std=line.qty*bi.ratio;
+    const std = line.direction==='asm'
+      ? +(line.qty/bi.ratio).toFixed(4)
+      : line.qty*bi.ratio;
     const act=line.actualYield!==''?parseFloat(line.actualYield)||0:std;
     return{...line,bomItem:bi,standard:std,actual:act,variance:act-std};
   }).filter(Boolean);

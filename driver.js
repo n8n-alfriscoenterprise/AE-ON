@@ -19,8 +19,6 @@ async function loadDriverManifest(){
     const r=await api({action:'getTodayLoads',unit});
     if(r.status==='ok'){
       driverManifest=r.rows||[];
-      // Preserve delivered state across refresh
-      driverManifest.forEach(item=>{if(item.delivered===undefined)item.delivered=0;});
       buildDriverChips();
       buildDriverList();
       updateDriverTotals();
@@ -58,24 +56,17 @@ function buildDriverList(){
       const hdr=document.createElement('div');hdr.className='cat-header';hdr.textContent=cat;list.appendChild(hdr);
     }
     visible.filter(i=>(i.cat||'Uncategorised')===cat).forEach((item,idx)=>{
-      const remaining=Math.max(0,(item.loaded||0)-(item.delivered||0));
-      const done=remaining===0&&(item.delivered||0)>0;
+      const remaining=Math.max(0,(item.loaded||0)-(item.sold||0));
       const row=document.createElement('div');row.className='driver-sku-row';
       row.innerHTML=`
         <div class="driver-sku-info">
-          <div class="driver-sku-name" style="${done?'text-decoration:line-through;color:#aaa':''}">${item.name}</div>
+          <div class="driver-sku-name">${item.name}</div>
           <div class="driver-sku-code">${item.code}</div>
         </div>
         <div class="driver-qty-chips">
           <div class="driver-qty-chip loaded" title="Loaded">${item.loaded||0}</div>
-          <div class="driver-qty-chip sold" title="Delivered">${item.delivered||0}</div>
           <div class="driver-qty-chip pending" title="Remaining">${remaining}</div>
-        </div>
-        <button class="deliver-btn ${done?'done':''}"
-          onclick="${done?'':'openDeliverModal('+driverManifest.indexOf(item)+')'}"
-          ${done?'disabled':''}>
-          ${done?'Done ✓':'Deliver'}
-        </button>`;
+        </div>`;
       list.appendChild(row);
     });
   });
@@ -83,66 +74,10 @@ function buildDriverList(){
 
 function updateDriverTotals(){
   const totalLoaded=driverManifest.reduce((s,i)=>s+(i.loaded||0),0);
-  const totalDelivered=driverManifest.reduce((s,i)=>s+(i.delivered||0),0);
-  const totalRemaining=Math.max(0,totalLoaded-totalDelivered);
+  const totalSold=driverManifest.reduce((s,i)=>s+(i.sold||0),0);
+  const totalRemaining=Math.max(0,totalLoaded-totalSold);
   document.getElementById('d-loaded').textContent=Math.round(totalLoaded);
-  document.getElementById('d-delivered').textContent=Math.round(totalDelivered);
   document.getElementById('d-remaining').textContent=Math.round(totalRemaining);
-}
-
-function openDeliverModal(idx){
-  deliverTarget=idx;
-  const item=driverManifest[idx];
-  const remaining=Math.max(0,(item.loaded||0)-(item.delivered||0));
-  document.getElementById('deliver-modal-sub').textContent=`${item.name} — ${remaining} units remaining`;
-  document.getElementById('deliver-qty').value=remaining;
-  document.getElementById('deliver-dealer').value='';
-  document.getElementById('deliver-backorder').value='No';
-  document.getElementById('deliver-notes').value='';
-  document.getElementById('deliver-err').textContent='';
-  document.getElementById('deliver-modal').style.display='flex';
-  setTimeout(()=>document.getElementById('deliver-qty').focus(),100);
-}
-
-function closeDeliverModal(){
-  document.getElementById('deliver-modal').style.display='none';
-  deliverTarget=null;
-}
-
-async function confirmDelivery(){
-  if(deliverTarget===null)return;
-  const qty=parseFloat(document.getElementById('deliver-qty').value)||0;
-  if(qty<=0){document.getElementById('deliver-err').textContent='Enter a quantity greater than 0.';return;}
-  const item=driverManifest[deliverTarget];
-  const dealer=document.getElementById('deliver-dealer').value.trim();
-  const backorder=document.getElementById('deliver-backorder').value;
-  const notes=document.getElementById('deliver-notes').value.trim();
-  const unit=currentUser.assignedUnit||'Bajaj1';
-  document.getElementById('deliver-err').textContent='';
-  try{
-    const r=await api({
-      action:'markDelivered',
-      driver:currentUser.username,
-      unit,
-      dealer:dealer||'',
-      code:item.code,
-      name:item.name,
-      qty,
-      backorder,
-      notes:notes||''
-    });
-    if(r.status==='ok'){
-      driverManifest[deliverTarget].delivered=(driverManifest[deliverTarget].delivered||0)+qty;
-      closeDeliverModal();
-      buildDriverList();
-      updateDriverTotals();
-      showBanner('driver-success-bar',`Delivered ${qty} × ${item.name} — recorded ✓`);
-    }else{
-      document.getElementById('deliver-err').textContent='Error: '+(r.msg||'Could not record delivery');
-    }
-  }catch(e){
-    document.getElementById('deliver-err').textContent='Network error. Please try again.';
-  }
 }
 
 // ── ADMIN MODAL ──

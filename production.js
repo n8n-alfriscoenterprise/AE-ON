@@ -163,7 +163,7 @@ Update Stock Counts - Retail?`))return;
   let allOk=true;
   for(const s of summary){
     try{
-      const r=await api({action:'submitProduction',submittedBy:currentUser.username,timestamp:now,sourceSku:s.skuCode,sourceName:s.skuName,bagsConsumed:s.consumed,outputSku:s.bomItem.outputSku,outputName:s.bomItem.outputName,unitsProduced:s.actual,standardUnits:s.standard,ratio:s.bomItem.ratio,canAssemble:s.direction==='asm',notes:s.variance!==0?`Variance: ${s.variance>=0?'+':''}${s.variance.toFixed(1)} vs standard ${s.standard}`:''});
+      const r=await api({action:'submitProduction',submittedBy:currentUser.username,timestamp:now,sourceSku:s.skuCode,sourceName:s.skuName,sourceUnit:s.bomItem.sourceUnit||'',bagsConsumed:s.consumed,outputSku:s.bomItem.outputSku,outputName:s.bomItem.outputName,outputUnit:s.bomItem.outputUnit||'',unitsProduced:s.actual,standardUnits:s.standard,ratio:s.bomItem.ratio,canAssemble:s.direction==='asm',notes:s.variance!==0?`Variance: ${s.variance>=0?'+':''}${s.variance.toFixed(1)} vs standard ${s.standard}`:''})
       if(r.status!=='ok')allOk=false;
     }catch(e){allOk=false;}
   }

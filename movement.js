@@ -168,8 +168,10 @@ async function submitForm(){
 
 function showBanner(id,msg){
   const b=document.getElementById(id);
-  b.textContent=msg;b.style.display='block';
-  setTimeout(()=>b.style.display='none',5000);
+  if(!b){ console.warn('showBanner: element not found —',id); return; }
+  b.textContent=msg;
+  b.style.display='block';
+  setTimeout(()=>{ if(b) b.style.display='none'; },5000);
 }
 
 // ── DRIVER SCREEN ──

@@ -747,7 +747,7 @@ async function approvePO(){
       await openPODetail(currentPO.poNumber);
       await loadPOs();
     }else alert('Error: '+r.msg);
-  }catch(e){alert('Network error');}
+  }catch(e){alert('Approve failed: '+e.message);}
 }
 async function rejectPO(){
   const reasonEl = document.getElementById('po-reject-reason');
@@ -765,7 +765,7 @@ async function rejectPO(){
       showToast(currentPO.poNumber+' rejected — '+currentPO.createdBy+' needs to review','warning',5000);
       await openPODetail(currentPO.poNumber);await loadPOs();
     }else alert('Error: '+r.msg);
-  }catch(e){alert('Network error');}
+  }catch(e){alert('Reject failed: '+e.message);}
 }
 
 async function resubmitPO(){
@@ -777,7 +777,7 @@ async function resubmitPO(){
       showToast(currentPO.poNumber+' resubmitted for approval','info');
       await openPODetail(currentPO.poNumber);await loadPOs();
     }else alert('Error: '+r.msg);
-  }catch(e){alert('Network error');}
+  }catch(e){alert('Resubmit failed: '+e.message);}
 }
 async function cancelPO(){
   if(!confirm('Cancel '+currentPO.poNumber+'? This cannot be undone.'))return;
@@ -788,7 +788,7 @@ async function cancelPO(){
       showToast(currentPO.poNumber+' cancelled','warning');
       await openPODetail(currentPO.poNumber);await loadPOs();
     }else alert('Error: '+r.msg);
-  }catch(e){alert('Network error');}
+  }catch(e){alert('Cancel failed: '+e.message);}
 }
 
 async function deletePO(){

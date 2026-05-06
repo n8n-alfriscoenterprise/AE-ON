@@ -119,8 +119,6 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .driver-qty-chip.loaded{background:#EEF5FE;color:#0C447C;border:1px solid #85B7EB}
 .driver-qty-chip.sold{background:#EDF8E6;color:#2A6B0A;border:1px solid #7DC459}
 .driver-qty-chip.pending{background:#FFF8E6;color:#7A5500;border:1px solid #FAC775}
-.deliver-btn{padding:5px 10px;border:1.5px solid #0A5C46;color:#0A5C46;background:white;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0}
-.deliver-btn.done{background:#0A5C46;color:white;border-color:#0A5C46;opacity:0.7;cursor:default}
 .driver-empty{padding:30px 14px;text-align:center;color:#aaa;font-size:13px}
 
 /* TOTALS */
@@ -147,6 +145,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .modal-err{color:#E24B4A;font-size:12px;margin-bottom:10px;min-height:16px;font-weight:500}
 .modal-btns{display:flex;gap:8px}
 .modal-cancel{flex:1;padding:11px;border:1.5px solid #e0e0e0;background:white;border-radius:10px;font-size:13px;cursor:pointer;font-weight:600;color:#666}
+.modal-btn{flex:1;padding:11px;border:1.5px solid #e0e0e0;background:white;border-radius:10px;font-size:13px;cursor:pointer;font-weight:700;color:#666}
 .modal-ok{flex:1;padding:11px;background:#0A5C46;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer}
 .modal-ok.blue{background:#1F4E78}
 
@@ -180,9 +179,6 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .log-what{font-size:11px;color:#666;margin-top:2px}
 .log-when{font-size:10px;color:#bbb;margin-top:2px}
 .empty-state{padding:20px 14px;text-align:center;font-size:12px;color:#bbb}
-
-/* DELIVER MODAL */
-#deliver-modal .modal-card{max-width:310px}
 
 /* FLOATING BACKORDER BUTTON */
 .fab{position:fixed;bottom:90px;right:16px;width:52px;height:52px;
@@ -1008,29 +1004,9 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
   <div class="main-content" id="driver-sku-list"></div>
   <div class="totals-bar">
     <div class="total-item"><div class="total-num" id="d-loaded">0</div><div class="total-lbl">Loaded</div></div>
-    <div class="total-item"><div class="total-num green" id="d-delivered">0</div><div class="total-lbl">Delivered</div></div>
     <div class="total-item"><div class="total-num" id="d-remaining">0</div><div class="total-lbl">Remaining</div></div>
   </div>
 
-  <!-- Delivery modal -->
-  <div class="modal-overlay" id="deliver-modal" style="display:none">
-    <div class="modal-card" id="deliver-modal-card">
-      <div class="modal-title">Mark as delivered</div>
-      <div class="modal-sub" id="deliver-modal-sub"></div>
-      <input type="number" id="deliver-qty" placeholder="Qty delivered" min="1">
-      <input type="text" id="deliver-dealer" placeholder="Dealer name (optional)">
-      <select id="deliver-backorder">
-        <option value="No">Not a backorder</option>
-        <option value="Yes">Yes — fulfills a backorder</option>
-      </select>
-      <input type="text" id="deliver-notes" placeholder="Notes (optional)">
-      <div class="modal-err" id="deliver-err"></div>
-      <div class="modal-btns">
-        <button class="modal-cancel" onclick="closeDeliverModal()">Cancel</button>
-        <button class="modal-ok" onclick="confirmDelivery()">Confirm</button>
-      </div>
-    </div>
-  </div>
 </div>
 
 

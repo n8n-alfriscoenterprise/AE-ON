@@ -86,8 +86,6 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .driver-qty-chip.loaded{background:#EEF5FE;color:#0C447C;border:1px solid #85B7EB}
 .driver-qty-chip.sold{background:#EDF8E6;color:#2A6B0A;border:1px solid #7DC459}
 .driver-qty-chip.pending{background:#FFF8E6;color:#7A5500;border:1px solid #FAC775}
-.deliver-btn{padding:5px 10px;border:1.5px solid #0A5C46;color:#0A5C46;background:white;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0}
-.deliver-btn.done{background:#0A5C46;color:white;border-color:#0A5C46;opacity:0.7;cursor:default}
 .driver-empty{padding:30px 14px;text-align:center;color:#aaa;font-size:13px}
 
 /* TOTALS */
@@ -148,8 +146,6 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .log-when{font-size:10px;color:#bbb;margin-top:2px}
 .empty-state{padding:20px 14px;text-align:center;font-size:12px;color:#bbb}
 
-/* DELIVER MODAL */
-#deliver-modal .modal-card{max-width:310px}
 
 /* FLOATING BACKORDER BUTTON */
 .fab{position:fixed;bottom:90px;right:16px;width:52px;height:52px;

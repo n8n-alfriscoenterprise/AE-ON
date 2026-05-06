@@ -172,16 +172,6 @@ function doPost(e) {
       return ok({rows});
     }
 
-    // ── MARK DELIVERED ─────────────────────────────────────────────────
-    if (data.action === 'markDelivered') {
-      const sheet = getOrCreateSheet(ss,'Deliveries',[
-        'Timestamp','Driver','Bajaj Unit','Dealer Name',
-        'SKU Code','Item Name','Qty Delivered','Purchase Unit','Backorder?','Notes']);
-      sheet.appendRow([new Date().toLocaleString('en-PH'),
-        data.driver,data.unit,data.dealer||'',data.code,data.name,
-        data.qty,data.unit_type||'bag',data.backorder||'No',data.notes||'']);
-      return ok({});
-    }
 
     // ── GET PRODUCTION BOM (now reads from SKU Master - Retail) ──────────
     if (data.action === 'getBOM') {
@@ -1319,8 +1309,6 @@ function doPost(e) {
         'SKU Code','Item Name','Qty Requested','Purchase Unit','Promised Date','Status','Notes'],
       'Backorders - Retail':['Timestamp','Submitted By','Customer Name','Contact Number',
         'SKU Code','Item Name','Qty Requested','Purchase Unit','Promised Date','Status','Notes'],
-      'Deliveries':['Timestamp','Driver','Bajaj Unit','Dealer Name',
-        'SKU Code','Item Name','Qty Delivered','Purchase Unit','Backorder?'],
       'Production Log':[
         'Timestamp','Submitted By','Source SKU','Source Name',
         'Bags Consumed','Output SKU','Output Name','Units Produced','Ratio','Verified'

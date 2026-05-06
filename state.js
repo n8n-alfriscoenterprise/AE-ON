@@ -1,7 +1,7 @@
 ﻿// ── STATE ──
 let currentUser=null, isReturnMode=false, currentTab='dist', currentCat='All';
 let quantities={}, staff=[], csskus={}, accessLog=[];
-let driverManifest=[], driverCat='All', deliverTarget=null;
+let driverManifest=[], driverCat='All';
 let supplierList=[];
 let poEditMode=false, poEditingNumber=null;
 let _poSaving=false; // guard against double-tap duplicate submissions

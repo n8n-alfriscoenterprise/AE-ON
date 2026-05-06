@@ -656,13 +656,25 @@ function renderPODetail(){
     body.appendChild(recvDiv);
   }
 
-  // ── CANCEL (non-received statuses, authorized) ──
-  if(canCancel && !canResubmit && !['RECEIVED','CANCELLED','REJECTED'].includes(po.status)
-     && !(isAdmin && po.status==='PENDING')){
+  // ── CANCEL ──
+  // Admin: any active status (not already CANCELLED or fully RECEIVED)
+  // Creator (non-admin): DRAFT or PENDING only, and not in resubmit state
+  const showCancel = isAdmin
+    ? !['CANCELLED','RECEIVED'].includes(po.status)
+    : (isCreator && ['DRAFT','PENDING'].includes(po.status) && !canResubmit);
+  if(showCancel){
     const cancelDiv = document.createElement('div');
     cancelDiv.className = 'po-action-row';
     cancelDiv.innerHTML = '<button class="po-btn po-btn-secondary" onclick="cancelPO()">Cancel PO</button>';
     body.appendChild(cancelDiv);
+  }
+
+  // ── DELETE (admin only — permanent, removes PO + line items from sheet) ──
+  if(isAdmin){
+    const delDiv = document.createElement('div');
+    delDiv.className = 'po-action-row';
+    delDiv.innerHTML = '<button class="po-btn po-btn-danger" onclick="deletePO()" style="background:#8B0000">🗑 Delete PO Permanently</button>';
+    body.appendChild(delDiv);
   }
 
   // ── BACK ──
@@ -778,6 +790,28 @@ async function cancelPO(){
     }else alert('Error: '+r.msg);
   }catch(e){alert('Network error');}
 }
+
+async function deletePO(){
+  const po = currentPO;
+  const receivedWarning = po.status === 'RECEIVED'
+    ? '\n\n⚠️ This PO has already been RECEIVED. Deleting it will NOT reverse the stock-in entries — inventory counts will remain as-is.'
+    : '';
+  if(!confirm(
+    'Permanently delete ' + po.poNumber + '?\n\n'
+    + 'This will remove the PO and all its line items from the database.\n'
+    + 'This action cannot be undone.'
+    + receivedWarning
+  )) return;
+  try{
+    const r = await api({ action:'deletePO', poNumber:po.poNumber, deletedBy:currentUser.username });
+    if(r.status==='ok'){
+      showToast(po.poNumber+' permanently deleted','warning',4000);
+      backToPOList();
+      await loadPOs();
+    } else alert('Error: '+r.msg);
+  }catch(e){ alert('Network error: '+e.message); }
+}
+
 async function receiveItems(){
   const lines = currentPO.lineItems || [];
   const receipts = [];

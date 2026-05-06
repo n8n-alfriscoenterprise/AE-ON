@@ -4,6 +4,7 @@ let quantities={}, staff=[], csskus={}, accessLog=[];
 let driverManifest=[], driverCat='All', deliverTarget=null;
 let supplierList=[];
 let poEditMode=false, poEditingNumber=null;
+let _poSaving=false; // guard against double-tap duplicate submissions
 
 // ── STORAGE ──
 const LS={

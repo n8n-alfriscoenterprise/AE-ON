@@ -289,8 +289,13 @@ function doPost(e) {
         'PO Number','SKU Code','Item Name','Category',
         'Qty Ordered','Unit','Unit Cost','Total Cost',
         'Qty Received','Qty Outstanding','Line Status']);
+      // Stamp date server-side in unambiguous ISO format (avoids M/D vs D/M
+      // misinterpretation when Google Sheets auto-detects locale date strings)
+      const createdDate = Utilities.formatDate(
+        new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'
+      );
       poSheet.appendRow([data.poNumber,data.type,data.supplier,data.status,
-        data.createdBy,data.createdDate,'','',
+        data.createdBy, createdDate,'','',
         data.deliveryDate||'',data.totalValue||0,data.notes||'']);
       (data.lineItems||[]).forEach(li=>liSheet.appendRow(li));
       return ok({poNumber:data.poNumber});
@@ -302,10 +307,22 @@ function doPost(e) {
       if (!sheet) return ok({pos:[]});
       const rows = sheet.getDataRange().getValues();
       const pos = rows.slice(1).filter(r=>r[0]).map(r=>({
-        poNumber:String(r[0]),type:String(r[1]),supplier:String(r[2]),
-        status:String(r[3]),createdBy:String(r[4]),createdDate:String(r[5]),
-        approvedBy:String(r[6]||''),deliveryDate:String(r[8]||''),
-        totalValue:Number(r[9]||0),notes:String(r[10]||''),lineCount:0}));
+        poNumber:  String(r[0]),
+        type:      String(r[1]),
+        supplier:  String(r[2]),
+        status:    String(r[3]),
+        createdBy: String(r[4]),
+        // Safe date read: Sheets may return a Date object if it auto-detected the cell;
+        // format it consistently so the frontend always gets "yyyy-MM-dd HH:mm:ss"
+        createdDate: r[5] instanceof Date
+          ? Utilities.formatDate(r[5], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+          : String(r[5]||''),
+        approvedBy:   String(r[6]||''),
+        deliveryDate: String(r[8]||''),
+        totalValue:   Number(r[9]||0),
+        notes:        String(r[10]||''),
+        lineCount:    0
+      }));
       const liSheet = ss.getSheetByName('PO Line Items');
       if (liSheet) {
         liSheet.getDataRange().getValues().slice(1).forEach(li=>{

@@ -4,6 +4,13 @@
   return 'PO-'+date+'-'+String(todayPOs.length+1).padStart(3,'0');
 }
 
+// Shared date formatter — handles ISO "2026-05-06 08:38:13" and raw Date strings
+function fmtPODate(d){
+  if(!d) return '';
+  const dt = new Date(String(d).replace(' ','T'));
+  return isNaN(dt) ? d : dt.toLocaleString('en-PH',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
+}
+
 async function openPO(){
   showScreen('po-screen');updateFabVisibility();
   showPOSubtab('list',document.getElementById('po-tab-list'));
@@ -88,7 +95,7 @@ function renderPOList(){
   visible.forEach(po=>{
     const card=document.createElement('div');card.className='po-card';card.onclick=()=>openPODetail(po.poNumber);
     const statusCls={DRAFT:'s-draft',PENDING:'s-pending',APPROVED:'s-approved',PARTIAL:'s-partial',RECEIVED:'s-received',REJECTED:'s-rejected',CANCELLED:'s-cancelled'}[po.status]||'s-draft';
-    card.innerHTML=`<div class="po-card-row1"><div><div class="po-number">${po.poNumber}</div><div class="po-supplier">${po.supplier} · ${po.type}</div><div class="po-meta">${po.createdDate} · ${po.createdBy}</div></div><span class="po-status-badge ${statusCls}">${po.status}</span></div><div class="po-card-row2"><span style="font-size:11px;color:#888">${po.lineCount||0} item(s)</span><span class="po-total">₱${Number(po.totalValue||0).toLocaleString('en-PH',{minimumFractionDigits:2})}</span></div>`;
+    card.innerHTML=`<div class="po-card-row1"><div><div class="po-number">${po.poNumber}</div><div class="po-supplier">${po.supplier} · ${po.type}</div><div class="po-meta">${fmtPODate(po.createdDate)} · ${po.createdBy}</div></div><span class="po-status-badge ${statusCls}">${po.status}</span></div><div class="po-card-row2"><span style="font-size:11px;color:#888">${po.lineCount||0} item(s)</span><span class="po-total">₱${Number(po.totalValue||0).toLocaleString('en-PH',{minimumFractionDigits:2})}</span></div>`;
     body.appendChild(card);
   });
 }
@@ -369,19 +376,26 @@ function updatePOTotals(){
 async function savePODraft(){await savePO('DRAFT');}
 async function submitPOForApproval(){await savePO('PENDING');}
 async function savePO(status){
-  const type=document.getElementById('po-type').value;
-  const supplier=document.getElementById('po-supplier').value;
-  const notes=document.getElementById('po-notes').value.trim();
-  const delivDate=document.getElementById('po-delivery-date').value;
-  const active=poLineItems.filter(l=>!l.removed&&l.skuCode);
-  if(!supplier){alert('Please select a supplier.');return;}
-  if(active.length===0){alert('Please add at least one line item.');return;}
-  const total=active.reduce((s,l)=>s+(l.qty*l.unitCost),0);
-  const now=new Date().toLocaleString('en-PH');
+  // ── Guard: block double-tap / concurrent submissions ──────────────────
+  if(_poSaving) return;
+  _poSaving = true;
+  const draftBtn = document.getElementById('po-save-draft-btn');
+  const subBtn   = document.getElementById('po-submit-btn');
+  if(draftBtn){ draftBtn.disabled=true; draftBtn.style.opacity='0.6'; }
+  if(subBtn)  { subBtn.disabled=true;   subBtn.style.opacity='0.6';   }
 
-  if(poEditMode && poEditingNumber){
-    // ── UPDATE EXISTING DRAFT ──
-    try{
+  try{
+    const type      = document.getElementById('po-type').value;
+    const supplier  = document.getElementById('po-supplier').value;
+    const notes     = document.getElementById('po-notes').value.trim();
+    const delivDate = document.getElementById('po-delivery-date').value;
+    const active    = poLineItems.filter(l=>!l.removed&&l.skuCode);
+    if(!supplier){ alert('Please select a supplier.'); return; }
+    if(active.length===0){ alert('Please add at least one line item.'); return; }
+    const total = active.reduce((s,l)=>s+calcLineNet(l),0);
+
+    if(poEditMode && poEditingNumber){
+      // ── UPDATE EXISTING DRAFT ──────────────────────────────────────────
       const r=await api({action:'updatePODraft',poNumber:poEditingNumber,type,supplier,
         status, deliveryDate:delivDate,notes,totalValue:total,
         lineItems:active.map(l=>[poEditingNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,calcLineNet(l),0,l.qty,'Open',l.discount||0,l.discountType||'%'])});
@@ -389,33 +403,39 @@ async function savePO(status){
         showBanner('po-success-bar','Draft '+poEditingNumber+(status==='PENDING'?' updated & submitted for approval':' updated'));
         showToast(status==='PENDING'?poEditingNumber+' updated & submitted for approval':poEditingNumber+' draft updated','info');
       } else { alert('Error: '+(r.msg||'Could not update PO')); return; }
-    }catch(e){alert('Network error: '+e.message);return;}
-  } else {
-    // ── CREATE NEW PO ──
-    const poNumber=generatePONumber();
-    try{
+
+    } else {
+      // ── CREATE NEW PO ─────────────────────────────────────────────────
+      // createdDate is generated server-side (avoids D/M vs M/D ambiguity in Sheets)
+      const poNumber = generatePONumber();
       const r=await api({action:'createPO',poNumber,type,supplier,status,
-        createdBy:currentUser.username,createdDate:now,
+        createdBy:currentUser.username,
         deliveryDate:delivDate,notes,totalValue:total,
         lineItems:active.map(l=>[poNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,calcLineNet(l),0,l.qty,'Open',l.discount||0,l.discountType||'%'])});
       if(r.status==='ok'){
         showBanner('po-success-bar','PO '+poNumber+' '+(status==='DRAFT'?'saved as draft':'submitted for approval'));
         showToast(status==='DRAFT'?poNumber+' saved as draft':poNumber+' submitted for approval','info');
       } else { alert('Error: '+(r.msg||'Could not save PO')); return; }
-    }catch(e){alert('Network error: '+e.message);return;}
-  }
+    }
 
-  // Reset edit mode and return to list
-  poEditMode=false; poEditingNumber=null;
-  const titleEl=document.getElementById('po-create-title');
-  if(titleEl) titleEl.textContent='New Purchase Order';
-  const draftBtn=document.getElementById('po-save-draft-btn');
-  if(draftBtn) draftBtn.textContent='Save as Draft';
-  const subBtn=document.getElementById('po-submit-btn');
-  if(subBtn) subBtn.textContent='Submit for Approval';
-  poLineItems=[];
-  await loadPOs();
-  showPOSubtab('list',document.getElementById('po-tab-list'));
+    // ── Reset and return to list ─────────────────────────────────────────
+    poEditMode=false; poEditingNumber=null;
+    const titleEl=document.getElementById('po-create-title');
+    if(titleEl) titleEl.textContent='New Purchase Order';
+    if(draftBtn) draftBtn.textContent='Save as Draft';
+    if(subBtn)   subBtn.textContent='Submit for Approval';
+    poLineItems=[];
+    await loadPOs();
+    showPOSubtab('list',document.getElementById('po-tab-list'));
+
+  } catch(e){
+    alert('Network error: '+e.message);
+  } finally {
+    // Always re-enable buttons and clear the save lock
+    _poSaving = false;
+    if(draftBtn){ draftBtn.disabled=false; draftBtn.style.opacity=''; }
+    if(subBtn)  { subBtn.disabled=false;   subBtn.style.opacity='';   }
+  }
 }
 
 async function openPODetail(poNumber){
@@ -471,7 +491,7 @@ function renderPODetail(){
     + '<div><span class="po-status-badge ' + statusCls + '">' + po.status + '</span></div>'
     + '<div class="po-detail-meta" style="margin-top:8px">'
     + 'Supplier: <strong>' + po.supplier + '</strong><br>'
-    + 'Type: ' + po.type + ' &nbsp;·&nbsp; Created: ' + po.createdDate + '<br>'
+    + 'Type: ' + po.type + ' &nbsp;·&nbsp; Created: ' + fmtPODate(po.createdDate) + '<br>'
     + 'Created by: ' + po.createdBy
     + (po.approvedBy ? '<br>Approved by: ' + po.approvedBy : '')
     + (po.paymentMode ? '<br>Payment: ' + po.paymentMode

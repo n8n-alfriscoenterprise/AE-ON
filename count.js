@@ -153,7 +153,7 @@ async function submitCount(){
   const allSkus=getAllCountSKUs();const skuMap={};allSkus.forEach(s=>skuMap[s.code]=s);
   if(!confirm(counted+' SKU counts will be submitted for '+loc+'.\nThis will clear the current session. Continue?'))return;
   const btn=document.getElementById('count-submit-btn');btn.disabled=true;btn.textContent='Submitting...';
-  const now=new Date().toLocaleString('en-PH');
+  const now=new Date().toLocaleString('sv-SE', {timeZone:'Asia/Manila'});
   const rows=Object.entries(session).map(([code,qty])=>{const sku=skuMap[code]||{};return[now,currentUser.username,loc,code,sku.name||code,qty,sku.unit||'units',sku.type||'',sku.category||''];});
   try{
     const sheetName=currentCountType==='retail'?'Stock Counts - Retail':'Stock Counts - Distribution';

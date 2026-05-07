@@ -189,21 +189,22 @@ ${msg}
 Update Stock Counts - Retail?`))return;
   const btn=document.getElementById('prod-convert-btn');
   btn.disabled=true;btn.textContent='Converting...';
-  const now=new Date().toLocaleString('en-PH');
-  let allOk=true;
+  const now=new Date().toLocaleString('sv-SE', {timeZone:'Asia/Manila'});
+  const failures=[];
   for(const s of summary){
-    try{
-      const r=await api({action:'submitProduction',submittedBy:currentUser.username,timestamp:now,sourceSku:s.skuCode,sourceName:s.skuName,sourceUnit:s.bomItem.sourceUnit||'',bagsConsumed:s.consumed,outputSku:s.bomItem.outputSku,outputName:s.bomItem.outputName,outputUnit:s.bomItem.outputUnit||'',unitsProduced:s.actual,standardUnits:s.standard,ratio:s.bomItem.ratio,canAssemble:s.direction==='asm',notes:s.variance!==0?`Variance: ${s.variance>=0?'+':''}${s.variance.toFixed(1)} vs standard ${s.standard}`:''})
-      if(r.status!=='ok')allOk=false;
-    }catch(e){allOk=false;}
+    const r=await api({action:'submitProduction',submittedBy:currentUser.username,timestamp:now,sourceSku:s.skuCode,sourceName:s.skuName,sourceUnit:s.bomItem.sourceUnit||'',bagsConsumed:s.consumed,outputSku:s.bomItem.outputSku,outputName:s.bomItem.outputName,outputUnit:s.bomItem.outputUnit||'',unitsProduced:s.actual,standardUnits:s.standard,ratio:s.bomItem.ratio,canAssemble:s.direction==='asm',notes:s.variance!==0?`Variance: ${s.variance>=0?'+':''}${s.variance.toFixed(1)} vs standard ${s.standard}`:''});
+    if(r.status!=='ok'){
+      console.error('submitProduction failed for',s.skuName,'— response:',JSON.stringify(r));
+      failures.push(s.skuName+(r.msg?' ('+r.msg+')':''));
+    }
   }
   btn.disabled=false;btn.textContent='🏭 CONVERT';
   const bar=document.getElementById('prod-success-bar');
-  if(allOk){
+  if(!failures.length){
     bar.textContent=`✓ ${summary.length} item(s) converted — stock counts updated`;
     bar.style.display='block';setTimeout(()=>bar.style.display='none',5000);
     prodLines=[];addProdLine();
-  }else{alert('Some items failed. Check your connection and try again.');}
+  }else{alert('The following item(s) failed:\n\n'+failures.join('\n')+'\n\nOpen the browser console (F12) for details.');}
 }
 
 

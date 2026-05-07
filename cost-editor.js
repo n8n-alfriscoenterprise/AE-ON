@@ -186,6 +186,7 @@ let saSegment = 'dist';
 let saType    = 'receive';
 let saLines   = [];
 let saStockMap= {};
+let saAllSKUs = [];
 
 const SA_TYPES = {
   receive:{ label:'Receive',        hint:'Adds quantity to current stock' },

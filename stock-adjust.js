@@ -4,7 +4,7 @@
   if(!canSA){ alert('You do not have permission to perform stock adjustments.'); return; }
   showScreen('sa-screen');
   updateFabVisibility();
-  saSegment='dist'; saType='receive'; saLines=[]; saStockMap={};
+  saSegment='dist'; saType='receive'; saLines=[]; saStockMap={}; saAllSKUs=[];
   document.getElementById('sa-notes').value='';
   document.getElementById('sa-notes').classList.remove('required-empty');
   setSASegmentUI('dist');

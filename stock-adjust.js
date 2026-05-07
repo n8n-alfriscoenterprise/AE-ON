@@ -18,10 +18,11 @@ function closeSA(){ showHome(); }
 
 async function loadSAStockMap(){
   try{
-    const r = await api({action:'getProductList'});
+    const r = await api({action:'getProductList', includeInactive:true});
     if(r.status==='ok'){
       const items = saSegment==='dist' ? (r.dist||[]) : (r.retail||[]);
       saStockMap={};
+      saAllSKUs = items; // full list used for dropdown (all SKUs, not just active)
       items.forEach(item=>{ saStockMap[item.sku] = item.stock!==null ? Number(item.stock) : 0; });
     }
   }catch(e){ console.error('loadSAStockMap',e); }
@@ -73,12 +74,27 @@ function renderSALines(){
   const container=document.getElementById('sa-lines');
   if(!container) return;
   container.innerHTML='';
+
+  // Build grouped options from saAllSKUs (full master list, no Active filter)
+  // Falls back to liveSKUs filtered by type if saAllSKUs hasn't loaded yet
   const typeFilter=saSegment==='dist'?'DIST':'RETAIL';
-  const skus=liveSKUs.filter(s=>s.type===typeFilter);
+  const allItems = (saAllSKUs && saAllSKUs.length)
+    ? saAllSKUs
+    : liveSKUs.filter(s=>s.type===typeFilter).map(s=>({sku:s.code,name:s.name,category:s.category}));
+  const cats=[...new Set(allItems.map(s=>s.category).filter(Boolean))].sort();
 
   saLines.forEach((line,idx)=>{
-    const skuOpts='<option value="">-- Select item --</option>'
-      +skus.map(s=>'<option value="'+s.code+'|'+s.name+'"'+(line.skuCode===s.code?' selected':'')+'>'+s.name+'</option>').join('');
+    let skuOpts='<option value="">-- Select item --</option>';
+    if(cats.length){
+      cats.forEach(cat=>{
+        const group=allItems.filter(s=>s.category===cat);
+        skuOpts+=`<optgroup label="${cat}">`;
+        skuOpts+=group.map(s=>'<option value="'+s.sku+'|'+s.name+'"'+(line.skuCode===s.sku?' selected':'')+'>'+s.name+'</option>').join('');
+        skuOpts+='</optgroup>';
+      });
+    } else {
+      skuOpts+=allItems.map(s=>'<option value="'+s.sku+'|'+s.name+'"'+(line.skuCode===s.sku?' selected':'')+'>'+s.name+'</option>').join('');
+    }
 
     const current = line.skuCode!=='' ? (saStockMap[line.skuCode]||0) : null;
     line.currentStock=current;
@@ -203,7 +219,7 @@ async function submitSA(){
   const btn=document.getElementById('sa-submit-btn');
   btn.disabled=true; btn.textContent='Applying...';
 
-  const now=new Date().toLocaleString('en-PH');
+  const now=new Date().toLocaleString('sv-SE', {timeZone:'Asia/Manila'});
   const batchRef='SA-'+Date.now().toString().slice(-8);
 
   try{

@@ -697,24 +697,27 @@ function doPost(e) {
       const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       let allReceived = true;
 
-      // Update each line item's received qty and check if all fulfilled
+      // Update each line item's received qty — also mirror updates into rows[] so
+      // the fullyDone check below sees the new values, not the pre-write snapshot
       (data.receipts||[]).forEach(receipt => {
         for (let i = 1; i < rows.length; i++) {
           if (String(rows[i][0]) === data.trfNumber &&
               String(rows[i][9]) === String(receipt.skuCode)) {
             const newRec = Number(rows[i][12]||0) + Number(receipt.qtyReceived);
             const dispatched = Number(rows[i][11]||0);
-            sheet.getRange(i+1, 13).setValue(newRec);    // Qty Received
-            sheet.getRange(i+1, 14).setValue(dispatched - newRec); // Discrepancy
+            sheet.getRange(i+1, 13).setValue(newRec);
+            sheet.getRange(i+1, 14).setValue(dispatched - newRec);
             sheet.getRange(i+1, 8).setValue(data.receivedBy);
             sheet.getRange(i+1, 9).setValue(now);
+            rows[i][12] = newRec;           // keep in-memory copy in sync
+            rows[i][13] = dispatched - newRec;
             if (newRec < dispatched) allReceived = false;
             break;
           }
         }
       });
 
-      // Check if any lines are still outstanding
+      // Now rows[] reflects the updated values — this check is accurate
       const allLines = rows.slice(1).filter(r=>String(r[0])===data.trfNumber);
       const fullyDone = allLines.every(r=>Number(r[12]||0)>=Number(r[11]||0));
       const newStatus = fullyDone ? 'RECEIVED' : 'PARTIAL';

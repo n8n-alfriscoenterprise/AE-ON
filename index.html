@@ -548,6 +548,41 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .edit-save-btn:disabled{background:#ccc;cursor:not-allowed}
 .edit-cancel-btn{width:100%;padding:10px;background:none;border:1.5px solid #e0e0e0;color:#888;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer}
 
+/* ══ ADMIN MODALS & BUTTONS ═══════════════════════ */
+.adm-modal-card{max-width:360px;width:92%;padding:0;border-radius:16px;overflow:hidden}
+.adm-modal-header{display:flex;align-items:flex-start;justify-content:space-between;padding:16px 16px 10px;border-bottom:1px solid #f0f0f0}
+.adm-modal-title{font-size:15px;font-weight:700;color:#222}
+.adm-modal-sub{font-size:11px;color:#888;margin-top:2px}
+.adm-modal-close{background:none;border:none;font-size:18px;color:#aaa;cursor:pointer;padding:0;line-height:1}
+.adm-modal-item-label{font-size:12px;font-weight:600;color:#555;background:#f7f7f7;padding:8px 16px;border-bottom:1px solid #eee}
+.adm-field-label{display:block;font-size:11px;font-weight:600;color:#666;margin:10px 16px 3px}
+.adm-input{display:block;width:calc(100% - 32px);margin:0 16px;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;outline:none;background:white;color:#222;box-sizing:border-box}
+.adm-input:focus{border-color:#3949AB}
+.adm-textarea{resize:vertical;min-height:56px;font-family:inherit}
+.adm-err{font-size:11px;color:#E24B4A;padding:4px 16px 0;min-height:16px}
+.adm-modal-actions{display:flex;gap:8px;padding:12px 16px 16px;margin-top:4px}
+.adm-btn-save{flex:1;padding:10px;background:#1B5E20;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer}
+.adm-btn-save:disabled{opacity:.6;cursor:not-allowed}
+.adm-btn-cancel{flex:1;padding:10px;background:none;border:1.5px solid #ddd;color:#666;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer}
+.adm-btn-delete{padding:10px 14px;background:#E24B4A;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer}
+/* Backorder admin row buttons */
+.bo-admin-btns{display:flex;gap:5px;margin-top:4px}
+.bo-admin-btn{padding:3px 10px;border-radius:7px;font-size:10px;font-weight:700;cursor:pointer;border:none}
+.bo-edit-btn{background:#E3EEF9;color:#1A6EBD}
+.bo-del-btn{background:#FDECEA;color:#C62828}
+/* Transfer admin card tap hint */
+.trf-card-admin{cursor:pointer}
+.trf-card-admin:hover{background:#f0f2ff}
+/* Movement history modal */
+.mov-hist-sheet{background:white;border-radius:16px 16px 0 0;width:100%;max-height:80vh;display:flex;flex-direction:column}
+.mov-hist-body{overflow-y:auto;flex:1;padding:0 0 8px}
+.mov-hist-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #f5f5f5;gap:10px}
+.mov-hist-main{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.mov-hist-badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0}
+.mov-hist-info{min-width:0}
+.mov-hist-del-btn{padding:4px 10px;background:#FDECEA;color:#C62828;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0}
+.mov-hist-del-btn:disabled{opacity:.5;cursor:not-allowed}
+
 /* ══ TRANSFER SYSTEM ══════════════════════════════ */
 #transfer-screen{background:#f0f2f5}
 .trf-topbar{background:#3949AB;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
@@ -918,6 +953,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
     <div style="background:#0A5C46;padding:9px 14px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(255,255,255,0.1)">
       <span style="color:white;font-size:14px;font-weight:700">📦 Stock Movement</span>
       <div style="display:flex;align-items:center;gap:6px">
+        <button id="mov-history-btn" onclick="openMovHistory()" style="display:none;align-items:center;gap:4px;background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">🕘 History</button>
         <button class="mode-btn" id="mode-btn" onclick="toggleMode()">LOAD</button>
         <button class="back-btn" onclick="showHome()">← Home</button>
       </div>
@@ -2174,6 +2210,85 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
     <div id="bo-status-info"></div>
     <div class="bo-status-options" id="bo-status-options"></div>
     <button class="bo-cancel-btn" onclick="closeBoStatusModal()">Cancel</button>
+  </div>
+</div>
+
+<!-- ── BACKORDER EDIT MODAL (admin) ── -->
+<div class="modal-overlay" id="bo-edit-modal" style="display:none">
+  <div class="modal-card adm-modal-card">
+    <div class="adm-modal-header">
+      <span class="adm-modal-title">✏️ Edit Backorder</span>
+      <button class="adm-modal-close" onclick="closeBoEditModal()">✕</button>
+    </div>
+    <div class="adm-modal-item-label" id="boe-item-label"></div>
+    <label class="adm-field-label">Dealer / Customer</label>
+    <input id="boe-dealer" class="adm-input" type="text" placeholder="Dealer name">
+    <label class="adm-field-label">Phone</label>
+    <input id="boe-phone" class="adm-input" type="text" placeholder="Phone number">
+    <label class="adm-field-label">Qty Requested</label>
+    <input id="boe-qty" class="adm-input" type="number" min="1" step="1">
+    <label class="adm-field-label">Promised Date</label>
+    <input id="boe-promised" class="adm-input" type="date">
+    <label class="adm-field-label">Status</label>
+    <select id="boe-status" class="adm-input">
+      <option value="OPEN">OPEN</option>
+      <option value="PARTIAL">PARTIAL</option>
+      <option value="FULFILLED">FULFILLED</option>
+      <option value="CANCELLED">CANCELLED</option>
+    </select>
+    <label class="adm-field-label">Notes</label>
+    <textarea id="boe-notes" class="adm-input adm-textarea" placeholder="Optional notes"></textarea>
+    <div id="boe-err" class="adm-err"></div>
+    <div class="adm-modal-actions">
+      <button class="adm-btn-cancel" onclick="closeBoEditModal()">Cancel</button>
+      <button class="adm-btn-save" id="boe-save-btn" onclick="saveBoEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── TRANSFER ADMIN MODAL ── -->
+<div class="modal-overlay" id="trf-admin-modal" style="display:none">
+  <div class="modal-card adm-modal-card">
+    <div class="adm-modal-header">
+      <div>
+        <div class="adm-modal-title" id="trf-adm-num"></div>
+        <div class="adm-modal-sub" id="trf-adm-route"></div>
+      </div>
+      <button class="adm-modal-close" onclick="closeTrfAdminModal()">✕</button>
+    </div>
+    <label class="adm-field-label">Status</label>
+    <select id="trf-adm-status" class="adm-input">
+      <option value="PENDING">PENDING</option>
+      <option value="IN TRANSIT">IN TRANSIT</option>
+      <option value="PARTIAL">PARTIAL</option>
+      <option value="RECEIVED">RECEIVED</option>
+      <option value="CANCELLED">CANCELLED</option>
+    </select>
+    <label class="adm-field-label">Via</label>
+    <select id="trf-adm-via" class="adm-input">
+      <option value="Direct">Direct</option>
+      <option value="Bajaj 1">Bajaj 1</option>
+      <option value="Bajaj 2">Bajaj 2</option>
+    </select>
+    <label class="adm-field-label">Notes</label>
+    <textarea id="trf-adm-notes" class="adm-input adm-textarea" placeholder="Optional notes"></textarea>
+    <div id="trf-adm-err" class="adm-err"></div>
+    <div class="adm-modal-actions">
+      <button class="adm-btn-delete" onclick="deleteTrf()">🗑 Delete</button>
+      <button class="adm-btn-cancel" onclick="closeTrfAdminModal()">Cancel</button>
+      <button class="adm-btn-save" id="trf-adm-save-btn" onclick="saveTrfEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MOVEMENT HISTORY MODAL (admin) ── -->
+<div class="modal-overlay" id="mov-hist-modal" style="display:none;align-items:flex-end">
+  <div class="mov-hist-sheet">
+    <div class="adm-modal-header" style="padding:14px 16px 10px">
+      <span class="adm-modal-title">🕘 Movement History</span>
+      <button class="adm-modal-close" onclick="closeMovHistory()">✕</button>
+    </div>
+    <div id="mov-hist-body" class="mov-hist-body"></div>
   </div>
 </div>
 

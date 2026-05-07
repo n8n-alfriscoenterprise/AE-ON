@@ -215,7 +215,7 @@ async function submitTransfer(){
   errEl.textContent='';
 
   const trfNumber = generateTrfNumber();
-  const now = new Date().toLocaleString('en-PH');
+  const now = new Date().toLocaleString('sv-SE', {timeZone:'Asia/Manila'});
 
   const lineRows = validLines.map(line=>([
     trfNumber, line.skuCode||'', line.skuName,
@@ -516,6 +516,7 @@ function renderAllTransfers(){
     body.innerHTML='<div class="trf-empty">No transfers found.</div>';
     return;
   }
+  const isAdmin = currentUser && currentUser.role==='admin';
   body.innerHTML='';
   visible.sort((a,b)=>new Date(b.createdDate)-new Date(a.createdDate));
   visible.forEach(trf=>{
@@ -525,7 +526,8 @@ function renderAllTransfers(){
       'CANCELLED':'ts-cancelled','DECLINED':'ts-declined'
     }[trf.status]||'ts-pending';
     const card = document.createElement('div');
-    card.className='trf-card';
+    card.className='trf-card'+(isAdmin?' trf-card-admin':'');
+    if(isAdmin) card.onclick=()=>openTrfAdminModal(trf);
     card.innerHTML=`
       <div class="trf-card-row1">
         <div>
@@ -543,14 +545,72 @@ function renderAllTransfers(){
       <div class="trf-card-row2">
         <span style="font-size:11px;color:#888">${trf.lineCount||0} item(s)</span>
         ${trf.receivedBy?`<span style="font-size:11px;color:#27AE60">Rcvd by ${trf.receivedBy}</span>`:''}
-        ${trf.status==='IN TRANSIT'&&(currentUser.role==='admin'||trf.createdBy===currentUser.username)
+        ${!isAdmin&&trf.status==='IN TRANSIT'&&trf.createdBy===currentUser.username
           ?`<button onclick="event.stopPropagation();cancelTransfer('${trf.trfNumber}')"
               style="font-size:10px;background:none;border:1px solid #ccc;color:#888;padding:2px 8px;border-radius:6px;cursor:pointer">
               Cancel
             </button>`:''}
+        ${isAdmin?'<span style="font-size:10px;color:#3949AB;font-weight:600">tap to manage →</span>':''}
       </div>`;
     body.appendChild(card);
   });
+}
+
+// ── ADMIN: TRANSFER MANAGE MODAL ──────────────────────
+let _trfAdminTarget = null;
+
+function openTrfAdminModal(trf){
+  _trfAdminTarget = trf;
+  document.getElementById('trf-adm-num').textContent   = trf.trfNumber;
+  document.getElementById('trf-adm-route').textContent = trf.fromLocation+' → '+trf.toLocation;
+  document.getElementById('trf-adm-via').value         = trf.via    || 'Direct';
+  document.getElementById('trf-adm-status').value      = trf.status || 'IN TRANSIT';
+  document.getElementById('trf-adm-notes').value       = trf.notes  || '';
+  document.getElementById('trf-adm-err').textContent   = '';
+  const btn=document.getElementById('trf-adm-save-btn');
+  if(btn){btn.disabled=false;btn.textContent='Save Changes';}
+  document.getElementById('trf-admin-modal').style.display='flex';
+}
+
+function closeTrfAdminModal(){
+  document.getElementById('trf-admin-modal').style.display='none';
+  _trfAdminTarget=null;
+}
+
+async function saveTrfEdit(){
+  if(!_trfAdminTarget) return;
+  const btn=document.getElementById('trf-adm-save-btn');
+  btn.disabled=true; btn.textContent='Saving...';
+  const via    = document.getElementById('trf-adm-via').value;
+  const status = document.getElementById('trf-adm-status').value;
+  const notes  = document.getElementById('trf-adm-notes').value.trim();
+  const r=await api({action:'editTransfer', trfNumber:_trfAdminTarget.trfNumber, via, status, notes});
+  if(r.status==='ok'){
+    const t=trfList.find(x=>x.trfNumber===_trfAdminTarget.trfNumber);
+    if(t){t.via=via;t.status=status;t.notes=notes;}
+    closeTrfAdminModal();
+    updatePendingBadge();
+    renderAllTransfers();
+    showToast('Transfer updated', 'success');
+  } else {
+    document.getElementById('trf-adm-err').textContent=r.msg||'Save failed';
+    btn.disabled=false; btn.textContent='Save Changes';
+  }
+}
+
+async function deleteTrf(){
+  if(!_trfAdminTarget) return;
+  if(!confirm(`Delete transfer ${_trfAdminTarget.trfNumber}?\n\nAll line items will be removed. This cannot be undone.`)) return;
+  const r=await api({action:'deleteTransfer', trfNumber:_trfAdminTarget.trfNumber});
+  if(r.status==='ok'){
+    trfList=trfList.filter(x=>x.trfNumber!==_trfAdminTarget.trfNumber);
+    closeTrfAdminModal();
+    updatePendingBadge();
+    renderAllTransfers();
+    showToast('Transfer deleted', 'success');
+  } else {
+    alert('Delete failed: '+(r.msg||'Unknown error'));
+  }
 }
 
 

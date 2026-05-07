@@ -145,7 +145,7 @@ async function submitForm(){
   btn.disabled=true;btn.textContent='Submitting...';
   const mode=isReturnMode?'RETURN':'LOAD';
   const unit=document.getElementById('unit-select').value;
-  const now=new Date().toLocaleString('en-PH');
+  const now=new Date().toLocaleString('sv-SE', {timeZone:'Asia/Manila'});
   const allSkus={};
   Object.values(DIST_SKUS).flat().forEach(s=>allSkus[s.code]=s.name);
   Object.values(csskus).flat().forEach(s=>allSkus[s.code]=s.name);
@@ -172,6 +172,59 @@ function showBanner(id,msg){
   b.textContent=msg;
   b.style.display='block';
   setTimeout(()=>{ if(b) b.style.display='none'; },5000);
+}
+
+// ── MOVEMENT HISTORY (admin) ────────────────────────────
+async function openMovHistory(){
+  document.getElementById('mov-hist-modal').style.display='flex';
+  document.getElementById('mov-hist-body').innerHTML='<div style="text-align:center;padding:24px;color:#888;font-size:13px">Loading...</div>';
+  const r=await api({action:'getMovementHistory',limit:60});
+  if(r.status!=='ok'){
+    document.getElementById('mov-hist-body').innerHTML='<div style="padding:16px;color:#E24B4A">Failed to load history.</div>';
+    return;
+  }
+  const body=document.getElementById('mov-hist-body');
+  body.innerHTML='';
+  if(!r.batches||!r.batches.length){
+    body.innerHTML='<div style="text-align:center;padding:24px;color:#888;font-size:13px">No movement records found.</div>';
+    return;
+  }
+  r.batches.forEach(b=>{
+    const isLoad=b.mode.toUpperCase()==='LOAD';
+    const row=document.createElement('div');
+    row.className='mov-hist-row';
+    row.innerHTML=`
+      <div class="mov-hist-main">
+        <div class="mov-hist-badge" style="background:${isLoad?'#E3F2FD':'#E8F5E9'};color:${isLoad?'#1565C0':'#2E7D32'}">${b.mode}</div>
+        <div class="mov-hist-info">
+          <div style="font-size:12px;font-weight:700;color:#222">${b.unit} · ${b.items} SKU(s)</div>
+          <div style="font-size:11px;color:#666">${b.submittedBy} · ${b.timestamp}</div>
+          <div style="font-size:11px;color:#888">
+            ${isLoad?'Loaded: '+b.totalLoaded:'Returned: '+b.totalReturned}
+          </div>
+        </div>
+      </div>
+      <button class="mov-hist-del-btn" onclick="deleteMovBatch('${b.batchKey.replace(/'/g,"\\'")}',this)">Delete</button>`;
+    body.appendChild(row);
+  });
+}
+
+function closeMovHistory(){
+  document.getElementById('mov-hist-modal').style.display='none';
+}
+
+async function deleteMovBatch(batchKey, btn){
+  if(!confirm('Delete this movement batch? Stock counts will NOT be reversed automatically.')) return;
+  const orig=btn.textContent;
+  btn.disabled=true; btn.textContent='Deleting...';
+  const r=await api({action:'deleteMovementBatch', batchKey});
+  if(r.status==='ok'){
+    btn.closest('.mov-hist-row').remove();
+    showToast('Movement batch deleted','success');
+  } else {
+    btn.disabled=false; btn.textContent=orig;
+    alert('Delete failed: '+(r.msg||'Unknown error'));
+  }
 }
 
 // ── DRIVER SCREEN ──

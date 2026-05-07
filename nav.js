@@ -45,10 +45,10 @@ function buildHomeTiles(){
   const canPL = currentUser.role==='admin' || currentUser.canViewProductList===true;
   if(canPL) tiles.push({icon:'📋',name:'Product List',desc:'Item prices & current stock levels',cls:'t-product',fn:'openPL()',badge:'ls-alert-badge'});
   // 1. Stock Movement — always visible
-  tiles.push({icon:'📦',name:'Stock Movement',desc:'Load & return stocks for Bajaj routes',cls:'t-movement',fn:'showMovement()'});
+  tiles.push({icon:'📦',name:'Stock Movement',desc:'Load & return stocks for Bajaj routes',cls:'t-movement',fn:'showMovement()',badge:'mov-home-badge'});
   // 2. Transfer
   const canTrfTile=currentUser.role==='admin'||currentUser.canTransfer===true;
-  if(canTrfTile) tiles.push({icon:'🔄',name:'Transfer',desc:'Move stock between warehouse, store & Bajaj',cls:'t-transfer',fn:'openTransfer()'});
+  if(canTrfTile) tiles.push({icon:'🔄',name:'Transfer',desc:'Move stock between warehouse, store & Bajaj',cls:'t-transfer',fn:'openTransfer()',badge:'trf-home-badge'});
   // 3. Purchase Orders
   const canPODist   = currentUser.role==='admin' || currentUser.canManagePODist===true;
   const canPORetail = currentUser.role==='admin' || currentUser.canManagePORetail===true;
@@ -70,7 +70,7 @@ function buildHomeTiles(){
       ? 'Track & update dealer and retail backorder status'
       : canBoDist ? 'Track & update dealer backorder status'
                   : 'Track & update retail backorder status';
-    tiles.push({icon:'⚠️',name:'Backorders',desc:boDesc,cls:'t-backorder',fn:'openBoScreen()'});
+    tiles.push({icon:'⚠️',name:'Backorders',desc:boDesc,cls:'t-backorder',fn:'openBoScreen()',badge:'bo-home-badge'});
   }
   // 7. Production
   const canProdTile=currentUser.role==='admin'||currentUser.canProduction===true||currentUser.role==='staff-retail';
@@ -89,6 +89,20 @@ function buildHomeTiles(){
   });
   if(currentUser.role==='admin') loadPendingBadge();
   if(canPL) loadLowStockBadge();
+  loadPendingCounts();
+}
+
+async function loadPendingCounts(){
+  try{
+    const r=await api({action:'getPendingCounts'});
+    if(r.status!=='ok') return;
+    const trf=document.getElementById('trf-home-badge');
+    const bo =document.getElementById('bo-home-badge');
+    const mov=document.getElementById('mov-home-badge');
+    if(trf){ if(r.transferCount>0){trf.textContent=r.transferCount;trf.style.display='inline-flex';}else{trf.style.display='none';} }
+    if(bo){  if(r.boCount>0)      {bo.textContent=r.boCount;      bo.style.display='inline-flex';}else{bo.style.display='none';}  }
+    if(mov){ if(r.movCount>0)     {mov.textContent=r.movCount;    mov.style.display='inline-flex';}else{mov.style.display='none';}}
+  }catch(e){ console.error('loadPendingCounts failed',e); }
 }
 
 async function loadLowStockBadge(){
@@ -130,6 +144,8 @@ function showMovement(){
   const isAdmin=currentUser.role==='admin';
   if(document.getElementById('tnav-po')) document.getElementById('tnav-po').style.display=canPO?'block':'none';
   if(document.getElementById('tnav-admin')) document.getElementById('tnav-admin').style.display=isAdmin?'block':'none';
+  const histBtn=document.getElementById('mov-history-btn');
+  if(histBtn) histBtn.style.display=isAdmin?'flex':'none';
   document.getElementById('movement-area').style.display='block';
   document.getElementById('mode-btn').style.display='flex';
   isReturnMode=false;

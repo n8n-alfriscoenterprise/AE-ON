@@ -189,7 +189,7 @@ async function submitBackorder(){
   btn.textContent='Submitting '+validLines.length+' item(s)...';
   errEl.textContent='';
 
-  const now=new Date().toLocaleString('en-PH');
+  const now=new Date().toLocaleString('sv-SE', {timeZone:'Asia/Manila'});
   const promisedDate=date?new Date(date).toLocaleDateString('en-PH'):'';
   const who=currentUser?currentUser.username:'Unknown';
 
@@ -368,7 +368,7 @@ async function submitRetailBackorder(){
   btn.textContent='Submitting '+validLines.length+' item(s)...';
   errEl.textContent='';
 
-  const now=new Date().toLocaleString('en-PH');
+  const now=new Date().toLocaleString('sv-SE', {timeZone:'Asia/Manila'});
   const promisedDate=date?new Date(date).toLocaleDateString('en-PH'):'';
   const who=currentUser?currentUser.username:'Unknown';
 
@@ -530,7 +530,7 @@ function renderBoList() {
     const meta    = statusMeta[item.status] || statusMeta.OPEN;
     const row     = document.createElement('div');
     row.className = 'bo-list-row' + (canEdit ? ' bo-list-row-tap' : '');
-    if (canEdit) row.onclick = () => openBoStatusModal(item);
+    if (canEdit && !isAdmin) row.onclick = () => openBoStatusModal(item);
 
     const promiseLine = item.promisedDate ? ' · Due: ' + item.promisedDate : '';
     const notesLine   = item.notes        ? ' · ' + item.notes             : '';
@@ -547,10 +547,92 @@ function renderBoList() {
       <div class="bo-list-right">
         <span class="bo-status-badge"
           style="background:${meta.bg};color:${meta.color}">${meta.label}</span>
-        ${canEdit ? '<span class="bo-list-edit-hint">tap to update</span>' : ''}
+        ${isAdmin
+          ? `<div class="bo-admin-btns">
+              <button class="bo-admin-btn bo-edit-btn" onclick="event.stopPropagation();openBoEditModal(boListData['${item.type}'].find(x=>x.rowIndex===${item.rowIndex}))">Edit</button>
+              <button class="bo-admin-btn bo-del-btn"  onclick="event.stopPropagation();deleteBoItem(boListData['${item.type}'].find(x=>x.rowIndex===${item.rowIndex}))">Delete</button>
+            </div>`
+          : canEdit ? '<span class="bo-list-edit-hint">tap to update</span>' : ''}
       </div>`;
+    if (isAdmin) row.onclick = () => openBoStatusModal(item);
     body.appendChild(row);
   });
+}
+
+// ── ADMIN: EDIT BACKORDER ──────────────────────────────
+let _boEditTarget = null;
+
+function openBoEditModal(item){
+  if(!item) return;
+  _boEditTarget = item;
+  document.getElementById('boe-dealer').value       = item.dealer       || '';
+  document.getElementById('boe-phone').value        = item.phone        || '';
+  document.getElementById('boe-qty').value          = item.qty          || 1;
+  document.getElementById('boe-promised').value     = item.promisedDate || '';
+  document.getElementById('boe-notes').value        = item.notes        || '';
+  document.getElementById('boe-status').value       = item.status       || 'OPEN';
+  document.getElementById('boe-item-label').textContent = item.itemName + ' (' + item.unit + ')';
+  document.getElementById('boe-err').textContent    = '';
+  const btn = document.getElementById('boe-save-btn');
+  if(btn){ btn.disabled=false; btn.textContent='Save Changes'; }
+  document.getElementById('bo-edit-modal').style.display='flex';
+}
+
+function closeBoEditModal(){
+  document.getElementById('bo-edit-modal').style.display='none';
+  _boEditTarget=null;
+}
+
+async function saveBoEdit(){
+  if(!_boEditTarget) return;
+  const btn=document.getElementById('boe-save-btn');
+  btn.disabled=true; btn.textContent='Saving...';
+  const r=await api({
+    action:'editBackorder',
+    boType:     _boEditTarget.type,
+    rowIndex:   _boEditTarget.rowIndex,
+    dealer:     document.getElementById('boe-dealer').value.trim(),
+    phone:      document.getElementById('boe-phone').value.trim(),
+    qty:        parseFloat(document.getElementById('boe-qty').value)||1,
+    promisedDate:document.getElementById('boe-promised').value,
+    notes:      document.getElementById('boe-notes').value.trim(),
+    status:     document.getElementById('boe-status').value
+  });
+  if(r.status==='ok'){
+    // Update local cache
+    const idx=boListData[_boEditTarget.type].findIndex(x=>x.rowIndex===_boEditTarget.rowIndex);
+    if(idx>-1){
+      Object.assign(boListData[_boEditTarget.type][idx],{
+        dealer: document.getElementById('boe-dealer').value.trim(),
+        phone:  document.getElementById('boe-phone').value.trim(),
+        qty:    parseFloat(document.getElementById('boe-qty').value)||1,
+        promisedDate:document.getElementById('boe-promised').value,
+        notes:  document.getElementById('boe-notes').value.trim(),
+        status: document.getElementById('boe-status').value
+      });
+    }
+    closeBoEditModal();
+    buildBoStatusChips();
+    renderBoList();
+    showToast('Backorder updated', 'success');
+  } else {
+    document.getElementById('boe-err').textContent = r.msg || 'Save failed';
+    btn.disabled=false; btn.textContent='Save Changes';
+  }
+}
+
+async function deleteBoItem(item){
+  if(!item) return;
+  if(!confirm(`Delete backorder for "${item.dealer}" — ${item.itemName}?\n\nThis cannot be undone.`)) return;
+  const r=await api({action:'deleteBackorder', boType:item.type, rowIndex:item.rowIndex});
+  if(r.status==='ok'){
+    boListData[item.type]=boListData[item.type].filter(x=>x.rowIndex!==item.rowIndex);
+    buildBoStatusChips();
+    renderBoList();
+    showToast('Backorder deleted', 'success');
+  } else {
+    alert('Delete failed: '+(r.msg||'Unknown error'));
+  }
 }
 
 // ── STATUS PICKER ─────────────────────────────────────

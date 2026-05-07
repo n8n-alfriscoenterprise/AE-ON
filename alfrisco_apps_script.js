@@ -211,43 +211,51 @@ function doPost(e) {
         const disUOM   = String(r[12]||'').trim(); // col M — DisassemblyUOM
         const asmUOM   = String(r[13]||'').trim(); // col N — AssemblyUOM
 
+        const sourceUnit     = String(r[4]||'').trim(); // col E
         const hasDisassembly = disUOM && disUOM !== '—';
         const hasAssembly    = asmUOM && asmUOM !== '—';
 
         if (hasDisassembly) {
-          const outCode = parseSkuCode(disUOM);
-          const outRow  = findSku(outCode);
+          const outCode    = parseSkuCode(disUOM);
+          const outRow     = findSku(outCode);
+          const outputUnit = outRow ? String(outRow[4]||'').trim() : '';
           bom.push({
             sourceSku:   code,
             sourceName:  name,
             category:    category,
+            sourceUnit:  sourceUnit,
             outputSku:   outCode,
             outputName:  outRow ? String(outRow[1]).trim() : outCode,
+            outputUnit:  outputUnit,
             ratio:       ratio,
             canAssemble: false
           });
 
         } else if (hasAssembly) {
-          const outCode = parseSkuCode(asmUOM);
-          const outRow  = findSku(outCode);
+          const outCode    = parseSkuCode(asmUOM);
+          const outRow     = findSku(outCode);
+          const outputUnit = outRow ? String(outRow[4]||'').trim() : '';
           bom.push({
             sourceSku:   code,
             sourceName:  name,
             category:    category,
+            sourceUnit:  sourceUnit,
             outputSku:   outCode,
             outputName:  outRow ? String(outRow[1]).trim() : outCode,
+            outputUnit:  outputUnit,
             ratio:       outRow ? (Number(outRow[14])||ratio) : ratio,
             canAssemble: true
           });
 
         } else {
-          // No UOM pairing yet — still show in dropdown so user knows it's registered
           bom.push({
             sourceSku:   code,
             sourceName:  name,
             category:    category,
+            sourceUnit:  sourceUnit,
             outputSku:   '',
             outputName:  '(output not configured)',
+            outputUnit:  '',
             ratio:       ratio || 1,
             canAssemble: false
           });
@@ -259,7 +267,7 @@ function doPost(e) {
 
     // ── SUBMIT PRODUCTION ──────────────────────────────────────────────
     if (data.action === 'submitProduction') {
-      const variance    = Number(data.standardUnits||0) - Number(data.unitsProduced||0);
+      const variance    = Number(data.unitsProduced||0) - Number(data.standardUnits||0);
       const variancePct = data.standardUnits > 0
         ? ((variance / data.standardUnits)*100).toFixed(2)+'%' : '0%';
       const log = getOrCreateSheet(ss,'Production Log',[
@@ -278,12 +286,10 @@ function doPost(e) {
       const cs = getOrCreateSheet(ss,'Stock Counts - Retail',[
         'Timestamp','Submitted By','Location','SKU Code',
         'Item Name','Qty On Hand','Unit','Type','Category']);
-      const srcUnit = data.canAssemble ? 'kg'  : 'bag';
-      const outUnit = data.canAssemble ? 'bag' : 'kg';
       cs.appendRow([data.timestamp,data.submittedBy,'Production',
-        data.sourceSku,data.sourceName,-data.bagsConsumed,srcUnit,'RETAIL','Production']);
+        data.sourceSku,data.sourceName,-data.bagsConsumed,data.sourceUnit||'','RETAIL','Production']);
       cs.appendRow([data.timestamp,data.submittedBy,'Production',
-        data.outputSku,data.outputName,data.unitsProduced,outUnit,'RETAIL','Production']);
+        data.outputSku,data.outputName,data.unitsProduced,data.outputUnit||'','RETAIL','Production']);
       return ok({});
     }
 
@@ -405,7 +411,7 @@ function doPost(e) {
       const sheet=ss.getSheetByName('Purchase Orders');
       if(!sheet)return err('Sheet not found');
       const rows=sheet.getDataRange().getValues();
-      const now = new Date().toLocaleString('en-PH');
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       // No break — update ALL rows matching this PO number so duplicates stay in sync
       for(let i=1;i<rows.length;i++){
         if(String(rows[i][0])===data.poNumber){
@@ -427,7 +433,7 @@ function doPost(e) {
       const sheet=ss.getSheetByName('Purchase Orders');
       if(!sheet)return err('Sheet not found');
       const rows=sheet.getDataRange().getValues();
-      const now = new Date().toLocaleString('en-PH');
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       // No break — update ALL rows matching this PO number
       for(let i=1;i<rows.length;i++){
         if(String(rows[i][0])===data.poNumber){
@@ -445,7 +451,7 @@ function doPost(e) {
       const sheet=ss.getSheetByName('Purchase Orders');
       if(!sheet)return err('Sheet not found');
       const rows=sheet.getDataRange().getValues();
-      const now = new Date().toLocaleString('en-PH');
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       // No break — update ALL rows matching this PO number
       for(let i=1;i<rows.length;i++){
         if(String(rows[i][0])===data.poNumber){
@@ -481,7 +487,7 @@ function doPost(e) {
       const liSheet=ss.getSheetByName('PO Line Items');
       if(!poSheet||!liSheet)return err('Sheets not found');
       const liRows=liSheet.getDataRange().getValues();
-      const now=new Date().toLocaleString('en-PH');
+      const now=Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 
       // Update line items with received qty and actual cost
       (data.receipts||[]).forEach(receipt=>{
@@ -604,12 +610,12 @@ function doPost(e) {
         'SKU Code','Item Name','Qty Dispatched','Qty Received',
         'Discrepancy','Unit','Notes'
       ]);
-      const now = new Date().toLocaleString('en-PH');
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       (data.lineItems||[]).forEach(li => {
         hdrSheet.appendRow([
           data.trfNumber, data.fromLocation, data.toLocation, data.via,
           data.status || 'IN TRANSIT',
-          data.createdBy, data.createdDate, '', '',
+          data.createdBy, now, '', '',
           li[1], li[2], li[3], 0, li[3],
           li[4] || 'bag', data.notes || ''
         ]);
@@ -634,9 +640,9 @@ function doPost(e) {
             via:          String(r[3]),
             status:       String(r[4]),
             createdBy:    String(r[5]),
-            createdDate:  String(r[6]),
+            createdDate:  r[6] instanceof Date ? Utilities.formatDate(r[6], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss') : String(r[6]||''),
             receivedBy:   String(r[7]||''),
-            receivedDate: String(r[8]||''),
+            receivedDate: r[8] instanceof Date ? Utilities.formatDate(r[8], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss') : String(r[8]||''),
             notes:        String(r[15]||''),
             lineCount:    0
           };
@@ -663,7 +669,7 @@ function doPost(e) {
         via:          String(first[3]),
         status:       String(first[4]),
         createdBy:    String(first[5]),
-        createdDate:  String(first[6]),
+        createdDate:  first[6] instanceof Date ? Utilities.formatDate(first[6], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss') : String(first[6]||''),
         receivedBy:   String(first[7]||''),
         notes:        String(first[15]||'')
       };
@@ -688,7 +694,7 @@ function doPost(e) {
         'Discrepancy','Unit','Notes'
       ]);
       const rows = sheet.getDataRange().getValues();
-      const now = new Date().toLocaleString('en-PH');
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       let allReceived = true;
 
       // Update each line item's received qty and check if all fulfilled
@@ -868,7 +874,7 @@ function doPost(e) {
       const sheet = ss.getSheetByName('Transfer Log');
       if (!sheet) return err('Transfer Log not found');
       const rows = sheet.getDataRange().getValues();
-      const now  = new Date().toLocaleString('en-PH');
+      const now  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       for (let i = 1; i < rows.length; i++) {
         if (String(rows[i][0]) === data.trfNumber) {
           sheet.getRange(i+1, 5).setValue('DECLINED');
@@ -888,7 +894,7 @@ function doPost(e) {
       const sheet = ss.getSheetByName('Transfer Log');
       if (!sheet) return err('Transfer Log not found');
       const rows = sheet.getDataRange().getValues();
-      const now  = new Date().toLocaleString('en-PH');
+      const now  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       for (let i = 1; i < rows.length; i++) {
         if (String(rows[i][0]) === data.trfNumber) {
           sheet.getRange(i+1, 5).setValue('CANCELLED');
@@ -909,7 +915,7 @@ function doPost(e) {
     if (data.action === 'submitStockAdjustment') {
       const segment  = data.segment || 'dist';
       const adjType  = data.adjType || 'receive';
-      const now      = data.timestamp || new Date().toLocaleString('en-PH');
+      const now      = data.timestamp || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       const user     = data.submittedBy || '';
       const notes    = data.notes || '';
       const batchRef = data.batchRef || '';
@@ -971,7 +977,7 @@ function doPost(e) {
         if (r[0] && r[4]) existing.add(String(r[0]).trim() + '|' + String(r[4]).trim());
       });
 
-      const now = new Date().toLocaleString('en-PH');
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       let imported = 0, skipped = 0;
 
       (data.rows || []).forEach(r => {
@@ -1007,7 +1013,7 @@ function doPost(e) {
         if (r[0] && r[5]) existing.add(String(r[0]).trim()+'|'+String(r[5]).trim()+'|'+String(r[7]).trim());
       });
 
-      const now = new Date().toLocaleString('en-PH');
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       let imported = 0, skipped = 0;
 
       (data.rows || []).forEach(r => {
@@ -1313,6 +1319,149 @@ function doPost(e) {
       if (sheetRow < 2) return err('Invalid row index');
       const STATUS_COL = 10; // Column J
       boSheet.getRange(sheetRow, STATUS_COL).setValue(data.status);
+      return ok({});
+    }
+
+    // ── GET PENDING COUNTS (home tile badges) ─────────────────────────
+    if (data.action === 'getPendingCounts') {
+      // Transfer: unique IN TRANSIT transfer numbers
+      let transferCount = 0;
+      const trfSheet = ss.getSheetByName('Transfer Log');
+      if (trfSheet) {
+        const seen = {};
+        trfSheet.getDataRange().getValues().slice(1).filter(r=>r[0]).forEach(r => {
+          const num = String(r[0]);
+          if (!seen[num] && String(r[4]).toUpperCase() === 'IN TRANSIT') {
+            seen[num] = true; transferCount++;
+          }
+        });
+      }
+      // Backorders: OPEN + PARTIAL across both sheets
+      let boCount = 0;
+      ['Backorders','Backorders - Retail'].forEach(sn => {
+        const s = ss.getSheetByName(sn);
+        if (s) s.getDataRange().getValues().slice(1).filter(r=>r[0]).forEach(r => {
+          const st = String(r[9]||'').toUpperCase();
+          if (st === 'OPEN' || st === 'PARTIAL') boCount++;
+        });
+      });
+      // Movement: Bajaj units with a LOAD today but no RETURN
+      let movCount = 0;
+      const movSheet = ss.getSheetByName('Stock Movements');
+      if (movSheet) {
+        const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        const loadUnits = new Set(), returnUnits = new Set();
+        movSheet.getDataRange().getValues().slice(1).filter(r=>r[0]).forEach(r => {
+          const ts = r[0] instanceof Date
+            ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+            : String(r[0]);
+          if (!ts.startsWith(today)) return;
+          const mode = String(r[3]).toUpperCase();
+          if (mode === 'LOAD')   loadUnits.add(String(r[2]));
+          if (mode === 'RETURN') returnUnits.add(String(r[2]));
+        });
+        loadUnits.forEach(u => { if (!returnUnits.has(u)) movCount++; });
+      }
+      return ok({ transferCount, boCount, movCount });
+    }
+
+    // ── DELETE BACKORDER ───────────────────────────────────────────────
+    if (data.action === 'deleteBackorder') {
+      const sn = data.boType === 'retail' ? 'Backorders - Retail' : 'Backorders';
+      const s  = ss.getSheetByName(sn);
+      if (!s) return err('Sheet not found');
+      const sheetRow = Number(data.rowIndex) + 1;
+      if (sheetRow < 2) return err('Invalid row');
+      s.deleteRow(sheetRow);
+      return ok({});
+    }
+
+    // ── EDIT BACKORDER ─────────────────────────────────────────────────
+    if (data.action === 'editBackorder') {
+      const sn = data.boType === 'retail' ? 'Backorders - Retail' : 'Backorders';
+      const s  = ss.getSheetByName(sn);
+      if (!s) return err('Sheet not found');
+      const row = Number(data.rowIndex) + 1;
+      if (row < 2) return err('Invalid row');
+      // Columns: 1=Timestamp 2=SubmittedBy 3=Dealer 4=Phone 5=SKU 6=Item
+      //          7=Qty 8=Unit 9=PromisedDate 10=Status 11=Notes
+      if (data.dealer       != null) s.getRange(row, 3).setValue(data.dealer);
+      if (data.phone        != null) s.getRange(row, 4).setValue(data.phone);
+      if (data.qty          != null) s.getRange(row, 7).setValue(Number(data.qty));
+      if (data.promisedDate != null) s.getRange(row, 9).setValue(data.promisedDate);
+      if (data.status       != null) s.getRange(row,10).setValue(data.status);
+      if (data.notes        != null) s.getRange(row,11).setValue(data.notes);
+      return ok({});
+    }
+
+    // ── DELETE TRANSFER ────────────────────────────────────────────────
+    if (data.action === 'deleteTransfer') {
+      const s = ss.getSheetByName('Transfer Log');
+      if (!s) return err('Sheet not found');
+      const rows = s.getDataRange().getValues();
+      // Collect matching rows in reverse so indices stay valid after each delete
+      for (let i = rows.length - 1; i >= 1; i--) {
+        if (String(rows[i][0]) === data.trfNumber) s.deleteRow(i + 1);
+      }
+      return ok({});
+    }
+
+    // ── EDIT TRANSFER ──────────────────────────────────────────────────
+    if (data.action === 'editTransfer') {
+      const s = ss.getSheetByName('Transfer Log');
+      if (!s) return err('Sheet not found');
+      const rows = s.getDataRange().getValues();
+      // Columns: 1=TrfNo 2=From 3=To 4=Via 5=Status 6=CreatedBy 7=CreatedDate
+      //          8=ReceivedBy 9=ReceivedDate 10=SKU 11=Name 12=QtyDisp 13=QtyRcvd
+      //          14=Discrepancy 15=Unit 16=Notes
+      for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i][0]) === data.trfNumber) {
+          if (data.via    != null) s.getRange(i+1, 4).setValue(data.via);
+          if (data.status != null) s.getRange(i+1, 5).setValue(data.status);
+          if (data.notes  != null) s.getRange(i+1,16).setValue(data.notes);
+        }
+      }
+      return ok({});
+    }
+
+    // ── GET MOVEMENT HISTORY ───────────────────────────────────────────
+    if (data.action === 'getMovementHistory') {
+      const s = ss.getSheetByName('Stock Movements');
+      if (!s) return ok({ batches: [] });
+      // Group rows into batches by timestamp+unit+mode
+      const batchMap = {};
+      s.getDataRange().getValues().slice(1).filter(r=>r[0]).forEach((r, i) => {
+        const ts = r[0] instanceof Date
+          ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+          : String(r[0]);
+        const key = ts + '|' + String(r[2]) + '|' + String(r[3]);
+        if (!batchMap[key]) batchMap[key] = {
+          batchKey: key, timestamp: ts, submittedBy: String(r[1]),
+          unit: String(r[2]), mode: String(r[3]), items: 0,
+          totalLoaded:0, totalReturned:0
+        };
+        batchMap[key].items++;
+        batchMap[key].totalLoaded   += Number(r[7]||0);
+        batchMap[key].totalReturned += Number(r[8]||0);
+      });
+      const batches = Object.values(batchMap)
+        .sort((a,b) => b.timestamp.localeCompare(a.timestamp))
+        .slice(0, Number(data.limit)||60);
+      return ok({ batches });
+    }
+
+    // ── DELETE MOVEMENT BATCH ──────────────────────────────────────────
+    if (data.action === 'deleteMovementBatch') {
+      const s = ss.getSheetByName('Stock Movements');
+      if (!s) return err('Sheet not found');
+      const rows = s.getDataRange().getValues();
+      for (let i = rows.length - 1; i >= 1; i--) {
+        const ts = rows[i][0] instanceof Date
+          ? Utilities.formatDate(rows[i][0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+          : String(rows[i][0]);
+        const key = ts + '|' + String(rows[i][2]) + '|' + String(rows[i][3]);
+        if (key === data.batchKey) s.deleteRow(i + 1);
+      }
       return ok({});
     }
 

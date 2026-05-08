@@ -299,7 +299,8 @@ function doPost(e) {
         'PO Number','Type','Supplier','Status','Created By','Created Date',
         'Approved By','Approved Date','Delivery Date','Total Value','Notes',
         'Payment Terms Days','Payment Mode','Cheque Ref','Due Date',
-        'Rejection Reason','Doc Ref','Date Received','Received By','Payment History']);
+        'Rejection Reason','Doc Ref','Date Received','Received By','Payment History',
+        'Amount Paid','Overpayment']);
       const liSheet = getOrCreateSheet(ss,'PO Line Items',[
         'PO Number','SKU Code','Item Name','Category',
         'Qty Ordered','Unit','Unit Cost','Total Cost',
@@ -389,7 +390,9 @@ function doPost(e) {
         docRef:           String(poRow[16]||''),
         dateReceived:     String(poRow[17]||''),
         receivedBy:       String(poRow[18]||''),
-        paymentHistory:   String(poRow[19]||'')
+        paymentHistory:   String(poRow[19]||''),
+        amountPaid:       Number(poRow[20]||0),
+        overpayment:      Number(poRow[21]||0)
       };
       let lineItems=[];
       if(liSheet){
@@ -796,12 +799,13 @@ function doPost(e) {
       const retailStock = buildStockMap(retailCntSheet);
 
       // ── Build distribution product list ──
+      const includeInactive = data.includeInactive === true;
       const dist = [];
       if (distSkuSheet) {
         // Cols: A-Code B-Name C-Cat D-Type E-Order F-Active G-Notes
         //       H-Supplier I-Cost J-SellingPrice K-ParLevel
         distSkuSheet.getDataRange().getValues().slice(4)
-          .filter(r=>r[0]&&String(r[5]).toUpperCase()==='YES')
+          .filter(r=>r[0]&&(includeInactive||String(r[5]).toUpperCase()==='YES'))
           .forEach(r=>{
             const code = String(r[0]).trim();
             const stk  = distStock[code];
@@ -825,7 +829,7 @@ function doPost(e) {
         //       H-Active I-Supplier J-Cost K-SellingPrice
         //       L-IsProductionItem M-DisassemblyUOM N-AssemblyUOM O-StandardRatio P-ParLevel
         retailSkuSheet.getDataRange().getValues().slice(4)
-          .filter(r=>r[0]&&String(r[7]).toUpperCase()==='YES')
+          .filter(r=>r[0]&&(includeInactive||String(r[7]).toUpperCase()==='YES'))
           .forEach(r=>{
             const code = String(r[0]).trim();
             const stk  = retailStock[code];
@@ -1216,13 +1220,16 @@ function doPost(e) {
         const oldTerms  = String(poRows[i][11] || '');
         const oldDue    = String(poRows[i][14] || '');
 
+        const oldAmount = Number(poRows[i][20] || 0);
+
         // Only log if there were actual old values to preserve
-        if (oldMode || oldCheque || oldTerms || oldDue) {
+        if (oldMode || oldCheque || oldTerms || oldDue || oldAmount > 0) {
           const histEntry = '[' + now + ' — edited by ' + (data.editedBy || 'admin') + '] '
             + (oldMode   ? 'Mode: '   + oldMode   : '')
             + (oldCheque ? ' · Cheque #' + oldCheque : '')
             + (oldTerms  ? ' · Terms: '  + (oldTerms === '0' ? 'Upon Delivery' : oldTerms + ' days') : '')
-            + (oldDue    ? ' · Due: '    + oldDue    : '');
+            + (oldDue    ? ' · Due: '    + oldDue    : '')
+            + (oldAmount > 0 ? ' · Amount Paid: ₱' + oldAmount : '');
 
           const existing = String(poRows[i][19] || '');
           const newHistory = existing ? existing + '|||' + histEntry : histEntry;
@@ -1234,6 +1241,8 @@ function doPost(e) {
         poSheet.getRange(i + 1, 13).setValue(data.paymentMode      || '');
         poSheet.getRange(i + 1, 14).setValue(data.chequeRef        || '');
         poSheet.getRange(i + 1, 15).setValue(data.dueDate          || '');
+        poSheet.getRange(i + 1, 21).setValue(data.amountPaid       || 0);   // col 21 = Amount Paid
+        poSheet.getRange(i + 1, 22).setValue(data.overpayment      || 0);   // col 22 = Overpayment
 
         found = true;
         // No break — update ALL matching rows (safety for legacy duplicates)

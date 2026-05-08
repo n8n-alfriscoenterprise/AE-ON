@@ -496,7 +496,10 @@ function renderPODetail(){
     + (po.approvedBy ? '<br>Approved by: ' + po.approvedBy : '')
     + (po.paymentMode ? '<br>Payment: ' + po.paymentMode
         + (po.chequeRef ? ' — Cheque #' + po.chequeRef : '')
+        + (po.amountPaid > 0 ? ' — Amount: <strong>₱' + Number(po.amountPaid).toLocaleString('en-PH',{minimumFractionDigits:2}) + '</strong>' : '')
         + (po.dueDate ? ' — Due: <strong>' + po.dueDate + '</strong>' : '') : '')
+    + (po.overpayment > 0
+        ? '<br><span class="po-overpay-badge">⚠️ Overpayment: ₱' + Number(po.overpayment).toLocaleString('en-PH',{minimumFractionDigits:2}) + ' — credit pending from ' + po.supplier + '</span>' : '')
     + (po.docRef ? '<br>Doc Ref #: <strong>' + po.docRef + '</strong>' : '')
     + '<br>Total: <strong>₱' + Number(po.totalValue||0).toLocaleString('en-PH',{minimumFractionDigits:2}) + '</strong>'
     + (po.notes ? '<br>Notes: ' + po.notes : '')
@@ -641,16 +644,19 @@ function renderPODetail(){
     const netUnit = discAmt > 0
       ? (discType==='₱' ? Number(li.unitCost)-discAmt : Number(li.unitCost)*(1-discAmt/100)) : Number(li.unitCost);
 
+    const lineTotal = Math.max(0, netUnit) * Number(li.qtyOrdered||0);
+
     lineHTML += '<div class="po-receive-row">'
       + '<div class="po-receive-info">'
         + '<div class="po-receive-name">' + (li.itemName||li.skuCode) + '</div>'
         + '<div class="po-receive-ordered">Ordered: ' + li.qtyOrdered
           + ' &nbsp;·&nbsp; Received: ' + received
           + ' &nbsp;·&nbsp; Outstanding: ' + outstanding + '</div>'
-        + '<div class="po-receive-ordered">Cost: ₱' + Number(li.unitCost||0).toLocaleString('en-PH',{minimumFractionDigits:2})
+        + '<div class="po-receive-ordered">Unit cost: ₱' + Number(li.unitCost||0).toLocaleString('en-PH',{minimumFractionDigits:2})
           + (discLabel ? ' &nbsp;<span style="color:#E24B4A;font-weight:600">'+discLabel+'</span>'
             + ' &nbsp;→ Net ₱'+Math.max(0,netUnit).toLocaleString('en-PH',{minimumFractionDigits:2}) : '')
           + '</div>'
+        + '<div class="po-receive-ordered" style="font-weight:700;color:#1A3A5C">Line Total: ₱' + lineTotal.toLocaleString('en-PH',{minimumFractionDigits:2}) + '</div>'
       + '</div>';
 
     if(isFull){
@@ -906,6 +912,14 @@ function openEditPaymentModal(){
   const chequeEl = document.getElementById('epm-cheque');
   chequeEl.value = po.chequeRef || '';
 
+  // Pre-fill amount — use previously saved amountPaid, else default to PO total
+  const amountEl = document.getElementById('epm-amount');
+  amountEl.value = po.amountPaid > 0 ? po.amountPaid : (po.totalValue || 0);
+
+  // Show PO total as reference
+  const totalRef = document.getElementById('epm-total-ref');
+  if(totalRef) totalRef.textContent = 'PO Total: ₱' + Number(po.totalValue||0).toLocaleString('en-PH',{minimumFractionDigits:2});
+
   // Pre-fill terms
   const termsEl = document.getElementById('epm-terms');
   termsEl.value = po.paymentTermsDays || '';
@@ -920,8 +934,35 @@ function openEditPaymentModal(){
   } catch(e){ delivEl.value = new Date().toISOString().split('T')[0]; }
 
   epmCalcDue();
+  epmCheckOverpay();
   document.getElementById('epm-err').textContent = '';
   document.getElementById('edit-payment-modal').style.display = 'flex';
+}
+
+function epmCheckOverpay(){
+  const po      = currentPO;
+  const amount  = parseFloat(document.getElementById('epm-amount').value) || 0;
+  const total   = po ? Number(po.totalValue||0) : 0;
+  const warnEl  = document.getElementById('epm-overpay-warn');
+  const noteEl  = document.getElementById('epm-underpay-note');
+  if(!warnEl || !noteEl) return;
+
+  if(amount > total && total > 0){
+    const over = amount - total;
+    warnEl.style.display = 'block';
+    warnEl.innerHTML = '⚠️ <strong>Overpayment of ₱' + over.toLocaleString('en-PH',{minimumFractionDigits:2}) + '</strong>'
+      + '<br>Cheque exceeds PO total by ₱' + over.toLocaleString('en-PH',{minimumFractionDigits:2})
+      + '. This will be recorded as a credit balance from <strong>' + (po.supplier||'supplier') + '</strong>.';
+    noteEl.style.display = 'none';
+  } else if(amount > 0 && amount < total){
+    const remaining = total - amount;
+    noteEl.style.display = 'block';
+    noteEl.textContent = 'ℹ️ Partial payment — ₱' + remaining.toLocaleString('en-PH',{minimumFractionDigits:2}) + ' remaining balance.';
+    warnEl.style.display = 'none';
+  } else {
+    warnEl.style.display = 'none';
+    noteEl.style.display = 'none';
+  }
 }
 
 function closeEditPaymentModal(){
@@ -951,17 +992,33 @@ function epmCalcDue(){
 }
 
 async function savePaymentDetails(){
-  const po      = currentPO;
-  const mode    = document.getElementById('epm-mode').value;
-  const cheque  = document.getElementById('epm-cheque').value.trim().toUpperCase();
-  const terms   = document.getElementById('epm-terms').value;
-  const dueDisp = document.getElementById('epm-due-display').textContent.replace('Est. due date: ','').trim();
-  const errEl   = document.getElementById('epm-err');
+  const po         = currentPO;
+  const mode       = document.getElementById('epm-mode').value;
+  const cheque     = document.getElementById('epm-cheque').value.trim().toUpperCase();
+  const terms      = document.getElementById('epm-terms').value;
+  const dueDisp    = document.getElementById('epm-due-display').textContent.replace('Est. due date: ','').trim();
+  const amountPaid = parseFloat(document.getElementById('epm-amount').value) || 0;
+  const total      = Number(po.totalValue||0);
+  const overpayment= Math.max(0, amountPaid - total);
+  const errEl      = document.getElementById('epm-err');
 
   if(!mode){ errEl.textContent = 'Please select a payment mode.'; return; }
   if(mode === 'Cheque' && cheque.length !== 10){
     errEl.textContent = 'Cheque reference must be exactly 10 characters.'; return;
   }
+  if(amountPaid <= 0){ errEl.textContent = 'Please enter the amount paid.'; return; }
+
+  // Extra confirmation for overpayment
+  if(overpayment > 0){
+    if(!confirm(
+      'Overpayment detected!\n\n'
+      + 'PO Total:     ₱' + total.toLocaleString('en-PH',{minimumFractionDigits:2}) + '\n'
+      + 'Amount Paid:  ₱' + amountPaid.toLocaleString('en-PH',{minimumFractionDigits:2}) + '\n'
+      + 'Overpayment:  ₱' + overpayment.toLocaleString('en-PH',{minimumFractionDigits:2}) + '\n\n'
+      + 'This overpayment will be recorded as a credit balance from ' + po.supplier + '.\n\nProceed?'
+    )) return;
+  }
+
   errEl.textContent = '';
 
   const btn = document.getElementById('epm-save-btn');
@@ -977,11 +1034,14 @@ async function savePaymentDetails(){
       oldChequeRef:     po.chequeRef       || '',
       oldTermsDays:     po.paymentTermsDays|| '',
       oldDueDate:       po.dueDate         || '',
+      oldAmountPaid:    po.amountPaid      || 0,
       // new values
       paymentMode:      mode,
       chequeRef:        mode === 'Cheque' ? cheque : '',
       paymentTermsDays: terms,
-      dueDate:          (dueDisp === '—' || dueDisp === 'Upon Delivery') ? dueDisp : dueDisp
+      dueDate:          (dueDisp === '—' || dueDisp === 'Upon Delivery') ? dueDisp : dueDisp,
+      amountPaid,
+      overpayment
     });
 
     if(r.status === 'ok'){

@@ -41,13 +41,15 @@ async function loadTransfers(){
 
 function updatePendingBadge(){
   const myLoc = getCurrentUserLocation();
-  const pending = trfList.filter(t=>
-    t.status==='IN TRANSIT' && t.toLocation===myLoc
-  ).length;
+  const isAdmin = currentUser && currentUser.role==='admin';
+  // Badge counts: incoming (needs acknowledgment) + outgoing (dispatched, awaiting receipt)
+  const count = isAdmin
+    ? trfList.filter(t=>t.status==='IN TRANSIT').length
+    : trfList.filter(t=>t.status==='IN TRANSIT' && (t.toLocation===myLoc || t.fromLocation===myLoc)).length;
   const badge = document.getElementById('trf-pending-badge');
   if(badge){
-    badge.textContent = pending;
-    badge.style.display = pending>0 ? 'inline' : 'none';
+    badge.textContent = count;
+    badge.style.display = count>0 ? 'inline' : 'none';
   }
 }
 
@@ -62,13 +64,26 @@ function getCurrentUserLocation(){
 // ── CREATE TRANSFER ───────────────────────────────────
 function initTrfCreate(){
   trfLines = [];
-  document.getElementById('trf-from').value = 'Distribution WH';
-  document.getElementById('trf-to').value   = 'Retail Store';
+  // Auto-set From based on logged-in user's location
+  const myLoc = getCurrentUserLocation();
+  const fromSel = document.getElementById('trf-from');
+  const toSel   = document.getElementById('trf-to');
+  if(myLoc && fromSel){
+    fromSel.value = myLoc;
+    // Set To to the first option that isn't the same as From
+    const opts = Array.from(toSel.options).map(o=>o.value);
+    const defaultTo = opts.find(v=>v!==myLoc) || 'Retail Store';
+    toSel.value = defaultTo;
+  } else {
+    if(fromSel) fromSel.value = 'Distribution WH';
+    if(toSel)   toSel.value   = 'Retail Store';
+  }
   document.getElementById('trf-via').value  = 'Bajaj1';
   document.getElementById('trf-notes').value = '';
   document.getElementById('trf-create-err').textContent = '';
   const btn = document.getElementById('trf-submit-btn');
   if(btn){ btn.disabled=false; btn.textContent='Create Transfer & Mark as Dispatched'; }
+  buildTrfDatalist();
   addTrfLine();
 }
 
@@ -250,49 +265,93 @@ async function submitTransfer(){
   }
 }
 
-// ── PENDING TRANSFERS (for receiving staff) ───────────
+// ── PENDING TRANSFERS (incoming to acknowledge + outgoing sent) ───────────
 function renderPendingTransfers(){
   const body = document.getElementById('trf-pending-body');
   const myLoc = getCurrentUserLocation();
   const isAdmin = currentUser && currentUser.role==='admin';
 
-  const pending = isAdmin
+  const incoming = isAdmin
     ? trfList.filter(t=>t.status==='IN TRANSIT')
     : trfList.filter(t=>t.status==='IN TRANSIT' && t.toLocation===myLoc);
 
-  if(!pending.length){
+  const outgoing = isAdmin
+    ? []
+    : trfList.filter(t=>t.status==='IN TRANSIT' && t.fromLocation===myLoc);
+
+  if(!incoming.length && !outgoing.length){
     body.innerHTML = `<div class="trf-empty">
-      No pending transfers for ${isAdmin?'any location':myLoc}.<br>
+      No active transfers for ${isAdmin?'any location':myLoc}.<br>
       All deliveries are up to date.
     </div>`;
     return;
   }
 
   body.innerHTML = '';
-  pending.forEach(trf=>{
-    const card = document.createElement('div');
-    card.className = 'trf-card';
-    card.onclick = () => openAcknowledgeView(trf.trfNumber);
-    card.innerHTML = `
-      <div class="trf-card-row1">
-        <div>
-          <div class="trf-num">${trf.trfNumber}</div>
-          <div class="trf-route">
-            <span style="font-weight:600">${trf.fromLocation}</span>
-            <span style="color:#aaa">→</span>
-            <span style="font-weight:600">${trf.toLocation}</span>
-            <span style="font-size:10px;color:#aaa">via ${trf.via}</span>
+
+  // ── Incoming: needs acknowledgment ──
+  if(incoming.length){
+    const hdr = document.createElement('div');
+    hdr.style.cssText='font-size:11px;font-weight:700;color:#888;letter-spacing:0.5px;text-transform:uppercase;padding:8px 4px 4px';
+    hdr.textContent = isAdmin ? 'All In-Transit Transfers' : '📥 Incoming — Tap to Acknowledge';
+    body.appendChild(hdr);
+    incoming.forEach(trf=>{
+      const card = document.createElement('div');
+      card.className = 'trf-card';
+      card.onclick = () => openAcknowledgeView(trf.trfNumber);
+      card.innerHTML = `
+        <div class="trf-card-row1">
+          <div>
+            <div class="trf-num">${trf.trfNumber}</div>
+            <div class="trf-route">
+              <span style="font-weight:600">${trf.fromLocation}</span>
+              <span style="color:#aaa">→</span>
+              <span style="font-weight:600">${trf.toLocation}</span>
+              <span style="font-size:10px;color:#aaa">via ${trf.via}</span>
+            </div>
+            <div class="trf-meta">${trf.createdDate} · ${trf.createdBy}</div>
           </div>
-          <div class="trf-meta">${trf.createdDate} · ${trf.createdBy}</div>
+          <span class="trf-status-badge ts-transit">IN TRANSIT</span>
         </div>
-        <span class="trf-status-badge ts-transit">IN TRANSIT</span>
-      </div>
-      <div class="trf-card-row2">
-        <span style="font-size:11px;color:#888">${trf.lineCount||0} item(s)</span>
-        <span style="font-size:12px;font-weight:700;color:#3949AB">Tap to acknowledge →</span>
-      </div>`;
-    body.appendChild(card);
-  });
+        <div class="trf-card-row2">
+          <span style="font-size:11px;color:#888">${trf.lineCount||0} item(s)</span>
+          <span style="font-size:12px;font-weight:700;color:#3949AB">Tap to acknowledge →</span>
+        </div>`;
+      body.appendChild(card);
+    });
+  }
+
+  // ── Outgoing: dispatched from this location, waiting on receiver ──
+  if(outgoing.length){
+    const hdr2 = document.createElement('div');
+    hdr2.style.cssText='font-size:11px;font-weight:700;color:#888;letter-spacing:0.5px;text-transform:uppercase;padding:12px 4px 4px';
+    hdr2.textContent = '📤 Outgoing — Awaiting Receipt';
+    body.appendChild(hdr2);
+    outgoing.forEach(trf=>{
+      const card = document.createElement('div');
+      card.className = 'trf-card';
+      card.style.opacity = '0.8';
+      card.innerHTML = `
+        <div class="trf-card-row1">
+          <div>
+            <div class="trf-num">${trf.trfNumber}</div>
+            <div class="trf-route">
+              <span style="font-weight:600">${trf.fromLocation}</span>
+              <span style="color:#aaa">→</span>
+              <span style="font-weight:600">${trf.toLocation}</span>
+              <span style="font-size:10px;color:#aaa">via ${trf.via}</span>
+            </div>
+            <div class="trf-meta">${trf.createdDate} · ${trf.createdBy}</div>
+          </div>
+          <span class="trf-status-badge ts-transit">IN TRANSIT</span>
+        </div>
+        <div class="trf-card-row2">
+          <span style="font-size:11px;color:#888">${trf.lineCount||0} item(s)</span>
+          <span style="font-size:11px;color:#888">Waiting for ${trf.toLocation} to confirm</span>
+        </div>`;
+      body.appendChild(card);
+    });
+  }
 }
 
 // ── ACKNOWLEDGE RECEIPT ───────────────────────────────

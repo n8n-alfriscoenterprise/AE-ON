@@ -79,9 +79,14 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .epm-select,.epm-input{width:100%;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;background:white;outline:none;color:#222;margin-bottom:10px}
 .epm-select:focus,.epm-input:focus{border-color:#1F4E78}
 .epm-due{font-size:12px;color:#666;background:#EEF0FB;border-radius:8px;padding:7px 10px;margin-bottom:12px}
+.epm-total-ref{font-size:10px;color:#aaa;margin-top:-8px;margin-bottom:10px}
+.epm-overpay-warn{background:#FFF8E1;border:1.5px solid #F9A825;border-radius:8px;padding:8px 10px;font-size:12px;color:#7B5800;margin-bottom:10px}
+.epm-underpay-note{background:#EEF0FB;border:1.5px solid #B3BCF5;border-radius:8px;padding:7px 10px;font-size:12px;color:#3949AB;margin-bottom:10px}
 .epm-btns{display:flex;gap:8px;margin-top:4px}
 .epm-save{flex:1;padding:11px;background:#0A5C46;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
 .epm-cancel{flex:1;padding:11px;background:#f0f2f5;color:#555;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer}
+/* OVERPAYMENT BADGE in PO detail */
+.po-overpay-badge{display:inline-block;background:#FFF8E1;border:1.5px solid #F9A825;color:#7B5800;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;margin-top:6px}
 /* PAYMENT HISTORY LOG */
 .po-pay-history{background:#FFFBF0;border:1.5px solid #FAC775;border-radius:10px;padding:10px 12px;margin-top:10px}
 .po-pay-history-title{font-size:10px;font-weight:700;color:#7D5A00;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
@@ -1285,6 +1290,13 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
              oninput="this.value=this.value.toUpperCase()">
     </div>
 
+    <label class="epm-label">Amount paid (₱)</label>
+    <input class="epm-input" id="epm-amount" type="number" min="0" step="0.01" placeholder="0.00"
+           oninput="epmCheckOverpay()">
+    <div class="epm-total-ref" id="epm-total-ref"></div>
+    <div class="epm-overpay-warn" id="epm-overpay-warn" style="display:none"></div>
+    <div class="epm-underpay-note" id="epm-underpay-note" style="display:none"></div>
+
     <label class="epm-label">Payment terms</label>
     <select class="epm-select" id="epm-terms" onchange="epmCalcDue()">
       <option value="">-- Select --</option>
@@ -2267,8 +2279,8 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
     <label class="adm-field-label">Via</label>
     <select id="trf-adm-via" class="adm-input">
       <option value="Direct">Direct</option>
-      <option value="Bajaj 1">Bajaj 1</option>
-      <option value="Bajaj 2">Bajaj 2</option>
+      <option value="Bajaj1">Bajaj 1</option>
+      <option value="Bajaj2">Bajaj 2</option>
     </select>
     <label class="adm-field-label">Notes</label>
     <textarea id="trf-adm-notes" class="adm-input adm-textarea" placeholder="Optional notes"></textarea>

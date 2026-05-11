@@ -181,9 +181,6 @@ function doPost(e) {
         .filter(r=>String(r[2])===data.unit&&String(r[3])==='LOAD')
         .map(r=>({code:String(r[4]),name:String(r[5]),cat:String(r[6]),
           loaded:Number(r[7])||0,returned:Number(r[8])||0,sold:Number(r[9])||0}));
-                   String(r[2])===data.unit&&String(r[3])==='LOAD')
-        .map(r=>({code:String(r[4]),name:String(r[5]),cat:String(r[6]),
-          loaded:Number(r[7])||0,returned:Number(r[8])||0,sold:Number(r[9])||0}));
       return ok({rows});
     }
 

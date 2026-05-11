@@ -145,7 +145,16 @@ function renderPL(){
   const dated = visible.filter(i=>i.lastUpdated);
   if(dated.length){
     const latest = dated.reduce((a,b)=>new Date(a.lastUpdated)>new Date(b.lastUpdated)?a:b);
-    document.getElementById('pl-summary-updated').textContent = 'Stock as of: ' + latest.lastUpdated;
+    const d = new Date(latest.lastUpdated);
+    let label = latest.lastUpdated;
+    if(!isNaN(d.getTime())){
+      const mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const ph = new Date(d.toLocaleString('en-US',{timeZone:'Asia/Manila'}));
+      const h  = ph.getHours(), ampm = h>=12?'PM':'AM', h12 = h%12||12;
+      const mi = String(ph.getMinutes()).padStart(2,'0');
+      label = mn[ph.getMonth()]+' '+ph.getDate()+', '+ph.getFullYear()+' · '+h12+':'+mi+' '+ampm;
+    }
+    document.getElementById('pl-summary-updated').textContent = 'Stock as of: '+label;
   } else {
     document.getElementById('pl-summary-updated').textContent = 'No stock counts yet';
   }

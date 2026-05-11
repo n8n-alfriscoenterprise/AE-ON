@@ -169,9 +169,18 @@ function doPost(e) {
     if (data.action === 'getTodayLoads') {
       const sheet = ss.getSheetByName('Stock Movements');
       if (!sheet) return ok({rows:[]});
-      const today = new Date().toLocaleDateString('en-PH');
+      const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
       const rows = sheet.getDataRange().getValues().slice(1)
-        .filter(r=>new Date(r[0]).toLocaleDateString('en-PH')===today&&
+        .filter(r=>{
+          if(!r[0]) return false;
+          const ts = r[0] instanceof Date
+            ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+            : String(r[0]).slice(0,10);
+          return ts===today;
+        })
+        .filter(r=>String(r[2])===data.unit&&String(r[3])==='LOAD')
+        .map(r=>({code:String(r[4]),name:String(r[5]),cat:String(r[6]),
+          loaded:Number(r[7])||0,returned:Number(r[8])||0,sold:Number(r[9])||0}));
                    String(r[2])===data.unit&&String(r[3])==='LOAD')
         .map(r=>({code:String(r[4]),name:String(r[5]),cat:String(r[6]),
           loaded:Number(r[7])||0,returned:Number(r[8])||0,sold:Number(r[9])||0}));
@@ -790,12 +799,16 @@ function doPost(e) {
         if (!sheet) return map;
         const rows = sheet.getDataRange().getValues();
         rows.slice(1).filter(r=>r[0]&&r[3]).forEach(r=>{
-          const code = String(r[3]).trim();
-          const ts   = new Date(r[0]);
+          const code    = String(r[3]).trim();
+          // Normalise timestamp — Sheets auto-converts stored date strings to Date objects
+          const tsFormatted = r[0] instanceof Date
+            ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+            : String(r[0]);
+          const ts = new Date(tsFormatted);
           if (!map[code] || ts > new Date(map[code].lastUpdated)) {
             map[code] = {
               stock:       Number(r[5]) || 0,
-              lastUpdated: String(r[0]),
+              lastUpdated: tsFormatted,   // always an ISO string now, never a raw toString()
               unit:        String(r[6]||'units')
             };
           }
@@ -1778,7 +1791,7 @@ function doPost(e) {
         };
       });
 
-      const now = new Date();
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 
       data.rows.forEach(function(row) {
         const mode        = String(row[3]);   // 'LOAD' or 'RETURN'

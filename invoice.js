@@ -1,12 +1,25 @@
 // ══════════════════════════════════════════════════════════════
-// SALES INVOICE
+// SALES INVOICE  — field sales edition
 // ══════════════════════════════════════════════════════════════
 
-let invLines          = [];
-let invProducts       = [];   // [{code, name, price}]
-let invSaved          = false;
-let invCurrentNumber  = null;
-let invoiceHistory    = [];
+// ── STATE ─────────────────────────────────────────────────────
+let invLines         = [];
+let invProducts      = [];     // [{code, name, price, unit}]
+let invSaved         = false;
+let invCurrentNumber = null;
+let invoiceHistory   = [];
+
+// Van stock (driver mode)
+let vanStockData     = {};     // {sku: {loaded, returned, invoiced, available}}
+let vanStockLoaded   = false;
+
+// Signature canvas
+let sigCanvas        = null;
+let sigCtx           = null;
+let sigDrawing       = false;
+let sigHasData       = false;
+let _sigListeners    = false;  // guard — add canvas listeners only once
+
 
 // ── OPEN / CLOSE ──────────────────────────────────────────────
 async function openInvoice(){
@@ -17,6 +30,12 @@ async function openInvoice(){
   await loadInvProducts();
   buildInvDealerSelect();
   resetInvForm();
+  // Background loads
+  loadVanStock();               // no-op for non-driver
+  _fetchInvoiceHistory();       // pre-populate order history cards
+  updateOfflineBadge();
+  // Signature canvas — needs a brief tick so the DOM has rendered
+  setTimeout(initSignatureCanvas, 80);
 }
 
 function closeInvoice(){ showHome(); }
@@ -29,6 +48,7 @@ function showInvSubtab(tab, el){
   if(tab==='history') loadInvoiceHistory();
 }
 
+
 // ── LOAD PRODUCTS ─────────────────────────────────────────────
 async function loadInvProducts(){
   if(invProducts.length) return;
@@ -38,31 +58,71 @@ async function loadInvProducts(){
       invProducts = (r.dist||[]).map(i=>({
         code:  i.sku,
         name:  i.name,
-        price: Number(i.price)||0
+        price: Number(i.price)||0,
+        unit:  i.unit||'unit'
       }));
     }
   }catch(e){ console.error('loadInvProducts',e); }
 }
 
+
+// ── VAN STOCK ─────────────────────────────────────────────────
+async function loadVanStock(){
+  if(!currentUser) return;
+  const unit = currentUser.assignedUnit;
+  if(!unit || unit==='All') return;        // not a driver — skip
+  vanStockData   = {};
+  vanStockLoaded = false;
+  try{
+    const r = await api({action:'getVanStock', unit, createdBy: currentUser.username});
+    if(r.status==='ok'){
+      vanStockData   = r.vanStock || {};
+      vanStockLoaded = true;
+      renderInvLines(); // refresh labels if form already has lines
+    }
+  }catch(e){ console.error('loadVanStock',e); }
+}
+
+// Returns how many of `sku` the driver still has available,
+// after subtracting qty already used in other lines of this invoice.
+function getVanAvailableForLine(sku, currentIdx){
+  if(!sku || !vanStockData[sku]) return null;
+  const base = vanStockData[sku].available;
+  let used = 0;
+  invLines.forEach((l,i)=>{ if(i!==currentIdx && l.sku===sku) used += (l.qty||0); });
+  return Math.max(0, base - used);
+}
+
+
 // ── RESET FORM ────────────────────────────────────────────────
 function resetInvForm(){
-  invLines          = [];
-  invSaved          = false;
-  invCurrentNumber  = null;
+  invLines         = [];
+  invSaved         = false;
+  invCurrentNumber = null;
 
   document.getElementById('inv-number').value = 'Draft';
   const today = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'}).slice(0,10);
   document.getElementById('inv-date').value  = today;
   document.getElementById('inv-dealer').value = '';
   document.getElementById('inv-dealer-info').style.display = 'none';
+  const oh = document.getElementById('inv-order-history');
+  if(oh) oh.style.display = 'none';
   document.getElementById('inv-ref').value   = '';
   document.getElementById('inv-terms').value = 'COD';
-  document.getElementById('inv-err').textContent = '';
   onInvTermsChange();
+
+  // Payment type
+  const ptEl = document.getElementById('inv-payment-type');
+  if(ptEl) ptEl.value = 'Cash';
+  onInvPaymentTypeChange();
+
+  document.getElementById('inv-err').textContent = '';
   document.getElementById('inv-lines-container').innerHTML = '';
+  clearSignature();
   updateInvTotals();
   addInvLine();
 }
+
 
 // ── DEALER SELECT ─────────────────────────────────────────────
 function buildInvDealerSelect(){
@@ -86,14 +146,42 @@ function onInvDealerChange(){
   const info = document.getElementById('inv-dealer-info');
   const d    = dealerList.find(x=>x.dealerId===sel.value);
   if(d){
-    info.innerHTML = '<strong>'+d.ownerName+'</strong> · '+d.phone1
+    info.innerHTML =
+      '<strong>'+d.ownerName+'</strong> · '+d.phone1
       +(d.area?' · '+d.area:'')
       +(d.address?'<br>'+d.address:'');
     info.style.display = 'block';
+    _renderDealerOrderHistory(d.dealerId);
   } else {
     info.style.display = 'none';
+    const oh = document.getElementById('inv-order-history');
+    if(oh) oh.style.display = 'none';
   }
 }
+
+// Show the last 3 invoices for this dealer (uses already-loaded history)
+function _renderDealerOrderHistory(dealerId){
+  const el = document.getElementById('inv-order-history');
+  if(!el) return;
+  const orders = invoiceHistory.filter(inv=>inv.dealerId===dealerId).slice(0,3);
+  if(!orders.length){ el.style.display='none'; return; }
+
+  const fmt  = v=>'₱'+(Number(v)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const fmtD = s=>{ if(!s)return''; const p=String(s).slice(0,10).split('-'); return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:s; };
+
+  el.innerHTML =
+    '<div class="inv-oh-title">Recent Orders</div>'
+    + orders.map(inv=>
+        '<div class="inv-oh-card">'
+          +'<span class="inv-oh-num">'+inv.invoiceNumber+'</span>'
+          +'<span class="inv-oh-date">'+fmtD(inv.invoiceDate)+'</span>'
+          +'<span class="inv-oh-total">'+fmt(inv.total)+'</span>'
+          +'<span class="inv-oh-pt">'+( inv.paymentType||'')+'</span>'
+        +'</div>'
+      ).join('');
+  el.style.display = 'block';
+}
+
 
 // ── PAYMENT TERMS ─────────────────────────────────────────────
 function onInvTermsChange(){
@@ -106,6 +194,15 @@ function onInvTermsChange(){
   base.setDate(base.getDate()+days);
   dueEl.value = base.toISOString().slice(0,10);
 }
+
+
+// ── PAYMENT TYPE ──────────────────────────────────────────────
+function onInvPaymentTypeChange(){
+  const pt    = document.getElementById('inv-payment-type')?.value || 'Cash';
+  const field = document.getElementById('inv-check-ref-field');
+  if(field) field.style.display = (pt==='Check') ? 'block' : 'none';
+}
+
 
 // ── LINE ITEMS ────────────────────────────────────────────────
 function addInvLine(){
@@ -123,25 +220,42 @@ function renderInvLines(){
   const container = document.getElementById('inv-lines-container');
   container.innerHTML = '';
   invLines.forEach((line,idx)=>{
-    const div = document.createElement('div');
-    div.className = 'inv-line-row';
-    div.id        = 'inv-line-'+idx;
+
+    // Van stock label (given a stable id so qty changes can update it in-place)
+    let vanLabelHtml = '';
+    if(vanStockLoaded && line.sku){
+      const avail = getVanAvailableForLine(line.sku, idx);
+      if(avail !== null){
+        let cls = 'inv-van-ok', icon = '✓';
+        if(avail === 0)          { cls = 'inv-van-zero'; icon = '⊘'; }
+        else if(line.qty > avail){ cls = 'inv-van-warn'; icon = '⚠'; }
+        vanLabelHtml = '<div id="inv-van-'+idx+'" class="inv-van-label '+cls+'">'+icon+' '+avail+' available on van</div>';
+      } else {
+        vanLabelHtml = '<div id="inv-van-'+idx+'" style="display:none"></div>';
+      }
+    } else {
+      vanLabelHtml = '<div id="inv-van-'+idx+'" style="display:none"></div>';
+    }
 
     let skuOpts = '<option value="">-- Select product --</option>';
     invProducts.forEach(p=>{
       skuOpts += '<option value="'+p.code+'"'+(line.sku===p.code?' selected':'')+'>'+p.code+' — '+p.name+'</option>';
     });
 
+    const div = document.createElement('div');
+    div.className = 'inv-line-row';
+    div.id        = 'inv-line-'+idx;
     div.innerHTML =
       '<div class="inv-line-header">'
         +'<span class="inv-line-num">Item '+(idx+1)+'</span>'
         +'<button class="inv-line-remove" onclick="removeInvLine('+idx+')">✕ Remove</button>'
       +'</div>'
       +'<select class="inv-input" onchange="onInvSKUChange('+idx+',this.value)">'+skuOpts+'</select>'
+      + vanLabelHtml
       +'<input class="inv-input" type="text" placeholder="Description" id="inv-ldesc-'+idx+'" value="'+(line.desc||'')+'" oninput="invLines['+idx+'].desc=this.value">'
       +'<div class="inv-line-nums">'
         +'<div><label class="inv-field-label">Qty</label>'
-          +'<input class="inv-input inv-input-num" type="number" min="1" value="'+line.qty+'" oninput="invLines['+idx+'].qty=Number(this.value)||0;updateInvTotals()"></div>'
+          +'<input class="inv-input inv-input-num" type="number" min="1" value="'+line.qty+'" oninput="invLines['+idx+'].qty=Number(this.value)||0;updateInvTotals();_refreshVanLabel('+idx+')"></div>'
         +'<div><label class="inv-field-label">Unit Price (₱)</label>'
           +'<input class="inv-input inv-input-num" type="number" min="0" step="0.01" value="'+(line.price||'')+'" placeholder="0.00" oninput="invLines['+idx+'].price=Number(this.value)||0;updateInvTotals()"></div>'
         +'<div><label class="inv-field-label">Disc %</label>'
@@ -154,6 +268,22 @@ function renderInvLines(){
   updateInvTotals();
 }
 
+// Update just the van stock label for one line (avoids full re-render which resets focus)
+function _refreshVanLabel(idx){
+  const el = document.getElementById('inv-van-'+idx);
+  if(!el || !vanStockLoaded) return;
+  const line  = invLines[idx];
+  if(!line || !line.sku){ el.style.display='none'; return; }
+  const avail = getVanAvailableForLine(line.sku, idx);
+  if(avail === null){ el.style.display='none'; return; }
+  let cls = 'inv-van-ok', icon = '✓';
+  if(avail === 0)           { cls = 'inv-van-zero'; icon = '⊘'; }
+  else if(line.qty > avail) { cls = 'inv-van-warn'; icon = '⚠'; }
+  el.className    = 'inv-van-label '+cls;
+  el.textContent  = icon+' '+avail+' available on van';
+  el.style.display = 'inline-block';
+}
+
 function onInvSKUChange(idx, val){
   invLines[idx].sku = val;
   const p = invProducts.find(x=>x.code===val);
@@ -163,16 +293,16 @@ function onInvSKUChange(idx, val){
     const descEl = document.getElementById('inv-ldesc-'+idx);
     if(descEl) descEl.value = p.name;
   }
-  updateInvTotals();
+  renderInvLines(); // re-render to show van stock label
 }
 
 function updateInvTotals(){
   let subtotal = 0;
   const fmt = v=>'₱'+v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   invLines.forEach((line,idx)=>{
-    const d       = Math.min(100, Math.max(0, line.disc||0));
-    const lt      = (line.qty||0) * (line.price||0) * (1 - d/100);
-    subtotal     += lt;
+    const d  = Math.min(100,Math.max(0,line.disc||0));
+    const lt = (line.qty||0)*(line.price||0)*(1-d/100);
+    subtotal += lt;
     const el = document.getElementById('inv-ltotal-'+idx);
     if(el) el.textContent = fmt(lt);
   });
@@ -181,6 +311,7 @@ function updateInvTotals(){
   if(stEl) stEl.textContent = fmt(subtotal);
   if(gtEl) gtEl.textContent = fmt(subtotal);
 }
+
 
 // ── SAVE ──────────────────────────────────────────────────────
 async function saveInvoice(){
@@ -192,6 +323,8 @@ async function saveInvoice(){
   const invDue    = document.getElementById('inv-due').value;
   const terms     = document.getElementById('inv-terms').value;
   const reference = document.getElementById('inv-ref').value.trim();
+  const payType   = document.getElementById('inv-payment-type')?.value || 'Cash';
+  const checkRef  = document.getElementById('inv-check-ref')?.value?.trim() || '';
 
   if(!dealerId) { errEl.textContent='Please select a dealer.'; return; }
   if(!invDate)  { errEl.textContent='Invoice date is required.'; return; }
@@ -199,17 +332,31 @@ async function saveInvoice(){
   const validLines = invLines.filter(l=>l.sku && l.qty>0);
   if(!validLines.length){ errEl.textContent='Add at least one product with a quantity.'; return; }
 
+  // Van stock soft-warning
+  if(vanStockLoaded){
+    const overages = [];
+    validLines.forEach(l=>{
+      const avail = getVanAvailableForLine(l.sku, invLines.indexOf(l));
+      if(avail!==null && l.qty>avail){
+        const p = invProducts.find(x=>x.code===l.sku);
+        overages.push((p?p.name:l.sku)+' (want '+l.qty+', avail '+avail+')');
+      }
+    });
+    if(overages.length && !confirm('⚠ Van stock exceeded:\n\n'+overages.join('\n')+'\n\nSave anyway?')){
+      return;
+    }
+  }
+
   const dealer = dealerList.find(d=>d.dealerId===dealerId)||{};
   let subtotal = 0;
-  validLines.forEach(l=>{
-    const d = Math.min(100,Math.max(0,l.disc||0));
-    subtotal += (l.qty||0)*(l.price||0)*(1-d/100);
-  });
+  validLines.forEach(l=>{ const d=Math.min(100,Math.max(0,l.disc||0)); subtotal+=(l.qty||0)*(l.price||0)*(1-d/100); });
 
   const btn = document.getElementById('inv-save-btn');
   if(btn){ btn.disabled=true; btn.textContent='Saving...'; }
 
-  const now = new Date().toLocaleString('sv-SE',{timeZone:'Asia/Manila'});
+  const now       = new Date().toLocaleString('sv-SE',{timeZone:'Asia/Manila'});
+  const signature = getSignatureBase64();
+
   try{
     const r = await api({
       action:       'saveInvoice',
@@ -219,6 +366,10 @@ async function saveInvoice(){
       invoiceDate:  invDate,
       dueDate:      invDue,
       paymentTerms: terms,
+      paymentType:  payType,
+      checkRef,
+      receivedBy:   currentUser ? currentUser.username : '',
+      signature,
       subtotal,
       total:        subtotal,
       lines: validLines.map(l=>({
@@ -229,15 +380,22 @@ async function saveInvoice(){
         discount:  l.disc||0,
         lineTotal: (l.qty)*(l.price)*(1-(l.disc||0)/100)
       })),
-      createdBy: currentUser.username,
+      createdBy: currentUser ? currentUser.username : '',
       createdAt: now
     });
 
     if(r.status==='ok'){
-      invSaved          = true;
-      invCurrentNumber  = r.invoiceNumber;
+      invSaved         = true;
+      invCurrentNumber = r.invoiceNumber;
       document.getElementById('inv-number').value = r.invoiceNumber;
       showToast(r.invoiceNumber+' saved ✓','success');
+      // Refresh van stock after saving so next invoice shows updated available
+      loadVanStock();
+    } else if(r.status==='queued'){
+      invSaved         = true;
+      invCurrentNumber = r.invoiceNumber; // e.g. OFFLINE-1234567890
+      document.getElementById('inv-number').value = r.invoiceNumber;
+      showToast('No connection — saved offline, will sync automatically','warning');
     } else {
       errEl.textContent = 'Error: '+(r.msg||'Could not save');
     }
@@ -246,6 +404,84 @@ async function saveInvoice(){
   }
   if(btn){ btn.disabled=false; btn.textContent='💾 Save Invoice'; }
 }
+
+
+// ── OFFLINE BADGE ─────────────────────────────────────────────
+function updateOfflineBadge(){
+  const queue = LS.get('alf_pending_invoices') || [];
+  const badge = document.getElementById('inv-offline-badge');
+  if(!badge) return;
+  if(queue.length > 0){
+    badge.textContent = queue.length + (queue.length===1?' pending':' pending');
+    badge.style.display = 'inline-flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+
+// ── SIGNATURE CANVAS ──────────────────────────────────────────
+function initSignatureCanvas(){
+  sigCanvas = document.getElementById('inv-sig-canvas');
+  if(!sigCanvas) return;
+  sigCtx = sigCanvas.getContext('2d');
+
+  // Size canvas to actual CSS display size
+  const dpr = window.devicePixelRatio || 1;
+  const w   = sigCanvas.offsetWidth  || 320;
+  const h   = sigCanvas.offsetHeight || 120;
+  sigCanvas.width  = w * dpr;
+  sigCanvas.height = h * dpr;
+  sigCtx.scale(dpr, dpr);
+  sigCtx.strokeStyle = '#1a1a1a';
+  sigCtx.lineWidth   = 2.5;
+  sigCtx.lineCap     = 'round';
+  sigCtx.lineJoin    = 'round';
+
+  if(_sigListeners) return; // listeners already attached
+  _sigListeners = true;
+
+  function pos(e){
+    const r   = sigCanvas.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    return { x: src.clientX - r.left, y: src.clientY - r.top };
+  }
+  function startDraw(e){
+    e.preventDefault();
+    sigDrawing = true;
+    const p = pos(e);
+    sigCtx.beginPath(); sigCtx.moveTo(p.x, p.y);
+    const ph = document.getElementById('inv-sig-placeholder');
+    if(ph) ph.style.display = 'none';
+  }
+  function draw(e){
+    if(!sigDrawing) return; e.preventDefault();
+    const p = pos(e);
+    sigCtx.lineTo(p.x, p.y); sigCtx.stroke(); sigHasData = true;
+  }
+  function endDraw(){ sigDrawing = false; }
+
+  sigCanvas.addEventListener('mousedown',  startDraw);
+  sigCanvas.addEventListener('mousemove',  draw);
+  sigCanvas.addEventListener('mouseup',    endDraw);
+  sigCanvas.addEventListener('mouseleave', endDraw);
+  sigCanvas.addEventListener('touchstart', startDraw, {passive:false});
+  sigCanvas.addEventListener('touchmove',  draw,      {passive:false});
+  sigCanvas.addEventListener('touchend',   endDraw);
+}
+
+function clearSignature(){
+  if(sigCtx && sigCanvas) sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+  sigHasData = false;
+  const ph = document.getElementById('inv-sig-placeholder');
+  if(ph) ph.style.display = 'flex';
+}
+
+function getSignatureBase64(){
+  if(!sigCanvas || !sigHasData) return '';
+  return sigCanvas.toDataURL('image/jpeg', 0.5);
+}
+
 
 // ── PRINT ─────────────────────────────────────────────────────
 async function printInvoice(){
@@ -258,12 +494,14 @@ async function printInvoice(){
   const dueDate   = document.getElementById('inv-due').value;
   const terms     = document.getElementById('inv-terms').value;
   const reference = document.getElementById('inv-ref').value.trim();
+  const payType   = document.getElementById('inv-payment-type')?.value || 'Cash';
+  const checkRef  = document.getElementById('inv-check-ref')?.value?.trim() || '';
   const invNum    = invCurrentNumber;
 
   const validLines = invLines.filter(l=>l.sku && l.qty>0);
   let subtotal = 0;
-  const fmt    = v=>'₱'+v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  const fmtD   = s=>{ if(!s)return''; const [y,m,d]=s.split('-'); return d+'/'+m+'/'+y; };
+  const fmt  = v=>'₱'+v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const fmtD = s=>{ if(!s)return''; const [y,m,d]=s.split('-'); return d+'/'+m+'/'+y; };
 
   const lineRows = validLines.map((l,i)=>{
     const d  = Math.min(100,Math.max(0,l.disc||0));
@@ -283,6 +521,16 @@ async function printInvoice(){
   const dueLabel = terms==='COD'
     ? 'COD — Cash on Delivery'
     : fmtD(dueDate)+' ('+terms+')';
+
+  // Signature section
+  const sigData = getSignatureBase64();
+  const sigHtml = sigData
+    ? '<div class="ipv-sig-block"><img class="ipv-sig-img" src="'+sigData+'"><div class="ipv-sig-line">Customer Signature</div></div>'
+    : '<div class="ipv-sig-block"><div class="ipv-sig-blank"></div><div class="ipv-sig-line">Customer Signature</div></div>';
+
+  // Payment type line
+  const payHtml = '<div class="ipv-payment-row">Payment: <strong>'+payType+'</strong>'
+    +(checkRef?' &nbsp;·&nbsp; Check Ref: <strong>'+checkRef+'</strong>':'')+'</div>';
 
   const pv = document.getElementById('inv-print-view');
   pv.innerHTML =
@@ -328,12 +576,17 @@ async function printInvoice(){
       +'<div class="ipv-total-row"><span>Subtotal</span><span>'+fmt(subtotal)+'</span></div>'
       +'<div class="ipv-total-row ipv-grand"><span>TOTAL DUE</span><span>'+fmt(subtotal)+'</span></div>'
     +'</div>'
+    // Payment type
+    + payHtml
+    // Signature
+    + sigHtml
     // Footer
     +'<div class="ipv-footer">Thank you for your business! &nbsp;·&nbsp; Alfrisco Enterprise</div>'
     +'</div>';
 
   window.print();
 }
+
 
 // ── XERO CSV EXPORT ───────────────────────────────────────────
 function exportXero(){
@@ -368,30 +621,30 @@ function exportXero(){
   validLines.forEach((l,i)=>{
     const d  = l.disc||0;
     const row = [
-      esc(dealer.storeName||''),    // *ContactName
-      '',                            // EmailAddress
-      esc(dealer.address||''),       // POAddressLine1
-      '','','',                      // POAddressLine2-4
-      esc(dealer.area||''),          // POCity
-      'Pangasinan',                  // PORegion
-      '',                            // POPostalCode
-      'Philippines',                 // POCountry
-      esc(invNum),                   // *InvoiceNumber
-      esc(reference),                // Reference
-      fmtD(invDate),                 // *InvoiceDate
-      fmtD(dueDate),                 // *DueDate
-      i===0 ? grandTotal.toFixed(2) : '', // Total (first line only)
-      esc(l.sku),                    // InventoryItemCode
-      esc(l.desc||''),               // *Description
-      l.qty,                         // *Quantity
-      (l.price||0).toFixed(2),       // *UnitAmount
-      d||'',                         // Discount
-      '200',                         // *AccountCode
-      'No Tax',                      // *TaxType
-      '0',                           // TaxAmount
-      '','','','',                   // Tracking (blank)
-      'PHP',                         // Currency
-      ''                             // BrandingTheme
+      esc(dealer.storeName||''),
+      '',
+      esc(dealer.address||''),
+      '','','',
+      esc(dealer.area||''),
+      'Pangasinan',
+      '',
+      'Philippines',
+      esc(invNum),
+      esc(reference),
+      fmtD(invDate),
+      fmtD(dueDate),
+      i===0 ? grandTotal.toFixed(2) : '',
+      esc(l.sku),
+      esc(l.desc||''),
+      l.qty,
+      (l.price||0).toFixed(2),
+      d||'',
+      '200',
+      'No Tax',
+      '0',
+      '','','','',
+      'PHP',
+      ''
     ];
     rows.push(row.join(','));
   });
@@ -407,25 +660,25 @@ function exportXero(){
   showToast('Xero CSV downloaded ✓','success');
 }
 
+
 // ── HISTORY ───────────────────────────────────────────────────
-async function loadInvoiceHistory(){
-  const body = document.getElementById('inv-history-body');
-  body.innerHTML = '<div style="text-align:center;color:#888;padding:24px;font-size:13px">Loading…</div>';
+async function _fetchInvoiceHistory(){
   try{
     const r = await api({action:'getInvoices'});
-    if(r.status==='ok'){
-      invoiceHistory = r.invoices||[];
-      renderInvoiceHistory();
-    } else {
-      body.innerHTML = '<div style="color:#c00;padding:14px;font-size:13px">Could not load invoices.</div>';
-    }
-  }catch(e){
-    body.innerHTML = '<div style="color:#c00;padding:14px;font-size:13px">Network error.</div>';
-  }
+    if(r.status==='ok') invoiceHistory = r.invoices || [];
+  }catch(e){ console.error('_fetchInvoiceHistory',e); }
+}
+
+async function loadInvoiceHistory(){
+  const body = document.getElementById('inv-history-body');
+  if(body) body.innerHTML = '<div style="text-align:center;color:#888;padding:24px;font-size:13px">Loading…</div>';
+  await _fetchInvoiceHistory();
+  renderInvoiceHistory();
 }
 
 function renderInvoiceHistory(){
   const body   = document.getElementById('inv-history-body');
+  if(!body) return;
   const search = (document.getElementById('inv-history-search')?.value||'').toLowerCase().trim();
   let list = invoiceHistory;
   if(search) list = list.filter(inv=>
@@ -438,10 +691,12 @@ function renderInvoiceHistory(){
       +(invoiceHistory.length===0?'No invoices yet.':'No matches found.')+'</div>';
     return;
   }
-  const fmt = v=>'₱'+(Number(v)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const fmt  = v=>'₱'+(Number(v)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   const fmtD = s=>{ if(!s)return''; const p=String(s).slice(0,10).split('-'); return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:s; };
   body.innerHTML = '';
   list.forEach(inv=>{
+    const pt  = inv.paymentType || 'Cash';
+    const ptCls = 'inv-pt-'+pt.replace(/\s+/g,'').toLowerCase();
     const card = document.createElement('div');
     card.className = 'inv-hist-card';
     card.innerHTML =
@@ -450,7 +705,10 @@ function renderInvoiceHistory(){
           +'<div class="inv-hist-num">'+inv.invoiceNumber+'</div>'
           +'<div class="inv-hist-dealer">'+inv.contactName+'</div>'
         +'</div>'
-        +'<div class="inv-hist-total">'+fmt(inv.total)+'</div>'
+        +'<div style="text-align:right">'
+          +'<div class="inv-hist-total">'+fmt(inv.total)+'</div>'
+          +'<span class="inv-pt-badge '+ptCls+'">'+pt+'</span>'
+        +'</div>'
       +'</div>'
       +'<div class="inv-hist-row2">'
         +'<span>'+fmtD(inv.invoiceDate)+'</span>'
@@ -460,4 +718,57 @@ function renderInvoiceHistory(){
       +'</div>';
     body.appendChild(card);
   });
+}
+
+
+// ── DAY TALLY ─────────────────────────────────────────────────
+async function showDayTally(){
+  const overlay = document.getElementById('inv-tally-overlay');
+  if(!overlay) return;
+  overlay.style.display = 'flex';
+  const body = document.getElementById('inv-tally-body');
+  body.innerHTML = '<div style="text-align:center;color:#888;padding:24px">Loading…</div>';
+  try{
+    const r = await api({action:'getDayTally', createdBy: currentUser ? currentUser.username : ''});
+    if(r.status==='ok') _renderDayTally(r);
+    else body.innerHTML = '<div style="color:#c00;padding:14px">Could not load tally.</div>';
+  }catch(e){
+    body.innerHTML = '<div style="color:#c00;padding:14px">Network error.</div>';
+  }
+}
+
+function _renderDayTally(data){
+  const body = document.getElementById('inv-tally-body');
+  const fmt  = v=>'₱'+(Number(v)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const fmtD = s=>{ if(!s)return''; const p=String(s).slice(0,10).split('-'); return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:s; };
+
+  let html = '<div class="inv-tally-totals">';
+  ['Cash','Check','Terms AR'].forEach(t=>{
+    const v = (data.totals||{})[t]||0;
+    if(v>0) html += '<div class="inv-tally-row"><span>'+t+'</span><span>'+fmt(v)+'</span></div>';
+  });
+  html += '<div class="inv-tally-row inv-tally-grand"><span>TOTAL COLLECTED</span><span>'+fmt(data.grandTotal||0)+'</span></div>';
+  html += '</div>';
+
+  if(data.invoices && data.invoices.length){
+    html += '<div class="inv-tally-label">Invoices Today ('+data.invoices.length+')</div>';
+    data.invoices.forEach(inv=>{
+      const ptCls = 'inv-pt-'+(inv.paymentType||'Cash').replace(/\s+/g,'').toLowerCase();
+      html += '<div class="inv-tally-inv-row">'
+        +'<span class="inv-tally-inv-num">'+inv.invoiceNumber+'</span>'
+        +'<span class="inv-tally-inv-dealer">'+inv.contactName+'</span>'
+        +'<span>'+fmt(inv.total)+'</span>'
+        +'<span class="inv-pt-badge '+ptCls+'">'+(inv.paymentType||'Cash')+'</span>'
+        +'</div>';
+    });
+  } else {
+    html += '<div style="text-align:center;color:#888;padding:16px;font-size:13px">No invoices today.</div>';
+  }
+
+  body.innerHTML = html;
+}
+
+function closeDayTally(){
+  const overlay = document.getElementById('inv-tally-overlay');
+  if(overlay) overlay.style.display = 'none';
 }

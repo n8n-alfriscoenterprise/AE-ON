@@ -64,6 +64,7 @@ function openEditStaff(idx){
                              s.role === 'staff-retail'],
     ['edit-can-bo-dist',     isAdmin || s.canBackorderDist !== false],
     ['edit-can-bo-retail',   isAdmin || s.canBackorderRetail === true],
+    ['edit-can-dealers',     isAdmin || s.canManageDealers === true],
   ];
   perms.forEach(([id, val]) => {
     const el = document.getElementById(id);
@@ -99,7 +100,8 @@ function onEditRoleChange(){
   ['edit-can-pl','edit-can-sa','edit-can-count-dist','edit-can-count-retail',
    'edit-can-po-dist','edit-can-po-retail',
    'edit-can-transfer','edit-can-production',
-   'edit-can-bo-dist','edit-can-bo-retail'].forEach(id => {
+   'edit-can-bo-dist','edit-can-bo-retail',
+   'edit-can-dealers'].forEach(id => {
     const el = document.getElementById(id);
     if(el){ if(isAdmin) el.checked = true; el.disabled = isAdmin; }
   });
@@ -152,6 +154,7 @@ async function saveStaffEdit(){
     { key:'canBackorderRetail',id:'edit-can-bo-retail'    },
     { key:'canViewProductList',id:'edit-can-pl'           },
     { key:'canStockAdjust',    id:'edit-can-sa'           },
+    { key:'canManageDealers',  id:'edit-can-dealers'      },
   ];
 
   // Collect all permission values from checkboxes

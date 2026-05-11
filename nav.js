@@ -75,9 +75,12 @@ function buildHomeTiles(){
   // 7. Production
   const canProdTile=currentUser.role==='admin'||currentUser.canProduction===true||currentUser.role==='staff-retail';
   if(canProdTile) tiles.push({icon:'🏭',name:'Production',desc:'Convert bags to smaller retail units',cls:'t-prod',fn:'openProduction()'});
-  // 8. Sales Import — admin only
+  // 8. Dealer Directory
+  const canDealers = currentUser.role==='admin' || currentUser.canBackorderDist!==false || currentUser.canManageDealers===true;
+  if(canDealers) tiles.push({icon:'👥',name:'Dealer Directory',desc:'Dealer profiles, GPS pins & contact records',cls:'t-dealer',fn:'openDealer()'});
+  // 9. Sales Import — admin only
   if(currentUser.role==='admin') tiles.push({icon:'📥',name:'Sales Import',desc:'Import Xero (distribution) & Loyverse (retail) sales',cls:'t-xero',fn:'openSalesImport()'});
-  // 9. Admin
+  // 10. Admin
   if(currentUser.role==='admin') tiles.push({icon:'⚙️',name:'Admin',desc:'Staff accounts & app settings',cls:'t-admin',fn:'openAdminFromHome()'});
   if(tiles.length%2!==0) tiles[tiles.length-1].full=true;
   tiles.forEach(t=>{

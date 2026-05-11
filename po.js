@@ -496,8 +496,9 @@ function renderPODetail(){
     + (po.approvedBy ? '<br>Approved by: ' + po.approvedBy : '')
     + (po.paymentMode ? '<br>Payment: ' + po.paymentMode
         + (po.chequeRef ? ' — Cheque #' + po.chequeRef : '')
-        + (po.amountPaid > 0 ? ' — Amount: <strong>₱' + Number(po.amountPaid).toLocaleString('en-PH',{minimumFractionDigits:2}) + '</strong>' : '')
-        + (po.dueDate ? ' — Due: <strong>' + po.dueDate + '</strong>' : '') : '')
+        + (po.paymentMode !== 'Split / Installment' && po.amountPaid > 0 ? ' — Amount: <strong>₱' + Number(po.amountPaid).toLocaleString('en-PH',{minimumFractionDigits:2}) + '</strong>' : '')
+        + (po.paymentMode !== 'Split / Installment' && po.dueDate ? ' — Due: <strong>' + po.dueDate + '</strong>' : '')
+        + (po.paymentMode === 'Split / Installment' ? ' — see schedule below' : '') : '')
     + (po.overpayment > 0
         ? '<br><span class="po-overpay-badge">⚠️ Overpayment: ₱' + Number(po.overpayment).toLocaleString('en-PH',{minimumFractionDigits:2}) + ' — credit pending from ' + po.supplier + '</span>' : '')
     + (po.docRef ? '<br>Doc Ref #: <strong>' + po.docRef + '</strong>' : '')
@@ -505,6 +506,34 @@ function renderPODetail(){
     + (po.notes ? '<br>Notes: ' + po.notes : '')
     + '</div>';
   body.appendChild(hdr);
+
+  // ── SPLIT PAYMENT SCHEDULE CARD ──────────────────────────────────────────
+  if(Array.isArray(po.paymentSchedule) && po.paymentSchedule.length){
+    const schedDiv = document.createElement('div');
+    schedDiv.className = 'po-pay-schedule';
+    const allPaid = po.paymentSchedule.every(i => i.status === 'Paid');
+    schedDiv.innerHTML = '<div class="po-pay-schedule-title">💳 Split Payment Schedule'
+      + (allPaid ? ' &nbsp;✅ Fully Settled' : '') + '</div>'
+      + po.paymentSchedule.map((inst, idx) => {
+          const isPaid = inst.status === 'Paid';
+          const canMark = isAdmin && !isPaid && ['APPROVED','PARTIAL','RECEIVED'].includes(po.status);
+          return '<div class="po-pay-sched-row">'
+            + '<span class="po-pay-sched-num">' + inst.num + '</span>'
+            + '<div class="po-pay-sched-info">'
+              + '<div class="po-pay-sched-amt">₱' + Number(inst.amount).toLocaleString('en-PH',{minimumFractionDigits:2}) + '</div>'
+              + '<div class="po-pay-sched-meta">' + inst.label + ' &nbsp;·&nbsp; Due: ' + inst.dueDate + '</div>'
+              + (isPaid
+                ? '<div class="po-pay-sched-paid-tag">✓ Paid ₱' + Number(inst.paidAmount||inst.amount).toLocaleString('en-PH',{minimumFractionDigits:2})
+                  + ' on ' + inst.paidDate + (inst.paidBy ? ' by ' + inst.paidBy : '') + '</div>'
+                : '')
+            + '</div>'
+            + (canMark
+              ? '<button class="po-pay-sched-mark-btn" onclick="markInstallmentPaid(' + idx + ')">Mark Paid</button>'
+              : (isPaid ? '<span class="po-pay-sched-done">✓</span>' : ''))
+            + '</div>';
+        }).join('');
+    body.appendChild(schedDiv);
+  }
 
   // ── PAYMENT HISTORY LOG (shown when previous payment edits exist) ──
   if(po.paymentHistory){
@@ -558,8 +587,8 @@ function renderPODetail(){
             + '<span class="po-payment-label">Mode of payment</span>'
             + '<select class="po-payment-select" id="po-payment-mode" onchange="onPOPaymentModeChange()">'
               + '<option value="">-- Select --</option>'
-              + ['Cheque','Cash Out','GCash','Maya','Bank Transfer']
-                .map(m => '<option value="' + m + '"' + (m===defMode?' selected':'') + '>' + m + '</option>').join('')
+              + ['Cheque','Cash Out','GCash','Maya','Bank Transfer','Split / Installment']
+                .map(m => '<option value="' + m + '"' + (m===defMode?' selected':'') + '>' + m + (m==='Split / Installment'?' (3 payments)':'') + '</option>').join('')
             + '</select>'
           + '</div>'
         + '</div>'
@@ -583,6 +612,7 @@ function renderPODetail(){
             + '<input class="po-cheque-ref" id="po-cheque-ref" type="text" maxlength="10" placeholder="XXXXXXXXXX">'
           + '</div>'
         + '</div>'
+        + '<div id="po-split-wrap" style="display:none"></div>'
       + '</div>'
       // Reject reason (hidden until Reject tapped)
       + '<div class="po-reject-section" id="po-reject-section">'
@@ -727,10 +757,122 @@ function updatePODueDate(){
   el.textContent = due.toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) + ' (est.)';
 }
 
+// ── SPLIT / INSTALLMENT HELPERS ───────────────────────────────────────────
+
+function buildSplitRowsHTML(total, existingSchedule){
+  const third = Math.round(total / 3 * 100) / 100;
+  const defAmts = (existingSchedule && existingSchedule.length === 3)
+    ? existingSchedule.map(e => e.amount)
+    : [third, third, Math.max(0, Math.round((total - third * 2) * 100) / 100)];
+  const labels = ['1st — COD (Upon Delivery)','2nd — +10 days','3rd — +20 days'];
+  return '<div class="po-installment-section">'
+    + '<div class="po-installment-title">💳 Split Payment Schedule</div>'
+    + labels.map((lbl, i) =>
+        '<div class="po-installment-row">'
+          + '<span class="po-installment-label">' + lbl + '</span>'
+          + '<input class="po-installment-input" type="number" min="0" step="0.01"'
+            + ' id="split-amt-' + i + '" value="' + defAmts[i] + '"'
+            + ' oninput="updateSplitRemaining(' + total + ')">'
+          + '<span class="po-installment-due">₱ each</span>'
+        + '</div>'
+      ).join('')
+    + '<div class="po-installment-remaining" id="split-remaining"></div>'
+    + '</div>';
+}
+
+function updateSplitRemaining(total){
+  const a0 = parseFloat(document.getElementById('split-amt-0')?.value) || 0;
+  const a1 = parseFloat(document.getElementById('split-amt-1')?.value) || 0;
+  const a2 = parseFloat(document.getElementById('split-amt-2')?.value) || 0;
+  const sum = Math.round((a0 + a1 + a2) * 100) / 100;
+  const diff= Math.round((total - sum) * 100) / 100;
+  const el  = document.getElementById('split-remaining');
+  if(!el) return;
+  if(Math.abs(diff) < 0.01){
+    el.style.background='#E8F5E9'; el.style.color='#27AE60';
+    el.textContent = '✓ Total matches PO amount (₱' + total.toLocaleString('en-PH',{minimumFractionDigits:2}) + ')';
+  } else if(diff > 0){
+    el.style.background='#FFF8E1'; el.style.color='#7B5800';
+    el.textContent = '⚠ ₱' + diff.toLocaleString('en-PH',{minimumFractionDigits:2}) + ' still unallocated';
+  } else {
+    el.style.background='#FFEBEE'; el.style.color='#C62828';
+    el.textContent = '⚠ Over-allocated by ₱' + Math.abs(diff).toLocaleString('en-PH',{minimumFractionDigits:2});
+  }
+}
+
+// Collects the 3 installment inputs and calculates due dates from delivery date
+function getSplitData(delivDateStr){
+  const base = delivDateStr ? new Date(delivDateStr) : new Date();
+  const d2   = new Date(base); d2.setDate(d2.getDate() + 10);
+  const d3   = new Date(base); d3.setDate(d3.getDate() + 20);
+  const iso  = d => d.toLocaleString('sv-SE', {timeZone:'Asia/Manila'}).split(' ')[0];
+  const amt  = i => parseFloat(document.getElementById('split-amt-' + i)?.value) || 0;
+  return [
+    {num:1, label:'1st (COD)',      amount:amt(0), dueDate:iso(base), status:'Pending'},
+    {num:2, label:'2nd (+10 days)', amount:amt(1), dueDate:iso(d2),   status:'Pending'},
+    {num:3, label:'3rd (+20 days)', amount:amt(2), dueDate:iso(d3),   status:'Pending'}
+  ];
+}
+
+async function markInstallmentPaid(idx){
+  if(!currentPO || !Array.isArray(currentPO.paymentSchedule)) return;
+  const inst = currentPO.paymentSchedule[idx];
+  if(!inst || inst.status === 'Paid') return;
+
+  const paidAmtStr = prompt(
+    'Mark installment ' + inst.num + ' as paid\n'
+    + inst.label + ' — Scheduled: ₱' + Number(inst.amount).toLocaleString('en-PH',{minimumFractionDigits:2})
+    + '\n\nEnter actual amount paid (₱):'
+  );
+  if(paidAmtStr === null) return; // cancelled
+  const paidAmt = parseFloat(paidAmtStr);
+  if(isNaN(paidAmt) || paidAmt <= 0){ alert('Please enter a valid amount.'); return; }
+
+  const now = new Date().toLocaleString('sv-SE', {timeZone:'Asia/Manila'}).split(' ')[0];
+  if(!confirm(
+    'Confirm payment:\n\n'
+    + 'Installment ' + inst.num + ' — ' + inst.label + '\n'
+    + 'Scheduled: ₱' + Number(inst.amount).toLocaleString('en-PH',{minimumFractionDigits:2}) + '\n'
+    + 'Actual paid: ₱' + paidAmt.toLocaleString('en-PH',{minimumFractionDigits:2}) + '\n'
+    + 'Date: ' + now
+  )) return;
+
+  try{
+    const r = await api({
+      action:           'markInstallmentPaid',
+      poNumber:         currentPO.poNumber,
+      installmentIndex: idx,
+      paidDate:         now,
+      paidAmount:       paidAmt,
+      markedBy:         currentUser.username
+    });
+    if(r.status === 'ok'){
+      showToast('Installment ' + inst.num + ' marked as paid ✓', 'success');
+      await openPODetail(currentPO.poNumber);
+    } else {
+      alert('Error: ' + (r.msg || 'Could not update'));
+    }
+  } catch(e){ alert('Network error: ' + e.message); }
+}
+
 function onPOPaymentModeChange(){
   const mode  = document.getElementById('po-payment-mode').value;
   const field = document.getElementById('po-cheque-field');
   if(field) field.style.display = mode === 'Cheque' ? 'block' : 'none';
+
+  const splitWrap = document.getElementById('po-split-wrap');
+  if(splitWrap){
+    if(mode === 'Split / Installment'){
+      if(!splitWrap.innerHTML.trim()){
+        const total = currentPO ? Number(currentPO.totalValue || 0) : 0;
+        splitWrap.innerHTML = buildSplitRowsHTML(total, currentPO?.paymentSchedule || null);
+        updateSplitRemaining(total);
+      }
+      splitWrap.style.display = 'block';
+    } else {
+      splitWrap.style.display = 'none';
+    }
+  }
 }
 
 function toggleRejectSection(){
@@ -755,6 +897,19 @@ async function approvePO(){
   if(mode==='Cheque' && cheque.length!==10){
     alert('Cheque reference must be exactly 10 characters.');return;
   }
+
+  // Collect and validate split schedule
+  let splitSchedule = null;
+  if(mode === 'Split / Installment'){
+    splitSchedule = getSplitData(delivInput);
+    const total   = Number(currentPO.totalValue || 0);
+    const sum     = Math.round(splitSchedule.reduce((s,i)=>s+i.amount,0)*100)/100;
+    if(Math.abs(sum - total) > 0.02){
+      alert('Split amounts don\'t add up to the PO total (₱' + total.toLocaleString('en-PH',{minimumFractionDigits:2}) + ').\nCurrent sum: ₱' + sum.toLocaleString('en-PH',{minimumFractionDigits:2}) + '\nPlease adjust the installment amounts.');
+      return;
+    }
+  }
+
   if(!confirm('Approve '+currentPO.poNumber+'?'))return;
   try{
     const r=await api({
@@ -762,10 +917,11 @@ async function approvePO(){
       poNumber:currentPO.poNumber,
       approvedBy:currentUser.username,
       deliveryDate:delivInput||'',
-      paymentTermsDays:days||'',
+      paymentTermsDays:mode==='Split / Installment'?'Split':days||'',
       paymentMode:mode||'',
       chequeRef:cheque||'',
-      dueDate:dueDisp&&dueDisp!=='—'&&dueDisp!=='Upon Delivery'?dueDisp:''
+      dueDate:dueDisp&&dueDisp!=='—'&&dueDisp!=='Upon Delivery'?dueDisp:'',
+      paymentSchedule: splitSchedule
     });
     if(r.status==='ok'){
       showBanner('po-success-bar','PO '+currentPO.poNumber+' approved'+(mode?' — '+mode+' payment':'')+' ✓');
@@ -970,9 +1126,26 @@ function closeEditPaymentModal(){
 }
 
 function epmOnModeChange(){
-  const mode  = document.getElementById('epm-mode').value;
-  const wrap  = document.getElementById('epm-cheque-wrap');
-  if(wrap) wrap.style.display = mode === 'Cheque' ? 'block' : 'none';
+  const mode      = document.getElementById('epm-mode').value;
+  const cheqWrap  = document.getElementById('epm-cheque-wrap');
+  const splitWrap = document.getElementById('epm-split-wrap');
+  const amtWrap   = document.getElementById('epm-amount-wrap');
+  const termsLbl  = document.querySelector('#edit-payment-modal .epm-label[for-terms]');
+
+  if(cheqWrap)  cheqWrap.style.display  = mode === 'Cheque' ? 'block' : 'none';
+  if(amtWrap)   amtWrap.style.display   = mode === 'Split / Installment' ? 'none' : 'block';
+
+  if(splitWrap){
+    if(mode === 'Split / Installment'){
+      const po    = currentPO;
+      const total = po ? Number(po.totalValue || 0) : 0;
+      splitWrap.innerHTML = buildSplitRowsHTML(total, po?.paymentSchedule || null);
+      updateSplitRemaining(total);
+      splitWrap.style.display = 'block';
+    } else {
+      splitWrap.style.display = 'none';
+    }
+  }
 }
 
 function epmCalcDue(){
@@ -1006,10 +1179,25 @@ async function savePaymentDetails(){
   if(mode === 'Cheque' && cheque.length !== 10){
     errEl.textContent = 'Cheque reference must be exactly 10 characters.'; return;
   }
-  if(amountPaid <= 0){ errEl.textContent = 'Please enter the amount paid.'; return; }
+
+  // Collect and validate split schedule
+  let splitSchedule = null;
+  if(mode === 'Split / Installment'){
+    const delivEl2 = document.getElementById('epm-delivery');
+    splitSchedule  = getSplitData(delivEl2 ? delivEl2.value : '');
+    const splitSum = Math.round(splitSchedule.reduce((s,i)=>s+i.amount,0)*100)/100;
+    if(Math.abs(splitSum - total) > 0.02){
+      errEl.textContent = 'Split amounts (₱' + splitSum.toLocaleString('en-PH',{minimumFractionDigits:2}) + ') don\'t match PO total (₱' + total.toLocaleString('en-PH',{minimumFractionDigits:2}) + ').';
+      return;
+    }
+  }
+
+  if(mode !== 'Split / Installment' && amountPaid <= 0){
+    errEl.textContent = 'Please enter the amount paid.'; return;
+  }
 
   // Extra confirmation for overpayment
-  if(overpayment > 0){
+  if(mode !== 'Split / Installment' && overpayment > 0){
     if(!confirm(
       'Overpayment detected!\n\n'
       + 'PO Total:     ₱' + total.toLocaleString('en-PH',{minimumFractionDigits:2}) + '\n'
@@ -1038,10 +1226,11 @@ async function savePaymentDetails(){
       // new values
       paymentMode:      mode,
       chequeRef:        mode === 'Cheque' ? cheque : '',
-      paymentTermsDays: terms,
+      paymentTermsDays: mode === 'Split / Installment' ? 'Split' : terms,
       dueDate:          (dueDisp === '—' || dueDisp === 'Upon Delivery') ? dueDisp : dueDisp,
-      amountPaid,
-      overpayment
+      amountPaid:       mode === 'Split / Installment' ? 0 : amountPaid,
+      overpayment:      mode === 'Split / Installment' ? 0 : overpayment,
+      paymentSchedule:  splitSchedule
     });
 
     if(r.status === 'ok'){

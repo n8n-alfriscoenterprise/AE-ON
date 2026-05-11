@@ -1224,7 +1224,8 @@ function doPost(e) {
       const invSheet  = getOrCreateSheet(ss, 'Sales Invoices', [
         'Invoice Number','Contact Name','Dealer ID','Reference',
         'Invoice Date','Due Date','Payment Terms','Subtotal','Total',
-        'Status','Created By','Created At'
+        'Status','Created By','Created At',
+        'Payment Type','Check Reference','Received By','Signature'
       ]);
       const lineSheet = getOrCreateSheet(ss, 'Sales Invoice Lines', [
         'Invoice Number','Line #','SKU','Description',
@@ -1255,8 +1256,12 @@ function doPost(e) {
         Number(data.subtotal) || 0,
         Number(data.total)    || 0,
         'Saved',
-        data.createdBy || '',
-        data.createdAt || ''
+        data.createdBy    || '',
+        data.createdAt    || '',
+        data.paymentType  || 'Cash',
+        data.checkRef     || '',
+        data.receivedBy   || '',
+        data.signature    || ''
       ]);
 
       const lines = data.lines || [];
@@ -1279,8 +1284,9 @@ function doPost(e) {
     if (data.action === 'getInvoices') {
       const invSheet = ss.getSheetByName('Sales Invoices');
       if (!invSheet) return ok({ invoices: [] });
-      const rows = invSheet.getDataRange().getValues().slice(1)
-        .filter(r => r[0]);
+      let rows = invSheet.getDataRange().getValues().slice(1).filter(r => r[0]);
+      // Optional dealer filter
+      if (data.dealerId) rows = rows.filter(r => String(r[2]) === String(data.dealerId));
       // Return newest first, cap at 200
       const invoices = rows.reverse().slice(0, 200).map(function(r){
         return {
@@ -1299,10 +1305,107 @@ function doPost(e) {
           total:         Number(r[8]) || 0,
           status:        String(r[9]),
           createdBy:     String(r[10]),
-          createdAt:     String(r[11])
+          createdAt:     String(r[11]),
+          paymentType:   String(r[12] || 'Cash'),
+          checkRef:      String(r[13] || ''),
+          receivedBy:    String(r[14] || '')
+          // col 15 (P) = Signature — omitted from list (large base64)
         };
       });
       return ok({ invoices: invoices });
+    }
+
+    // ── VAN STOCK (driver's available qty per SKU today) ──────────────
+    if (data.action === 'getVanStock') {
+      const unit      = String(data.unit || '');
+      const username  = String(data.createdBy || '');
+      const today     = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+      // 1. Load + Return movements for this unit today
+      const movSheet = ss.getSheetByName('Stock Movements');
+      const stockMap = {}; // {sku: {loaded, returned}}
+      if (movSheet) {
+        movSheet.getDataRange().getValues().slice(1).forEach(function(r) {
+          if (!r[0]) return;
+          const ts = r[0] instanceof Date
+            ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+            : String(r[0]).slice(0, 10);
+          if (ts !== today) return;
+          if (String(r[2]) !== unit) return;
+          const sku = String(r[4]).trim();
+          if (!stockMap[sku]) stockMap[sku] = {loaded: 0, returned: 0};
+          if (String(r[3]) === 'LOAD')   stockMap[sku].loaded   += Number(r[7]) || 0;
+          if (String(r[3]) === 'RETURN') stockMap[sku].returned += Number(r[8]) || 0;
+        });
+      }
+
+      // 2. Already-invoiced qty for this user today
+      const invSheet2    = ss.getSheetByName('Sales Invoices');
+      const invLineSheet = ss.getSheetByName('Sales Invoice Lines');
+      const invoicedMap  = {}; // {sku: qty}
+      if (invSheet2 && invLineSheet) {
+        const todayInvNums = new Set();
+        invSheet2.getDataRange().getValues().slice(1).forEach(function(r) {
+          if (!r[0]) return;
+          const ca = r[11] instanceof Date
+            ? Utilities.formatDate(r[11], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+            : String(r[11]).slice(0, 10);
+          if (ca === today && String(r[10]) === username) todayInvNums.add(String(r[0]));
+        });
+        invLineSheet.getDataRange().getValues().slice(1).forEach(function(r) {
+          if (!r[0] || !todayInvNums.has(String(r[0]))) return;
+          const sku = String(r[2]).trim();
+          invoicedMap[sku] = (invoicedMap[sku] || 0) + (Number(r[4]) || 0);
+        });
+      }
+
+      // 3. available = loaded − returned − already invoiced
+      const vanStock = {};
+      Object.keys(stockMap).forEach(function(sku) {
+        const loaded    = stockMap[sku].loaded;
+        const returned  = stockMap[sku].returned;
+        const invoiced  = invoicedMap[sku] || 0;
+        vanStock[sku] = {
+          loaded:    loaded,
+          returned:  returned,
+          invoiced:  invoiced,
+          available: Math.max(0, loaded - returned - invoiced)
+        };
+      });
+      return ok({ vanStock: vanStock });
+    }
+
+    // ── DAY TALLY (driver end-of-day summary) ────────────────────────
+    if (data.action === 'getDayTally') {
+      const username = String(data.createdBy || '');
+      const today    = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      const invSheet3 = ss.getSheetByName('Sales Invoices');
+      if (!invSheet3) return ok({ invoices: [], totals: {Cash:0,Check:0,'Terms AR':0}, grandTotal: 0 });
+
+      const todayRows = invSheet3.getDataRange().getValues().slice(1).filter(function(r) {
+        if (!r[0]) return false;
+        const ca = r[11] instanceof Date
+          ? Utilities.formatDate(r[11], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+          : String(r[11]).slice(0, 10);
+        return ca === today && String(r[10]) === username;
+      });
+
+      const totals = {Cash: 0, Check: 0, 'Terms AR': 0};
+      let grandTotal = 0;
+      const invoices = todayRows.map(function(r) {
+        const pt    = String(r[12] || 'Cash');
+        const total = Number(r[8]) || 0;
+        grandTotal += total;
+        if (totals[pt] !== undefined) totals[pt] += total;
+        else totals[pt] = total;
+        return {
+          invoiceNumber: String(r[0]),
+          contactName:   String(r[1]),
+          total:         total,
+          paymentType:   pt
+        };
+      });
+      return ok({ invoices: invoices, totals: totals, grandTotal: grandTotal });
     }
 
     // ── GET SUPPLIERS ─────────────────────────────────────────────────

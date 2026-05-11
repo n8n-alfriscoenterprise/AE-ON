@@ -78,7 +78,10 @@ function buildHomeTiles(){
   // 8. Dealer Directory
   const canDealers = currentUser.role==='admin' || currentUser.canBackorderDist!==false || currentUser.canManageDealers===true;
   if(canDealers) tiles.push({icon:'👥',name:'Dealer Directory',desc:'Dealer profiles, GPS pins & contact records',cls:'t-dealer',fn:'openDealer()'});
-  // 9. Sales Import — admin only
+  // 9. Sales Invoice
+  const canInvoice = currentUser.role==='admin' || currentUser.canCreateInvoice===true;
+  if(canInvoice) tiles.push({icon:'🧾',name:'Sales Invoice',desc:'Create invoices, print & export to Xero',cls:'t-invoice',fn:'openInvoice()'});
+  // 10. Sales Import — admin only
   if(currentUser.role==='admin') tiles.push({icon:'📥',name:'Sales Import',desc:'Import Xero (distribution) & Loyverse (retail) sales',cls:'t-xero',fn:'openSalesImport()'});
   // 10. Admin
   if(currentUser.role==='admin') tiles.push({icon:'⚙️',name:'Admin',desc:'Staff accounts & app settings',cls:'t-admin',fn:'openAdminFromHome()'});

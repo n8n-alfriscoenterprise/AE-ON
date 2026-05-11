@@ -113,7 +113,7 @@ function resetDealerForm(){
   ['dlr-store','dlr-owner','dlr-phone1','dlr-phone2',
    'dlr-area','dlr-address','dlr-notes','dlr-lat','dlr-lng','dlr-acc']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
-  document.getElementById('dlr-type').value   = 'Pet Shop';
+  document.getElementById('dlr-type').value   = 'Feed Store';
   document.getElementById('dlr-status').value = 'Prospect';
   const preview = document.getElementById('dlr-loc-preview');
   if(preview){ preview.style.display='none'; preview.innerHTML=''; }

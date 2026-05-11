@@ -23,9 +23,10 @@ function doPost(e) {
                          'CanCountDist','CanCountRetail',
                          'CanManagePODist','CanManagePORetail',
                          'CanBackorderDist','CanBackorderRetail',
-                         'CanProduction','CanTransfer','CanViewProductList','CanStockAdjust','PLView']);
+                         'CanProduction','CanTransfer','CanViewProductList','CanStockAdjust','PLView',
+                         'CanManageDealers','CanCreateInvoice']);
         sheet.appendRow(['Adrian','admin2026','admin','All',
-                         'YES','YES','YES','YES','YES','YES','YES','YES','YES','YES']);
+                         'YES','YES','YES','YES','YES','YES','YES','YES','YES','YES','both','YES','YES']);
       }
       const rows = sheet.getDataRange().getValues();
       const staff = rows.slice(1).filter(r => r[0]).map(r => ({
@@ -43,7 +44,9 @@ function doPost(e) {
         canTransfer:       String(r[11]|| 'NO').toUpperCase()  === 'YES',
         canViewProductList:String(r[12]|| 'YES').toUpperCase() !== 'NO',
         canStockAdjust:    String(r[13]|| 'NO').toUpperCase()  === 'YES',
-        plView:            String(r[14]|| 'both').toLowerCase() || 'both'
+        plView:            String(r[14]|| 'both').toLowerCase() || 'both',
+        canManageDealers:  String(r[15]|| 'NO').toUpperCase()  === 'YES',
+        canCreateInvoice:  String(r[16]|| 'NO').toUpperCase()  === 'YES'
       }));
       return ok({ staff });
     }
@@ -57,7 +60,8 @@ function doPost(e) {
                          'CanCountDist','CanCountRetail',
                          'CanManagePODist','CanManagePORetail',
                          'CanBackorderDist','CanBackorderRetail',
-                         'CanProduction','CanTransfer','CanViewProductList','CanStockAdjust','PLView']);
+                         'CanProduction','CanTransfer','CanViewProductList','CanStockAdjust','PLView',
+                         'CanManageDealers','CanCreateInvoice']);
       }
       sheet.appendRow([
         data.username,
@@ -94,8 +98,10 @@ function doPost(e) {
           sheet.getRange(i+1, 11).setValue(data.canProduction     ? 'YES' : 'NO');
           sheet.getRange(i+1, 12).setValue(data.canTransfer       ? 'YES' : 'NO');
           sheet.getRange(i+1, 13).setValue(data.canViewProductList !== false ? 'YES' : 'NO');
-          sheet.getRange(i+1, 14).setValue(data.canStockAdjust ? 'YES' : 'NO');
+          sheet.getRange(i+1, 14).setValue(data.canStockAdjust     ? 'YES' : 'NO');
           sheet.getRange(i+1, 15).setValue(data.plView || 'both');
+          sheet.getRange(i+1, 16).setValue(data.canManageDealers   ? 'YES' : 'NO');
+          sheet.getRange(i+1, 17).setValue(data.canCreateInvoice   ? 'YES' : 'NO');
           updated = true;
           break;
         }
@@ -300,7 +306,7 @@ function doPost(e) {
         'Approved By','Approved Date','Delivery Date','Total Value','Notes',
         'Payment Terms Days','Payment Mode','Cheque Ref','Due Date',
         'Rejection Reason','Doc Ref','Date Received','Received By','Payment History',
-        'Amount Paid','Overpayment']);
+        'Amount Paid','Overpayment','Payment Schedule']);
       const liSheet = getOrCreateSheet(ss,'PO Line Items',[
         'PO Number','SKU Code','Item Name','Category',
         'Qty Ordered','Unit','Unit Cost','Total Cost',
@@ -392,7 +398,8 @@ function doPost(e) {
         receivedBy:       String(poRow[18]||''),
         paymentHistory:   String(poRow[19]||''),
         amountPaid:       Number(poRow[20]||0),
-        overpayment:      Number(poRow[21]||0)
+        overpayment:      Number(poRow[21]||0),
+        paymentSchedule:  (() => { try{ return JSON.parse(String(poRow[22]||'[]')); }catch(e){ return []; } })()
       };
       let lineItems=[];
       if(liSheet){
@@ -426,6 +433,7 @@ function doPost(e) {
           sheet.getRange(i+1,13).setValue(data.paymentMode      || '');
           sheet.getRange(i+1,14).setValue(data.chequeRef        || '');
           sheet.getRange(i+1,15).setValue(data.dueDate          || '');
+          if(data.paymentSchedule) sheet.getRange(i+1,23).setValue(JSON.stringify(data.paymentSchedule));
         }
       }
       return ok({});
@@ -1100,6 +1108,193 @@ function doPost(e) {
       return ok({ rows });
     }
 
+    // ── DEALER DIRECTORY ─────────────────────────────────────────────
+    if (data.action === 'getDealers') {
+      const sheet = getOrCreateSheet(ss, 'Dealer Directory', [
+        'Dealer ID','Store Name','Owner Name','Phone 1','Phone 2',
+        'Area','Address','Dealer Type','Status',
+        'Latitude','Longitude','GPS Accuracy (m)',
+        'Notes','Added By','Date Added','Updated By','Last Updated'
+      ]);
+      const rows = sheet.getDataRange().getValues().slice(1)
+        .filter(r => r[0])
+        .map(r => ({
+          dealerId:   String(r[0]),
+          storeName:  String(r[1]),
+          ownerName:  String(r[2]),
+          phone1:     String(r[3]),
+          phone2:     String(r[4]||''),
+          area:       String(r[5]||''),
+          address:    String(r[6]||''),
+          dealerType: String(r[7]||''),
+          status:     String(r[8]||'Prospect'),
+          lat:        String(r[9]||''),
+          lng:        String(r[10]||''),
+          accuracy:   String(r[11]||''),
+          notes:      String(r[12]||''),
+          addedBy:    String(r[13]||''),
+          addedAt:    r[14] instanceof Date
+            ? Utilities.formatDate(r[14], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+            : String(r[14]||''),
+          updatedBy:  String(r[15]||''),
+          updatedAt:  r[16] instanceof Date
+            ? Utilities.formatDate(r[16], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+            : String(r[16]||'')
+        }));
+      return ok({ dealers: rows });
+    }
+
+    if (data.action === 'saveDealer') {
+      const sheet = getOrCreateSheet(ss, 'Dealer Directory', [
+        'Dealer ID','Store Name','Owner Name','Phone 1','Phone 2',
+        'Area','Address','Dealer Type','Status',
+        'Latitude','Longitude','GPS Accuracy (m)',
+        'Notes','Added By','Date Added','Updated By','Last Updated'
+      ]);
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+      // Generate Dealer ID: DLR-YYYYMMDD-NNN
+      const dateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
+      const existing = sheet.getDataRange().getValues().slice(1).filter(r=>String(r[0]).includes(dateStr));
+      const dealerId = 'DLR-' + dateStr + '-' + String(existing.length + 1).padStart(3,'0');
+      sheet.appendRow([
+        dealerId,
+        data.storeName || '', data.ownerName || '',
+        data.phone1 || '',    data.phone2 || '',
+        data.area || '',      data.address || '',
+        data.dealerType || '', data.status || 'Prospect',
+        data.lat || '',       data.lng || '',  data.accuracy || '',
+        data.notes || '',
+        data.addedBy || '', now,
+        '', ''
+      ]);
+      return ok({ dealerId });
+    }
+
+    if (data.action === 'updateDealer') {
+      const sheet = ss.getSheetByName('Dealer Directory');
+      if (!sheet) return err('Dealer Directory sheet not found');
+      const now  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+      const rows = sheet.getDataRange().getValues();
+      for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i][0]) !== data.dealerId) continue;
+        sheet.getRange(i+1, 2).setValue(data.storeName  || '');
+        sheet.getRange(i+1, 3).setValue(data.ownerName  || '');
+        sheet.getRange(i+1, 4).setValue(data.phone1     || '');
+        sheet.getRange(i+1, 5).setValue(data.phone2     || '');
+        sheet.getRange(i+1, 6).setValue(data.area       || '');
+        sheet.getRange(i+1, 7).setValue(data.address    || '');
+        sheet.getRange(i+1, 8).setValue(data.dealerType || '');
+        sheet.getRange(i+1, 9).setValue(data.status     || '');
+        sheet.getRange(i+1,10).setValue(data.lat        || '');
+        sheet.getRange(i+1,11).setValue(data.lng        || '');
+        sheet.getRange(i+1,12).setValue(data.accuracy   || '');
+        sheet.getRange(i+1,13).setValue(data.notes      || '');
+        sheet.getRange(i+1,16).setValue(data.updatedBy  || '');
+        sheet.getRange(i+1,17).setValue(now);
+        return ok({ dealerId: data.dealerId, updatedAt: now });
+      }
+      return err('Dealer not found: ' + data.dealerId);
+    }
+
+    if (data.action === 'deleteDealer') {
+      const sheet = ss.getSheetByName('Dealer Directory');
+      if (!sheet) return err('Dealer Directory sheet not found');
+      const rows = sheet.getDataRange().getValues();
+      for (let i = rows.length - 1; i >= 1; i--) {
+        if (String(rows[i][0]) === data.dealerId) {
+          sheet.deleteRow(i + 1);
+          return ok({ deleted: data.dealerId });
+        }
+      }
+      return err('Dealer not found: ' + data.dealerId);
+    }
+
+    // ── SALES INVOICES ────────────────────────────────────────────────
+    if (data.action === 'saveInvoice') {
+      const invSheet  = getOrCreateSheet(ss, 'Sales Invoices', [
+        'Invoice Number','Contact Name','Dealer ID','Reference',
+        'Invoice Date','Due Date','Payment Terms','Subtotal','Total',
+        'Status','Created By','Created At'
+      ]);
+      const lineSheet = getOrCreateSheet(ss, 'Sales Invoice Lines', [
+        'Invoice Number','Line #','SKU','Description',
+        'Quantity','Unit Price','Discount %','Line Total'
+      ]);
+
+      // Generate invoice number: INV-YYYYMMDD-NNN
+      const today  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
+      const prefix = 'INV-' + today + '-';
+      const allRows = invSheet.getDataRange().getValues();
+      let maxSeq = 0;
+      allRows.slice(1).forEach(function(r){
+        if (String(r[0]).startsWith(prefix)){
+          const seq = parseInt(String(r[0]).slice(prefix.length)) || 0;
+          if (seq > maxSeq) maxSeq = seq;
+        }
+      });
+      const invoiceNumber = prefix + String(maxSeq + 1).padStart(3, '0');
+
+      invSheet.appendRow([
+        invoiceNumber,
+        data.contactName  || '',
+        data.dealerId     || '',
+        data.reference    || '',
+        data.invoiceDate  || '',
+        data.dueDate      || '',
+        data.paymentTerms || '',
+        Number(data.subtotal) || 0,
+        Number(data.total)    || 0,
+        'Saved',
+        data.createdBy || '',
+        data.createdAt || ''
+      ]);
+
+      const lines = data.lines || [];
+      lines.forEach(function(l, i){
+        lineSheet.appendRow([
+          invoiceNumber,
+          i + 1,
+          l.sku       || '',
+          l.desc      || '',
+          Number(l.qty)       || 0,
+          Number(l.unitPrice) || 0,
+          Number(l.discount)  || 0,
+          Number(l.lineTotal) || 0
+        ]);
+      });
+
+      return ok({ invoiceNumber: invoiceNumber });
+    }
+
+    if (data.action === 'getInvoices') {
+      const invSheet = ss.getSheetByName('Sales Invoices');
+      if (!invSheet) return ok({ invoices: [] });
+      const rows = invSheet.getDataRange().getValues().slice(1)
+        .filter(r => r[0]);
+      // Return newest first, cap at 200
+      const invoices = rows.reverse().slice(0, 200).map(function(r){
+        return {
+          invoiceNumber: String(r[0]),
+          contactName:   String(r[1]),
+          dealerId:      String(r[2]),
+          reference:     String(r[3]),
+          invoiceDate:   r[4] instanceof Date
+            ? Utilities.formatDate(r[4], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+            : String(r[4]),
+          dueDate:       r[5] instanceof Date
+            ? Utilities.formatDate(r[5], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+            : String(r[5]),
+          paymentTerms:  String(r[6]),
+          subtotal:      Number(r[7]) || 0,
+          total:         Number(r[8]) || 0,
+          status:        String(r[9]),
+          createdBy:     String(r[10]),
+          createdAt:     String(r[11])
+        };
+      });
+      return ok({ invoices: invoices });
+    }
+
     // ── GET SUPPLIERS ─────────────────────────────────────────────────
     if (data.action === 'getSuppliers') {
       const sheet = getOrCreateSheet(ss, 'Suppliers', [
@@ -1243,6 +1438,8 @@ function doPost(e) {
         poSheet.getRange(i + 1, 15).setValue(data.dueDate          || '');
         poSheet.getRange(i + 1, 21).setValue(data.amountPaid       || 0);   // col 21 = Amount Paid
         poSheet.getRange(i + 1, 22).setValue(data.overpayment      || 0);   // col 22 = Overpayment
+        if(data.paymentSchedule !== undefined)
+          poSheet.getRange(i + 1, 23).setValue(data.paymentSchedule ? JSON.stringify(data.paymentSchedule) : ''); // col 23 = Payment Schedule
 
         found = true;
         // No break — update ALL matching rows (safety for legacy duplicates)
@@ -1250,6 +1447,40 @@ function doPost(e) {
 
       if (!found) return err('PO not found: ' + data.poNumber);
       return ok({ poNumber: data.poNumber, updatedAt: now });
+    }
+
+    // ── MARK INSTALLMENT PAID ────────────────────────────────────────────
+    if (data.action === 'markInstallmentPaid') {
+      const poSheet = ss.getSheetByName('Purchase Orders');
+      if (!poSheet) return err('Purchase Orders sheet not found');
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+      const poRows = poSheet.getDataRange().getValues();
+      let found = false;
+
+      for (let i = 1; i < poRows.length; i++) {
+        if (String(poRows[i][0]) !== data.poNumber) continue;
+
+        // Parse existing schedule
+        let schedule = [];
+        try { schedule = JSON.parse(String(poRows[i][22] || '[]')); } catch(e) { return err('Invalid payment schedule data'); }
+
+        const idx = Number(data.installmentIndex);
+        if (!schedule[idx]) return err('Installment not found at index ' + idx);
+        if (schedule[idx].status === 'Paid') return err('Installment ' + (idx+1) + ' is already marked as paid');
+
+        // Update the installment
+        schedule[idx].status     = 'Paid';
+        schedule[idx].paidDate   = data.paidDate   || now.split(' ')[0];
+        schedule[idx].paidAmount = Number(data.paidAmount || schedule[idx].amount);
+        schedule[idx].paidBy     = data.markedBy   || '';
+
+        poSheet.getRange(i + 1, 23).setValue(JSON.stringify(schedule));
+        found = true;
+        // No break — update all matching rows (safety for legacy duplicates)
+      }
+
+      if (!found) return err('PO not found: ' + data.poNumber);
+      return ok({ poNumber: data.poNumber, installment: Number(data.installmentIndex) + 1, updatedAt: now });
     }
 
     // ── UPDATE PO DRAFT ───────────────────────────────────────────────

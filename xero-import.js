@@ -10,6 +10,8 @@ function openSalesImport(){
   setSiTab('xero');
   resetXiTab();
   resetLyTab();
+  // Pre-load dealer list so contact cross-check works immediately
+  if(!dealerList.length) loadDealers();
 }
 
 function closeSalesImport(){ showHome(); }
@@ -116,6 +118,9 @@ function renderXiPreview(){
   const dates    = xiRows.map(r=>r.invoiceDate).filter(Boolean).sort();
   const dr = dates.length ? (dates[0]===dates[dates.length-1] ? dates[0] : dates[0]+' – '+dates[dates.length-1]) : '—';
 
+  // ── Cross-check contacts against dealer directory ──────────────
+  const unrecognized = _findUnrecognizedContacts(dealers);
+
   let html = `
     <div class="si-summary-grid">
       <div class="si-stat"><div class="si-stat-val">${invoices.length}</div><div class="si-stat-label">Invoices</div></div>
@@ -123,11 +128,34 @@ function renderXiPreview(){
       <div class="si-stat"><div class="si-stat-val">${dealers.length}</div><div class="si-stat-label">Dealers</div></div>
       <div class="si-stat"><div class="si-stat-val si-green">₱${revenue.toLocaleString('en-PH',{minimumFractionDigits:2})}</div><div class="si-stat-label">Revenue</div></div>
     </div>
-    <div class="si-date-range">📅 &nbsp;${dr}</div>
-    <div class="si-table-wrap">
-      <table class="si-table">
-        <thead><tr><th>Invoice</th><th>Date</th><th>Dealer</th><th>SKU</th><th>Item</th><th>Qty</th><th>Unit ₱</th><th>Amount</th><th>Status</th></tr></thead>
-        <tbody>`;
+    <div class="si-date-range">📅 &nbsp;${dr}</div>`;
+
+  // ── Unrecognized contacts banner ───────────────────────────────
+  if(unrecognized.length){
+    html += `<div class="xi-new-contacts-wrap">
+      <div class="xi-new-contacts-title">⚠ ${unrecognized.length} contact${unrecognized.length!==1?'s':''} not in your Dealer Directory</div>
+      <div class="xi-new-contacts-sub">These names appear in Xero but have no matching dealer record. You can add them now or import the data as-is.</div>
+      <div id="xi-new-contacts-list">`;
+    unrecognized.forEach(c=>{
+      const invCount = [...new Set(xiRows.filter(r=>r.contactName===c.name).map(r=>r.invoiceNumber))].length;
+      const total    = xiRows.filter(r=>r.contactName===c.name).reduce((s,r)=>s+r.invoiceTotal,0);
+      const uid      = 'xnc-'+c.name.replace(/[^a-zA-Z0-9]/g,'_');
+      html += `<div class="xi-new-contact-card" id="${uid}">
+        <div class="xi-nc-info">
+          <div class="xi-nc-name">${c.name}</div>
+          <div class="xi-nc-meta">${invCount} invoice${invCount!==1?'s':''} &nbsp;·&nbsp; ₱${total.toLocaleString('en-PH',{minimumFractionDigits:2})}</div>
+        </div>
+        <button class="xi-nc-add-btn" onclick="xiShowAddDealer('${c.name.replace(/'/g,"\\'")}','${uid}')">➕ Add as Dealer</button>
+      </div>
+      <div class="xi-nc-form" id="${uid}-form" style="display:none"></div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  html += `<div class="si-table-wrap">
+    <table class="si-table">
+      <thead><tr><th>Invoice</th><th>Date</th><th>Dealer</th><th>SKU</th><th>Item</th><th>Qty</th><th>Unit ₱</th><th>Amount</th><th>Status</th></tr></thead>
+      <tbody>`;
   xiRows.forEach(r=>{
     const sc = r.status.toLowerCase().includes('paid') ? 'si-badge-paid'
              : r.status.toLowerCase().includes('awaiting') ? 'si-badge-awaiting' : '';
@@ -144,6 +172,131 @@ function renderXiPreview(){
   area.innerHTML = html;
   document.getElementById('xi-confirm-btn').style.display='block';
   setXiStatus(`✓ ${xiRows.length} line items across ${invoices.length} invoices ready to import.`,'ok');
+}
+
+// Returns unique contact names that don't match any dealer (case-insensitive)
+function _findUnrecognizedContacts(contactNames){
+  if(!dealerList || !dealerList.length) return contactNames.map(n=>({name:n}));
+  const known = new Set(dealerList.map(d=>d.storeName.toLowerCase().trim()));
+  return contactNames
+    .filter(n=>!known.has(n.toLowerCase().trim()))
+    .map(n=>({name:n}));
+}
+
+// Shows the inline mini-form to add an unrecognized contact as a dealer
+function xiShowAddDealer(contactName, uid){
+  const formEl = document.getElementById(uid+'-form');
+  const addBtn = document.querySelector('#'+uid+' .xi-nc-add-btn');
+  if(!formEl) return;
+
+  // If form already open, toggle it closed
+  if(formEl.style.display !== 'none'){ formEl.style.display='none'; if(addBtn) addBtn.textContent='➕ Add as Dealer'; return; }
+  if(addBtn) addBtn.textContent='✕ Cancel';
+
+  formEl.innerHTML = `
+    <div class="xi-nc-form-inner">
+      <div class="xi-nc-form-row">
+        <div>
+          <label class="xi-nc-label">Store Name *</label>
+          <input class="xi-nc-input" id="${uid}-store" type="text" value="${contactName.replace(/"/g,'&quot;')}">
+        </div>
+        <div>
+          <label class="xi-nc-label">Owner Name</label>
+          <input class="xi-nc-input" id="${uid}-owner" type="text" placeholder="Contact person">
+        </div>
+      </div>
+      <div class="xi-nc-form-row">
+        <div>
+          <label class="xi-nc-label">Area / Municipality</label>
+          <input class="xi-nc-input" id="${uid}-area" type="text" placeholder="e.g. Dagupan City">
+        </div>
+        <div>
+          <label class="xi-nc-label">Phone</label>
+          <input class="xi-nc-input" id="${uid}-phone" type="text" placeholder="09XX XXX XXXX">
+        </div>
+      </div>
+      <div class="xi-nc-form-row">
+        <div>
+          <label class="xi-nc-label">Dealer Type</label>
+          <select class="xi-nc-input" id="${uid}-type">
+            <option value="Feed Store">Feed Store</option>
+            <option value="Pet Shop">Pet Shop</option>
+            <option value="Vet Clinic">Vet Clinic</option>
+            <option value="General Store">General Store</option>
+            <option value="Supermarket">Supermarket</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label class="xi-nc-label">Status</label>
+          <select class="xi-nc-input" id="${uid}-status">
+            <option value="Active">Active</option>
+            <option value="Prospect">Prospect</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+      </div>
+      <div class="xi-nc-err" id="${uid}-err"></div>
+      <button class="xi-nc-save-btn" id="${uid}-save" onclick="xiSaveNewDealer('${uid}','${contactName.replace(/'/g,"\\'")}')">💾 Save to Dealer Directory</button>
+    </div>`;
+  formEl.style.display = 'block';
+}
+
+// Saves the new dealer and marks the contact card as linked
+async function xiSaveNewDealer(uid, originalName){
+  const storeName = document.getElementById(uid+'-store')?.value.trim();
+  const errEl     = document.getElementById(uid+'-err');
+  if(!storeName){ if(errEl) errEl.textContent='Store name is required.'; return; }
+
+  const saveBtn = document.getElementById(uid+'-save');
+  if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent='Saving…'; }
+  if(errEl)  errEl.textContent='';
+
+  const now = new Date().toLocaleString('sv-SE',{timeZone:'Asia/Manila'});
+  try{
+    const r = await api({
+      action:     'saveDealer',
+      storeName,
+      ownerName:  document.getElementById(uid+'-owner')?.value.trim()  || '',
+      phone1:     document.getElementById(uid+'-phone')?.value.trim()  || '',
+      area:       document.getElementById(uid+'-area')?.value.trim()   || '',
+      dealerType: document.getElementById(uid+'-type')?.value          || 'Feed Store',
+      status:     document.getElementById(uid+'-status')?.value        || 'Active',
+      addedBy:    currentUser ? currentUser.username : '',
+      addedAt:    now
+    });
+    if(r.status==='ok'){
+      // Add to local dealer list so the invoice picker sees it immediately
+      dealerList.push({
+        dealerId:   r.dealerId,
+        storeName,
+        ownerName:  document.getElementById(uid+'-owner')?.value.trim()  || '',
+        phone1:     document.getElementById(uid+'-phone')?.value.trim()  || '',
+        area:       document.getElementById(uid+'-area')?.value.trim()   || '',
+        dealerType: document.getElementById(uid+'-type')?.value          || 'Feed Store',
+        status:     document.getElementById(uid+'-status')?.value        || 'Active'
+      });
+      // Replace the card with a success indicator
+      const card = document.getElementById(uid);
+      const formEl = document.getElementById(uid+'-form');
+      if(card) card.innerHTML = `
+        <div class="xi-nc-info">
+          <div class="xi-nc-name">${storeName}</div>
+          <div class="xi-nc-meta" style="color:#1B5E20">✓ Added as dealer — ${r.dealerId}</div>
+        </div>`;
+      if(formEl) formEl.style.display='none';
+      showToast(storeName+' added to Dealer Directory ✓','success');
+      // Refresh the invoice dealer picker if it's loaded
+      if(typeof buildInvDealerSelect==='function') buildInvDealerSelect();
+    } else {
+      if(errEl) errEl.textContent = 'Error: '+(r.msg||'Could not save');
+      if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent='💾 Save to Dealer Directory'; }
+    }
+  }catch(e){
+    if(errEl) errEl.textContent = 'Network error: '+e.message;
+    if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent='💾 Save to Dealer Directory'; }
+  }
 }
 
 // ── Confirm ───────────────────────────────────────────

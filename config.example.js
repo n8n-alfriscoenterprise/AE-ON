@@ -1,8 +1,11 @@
-﻿// ── CONFIG ──
-const WEBHOOK    = 'https://script.google.com/macros/s/AKfycbwcRxa4BN8qvf294HWuhtCRuDaX1yH9LB_W-eCdmkmesyWcO5dMbwPQoCMdkHx83a_thA/exec';
-const API_SECRET = 'ALF-1b9KshUR1pds6qKb7jwaYEKF';
+// ── CONFIG TEMPLATE ──
+// Copy this file to config.js and fill in the real values.
+// config.js is excluded from Git — never commit it.
 
-// ── SKU DATA ──
+const WEBHOOK    = 'YOUR_APPS_SCRIPT_WEBHOOK_URL_HERE';
+const API_SECRET = 'YOUR_API_SECRET_HERE'; // Must match API_TOKEN in alfrisco_apps_script.js
+
+// ── SKU DATA — safe to keep in Git ──
 const DIST_CATS = ["Pet Food","Accessories","Grains","Other Pet Products","Medicines & Supplements"];
 const DIST_SKUS = {
   "Pet Food":[
@@ -79,4 +82,3 @@ const CS_BASE = {
     {code:"10656",name:"CC3/bag"},{code:"10655",name:"Babang mais/bag"},
   ],
 };
-

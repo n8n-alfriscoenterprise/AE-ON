@@ -17,6 +17,11 @@ async function init(){
 
   // ── SESSION RESTORE ──
   // Check for a saved session before showing login
+  const lastActivity = LS.get('alf_activity') || 0;
+  if (lastActivity && Date.now() - lastActivity > _SESSION_TIMEOUT) {
+    LS.set('alf_session', null);
+    LS.set('alf_activity', null);
+  }
   const savedSession = LS.get('alf_session');
   if(savedSession && savedSession.username){
     // Load staff + SKU data silently in background
@@ -89,21 +94,64 @@ function setLoginStatus(msg,type){
 }
 
 // ── AUTH ──
+let _lockTimer = null;
+
+function _showLockoutCountdown(until){
+  if (_lockTimer) clearInterval(_lockTimer);
+  const btn = document.getElementById('login-btn');
+  if (btn) btn.disabled = true;
+  const tick = function(){
+    const rem = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    if (rem <= 0){
+      clearInterval(_lockTimer); _lockTimer = null;
+      LS.set('alf_login_lock', {count:0, lockedUntil:0});
+      setLoginStatus('You can try again now.', 'loading');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    const m = Math.floor(rem/60), s = rem%60;
+    setLoginStatus('Too many attempts — locked for '+m+':'+String(s).padStart(2,'0'), 'error');
+  };
+  tick();
+  _lockTimer = setInterval(tick, 1000);
+}
+
 async function doLogin(){
   const u=document.getElementById('login-user').value.trim();
   const p=document.getElementById('login-pass').value;
   if(!u||!p){setLoginStatus('Enter username and password.','error');return;}
+
+  // ── LOCKOUT CHECK ──
+  const lock = LS.get('alf_login_lock') || {count:0, lockedUntil:0};
+  if (lock.lockedUntil && Date.now() < lock.lockedUntil){
+    _showLockoutCountdown(lock.lockedUntil); return;
+  }
+
   setLoginStatus('Verifying...','loading');
   document.getElementById('login-btn').disabled=true;
-  await loadStaff(); // Always refresh from Sheets
+  await loadStaff();
   const found=staff.find(s=>s.username.toLowerCase()===u.toLowerCase()&&s.password===p);
   document.getElementById('login-btn').disabled=false;
-  if(!found){setLoginStatus('Incorrect username or password.','error');return;}
+
+  if(!found){
+    const newCount = (lock.count||0) + 1;
+    const lockedUntil = newCount >= 5 ? Date.now() + 5*60*1000 : 0;
+    LS.set('alf_login_lock', {count:newCount, lockedUntil});
+    if (newCount >= 5){
+      _showLockoutCountdown(lockedUntil);
+    } else {
+      const left = 5 - newCount;
+      setLoginStatus('Incorrect username or password. '+left+' attempt'+(left===1?'':'s')+' remaining.','error');
+    }
+    return;
+  }
+
+  // ── SUCCESS ──
+  LS.set('alf_login_lock', {count:0, lockedUntil:0});
   currentUser = found;
   setLoginStatus('','');
   document.getElementById('login-user').value='';
   document.getElementById('login-pass').value='';
-  // Save session to localStorage
   LS.set('alf_session',{
     username:   found.username,
     password:   found.password,

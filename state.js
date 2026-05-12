@@ -14,12 +14,42 @@ const LS={
 };
 function saveLocal(){LS.set('alf_csskus',csskus);LS.set('alf_log',accessLog.slice(0,100));}
 
+// ── SESSION TIMEOUT (auto-logout after 8 hrs inactivity) ──────────────
+const _SESSION_TIMEOUT = 8 * 60 * 60 * 1000;
+let _activityWatcherTimer = null;
+
+function _touchActivity(){
+  LS.set('alf_activity', Date.now());
+}
+
+function _startActivityWatcher(){
+  _touchActivity();
+  ['touchstart','mousedown','keydown'].forEach(ev =>
+    document.addEventListener(ev, _touchActivity, {passive:true})
+  );
+  if (_activityWatcherTimer) return;
+  _activityWatcherTimer = setInterval(function(){
+    const last = LS.get('alf_activity') || 0;
+    if (currentUser && Date.now() - last > _SESSION_TIMEOUT) {
+      clearInterval(_activityWatcherTimer);
+      _activityWatcherTimer = null;
+      if (typeof showToast === 'function')
+        showToast('Session expired — please sign in again.', 'warning', 5000);
+      setTimeout(function(){ if (typeof doLogout === 'function') doLogout(); }, 2500);
+    }
+  }, 5 * 60 * 1000);
+}
+
 // ── API ──
 // Never throws — always returns {status, ...}.
+// Injects API secret token on every call.
 // saveInvoice failures queue to localStorage for later sync.
 async function api(payload){
+  const secured = Object.assign({}, payload);
+  if (typeof API_SECRET !== 'undefined' && API_SECRET) secured._token = API_SECRET;
+  _touchActivity();
   try {
-    const r = await fetch(WEBHOOK, {method:'POST', redirect:'follow', body:JSON.stringify(payload)});
+    const r = await fetch(WEBHOOK, {method:'POST', redirect:'follow', body:JSON.stringify(secured)});
     const text = await r.text();
     try {
       return JSON.parse(text);
@@ -60,6 +90,7 @@ async function syncOfflinePending() {
     const clean   = Object.assign({}, payload);
     delete clean._queuedAt;
     delete clean._tempNumber;
+    if (typeof API_SECRET !== 'undefined' && API_SECRET) clean._token = API_SECRET;
     try {
       const resp = await fetch(WEBHOOK, {method:'POST', redirect:'follow', body:JSON.stringify(clean)});
       const r    = JSON.parse(await resp.text());

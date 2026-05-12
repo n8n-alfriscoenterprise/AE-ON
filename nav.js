@@ -13,7 +13,8 @@ function showScreen(id){
 // ── STAFF / ADMIN APP ──
 // ── PRIMARY ENTRY AFTER LOGIN ──
 function showApp(){
-  startOfflineSync(); // begin offline invoice sync loop (no-op if already running)
+  startOfflineSync();
+  _startActivityWatcher();
   if(currentUser.role==='driver') showDriver();
   else showHome();
 }

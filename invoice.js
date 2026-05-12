@@ -503,87 +503,96 @@ async function printInvoice(){
   const fmt  = v=>'₱'+v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   const fmtD = s=>phDate(s);
 
-  const lineRows = validLines.map((l,i)=>{
+  const itemsHtml = validLines.map(l=>{
     const d  = Math.min(100,Math.max(0,l.disc||0));
     const lt = (l.qty||0)*(l.price||0)*(1-d/100);
     subtotal += lt;
-    return '<tr>'
-      +'<td>'+(i+1)+'</td>'
-      +'<td>'+l.sku+'</td>'
-      +'<td>'+(l.desc||'')+'</td>'
-      +'<td class="ipv-r">'+l.qty+'</td>'
-      +'<td class="ipv-r">'+fmt(l.price||0)+'</td>'
-      +'<td class="ipv-r">'+(d>0?d+'%':'—')+'</td>'
-      +'<td class="ipv-r"><strong>'+fmt(lt)+'</strong></td>'
-      +'</tr>';
+    const label = (l.desc||l.sku||'')+(l.desc&&l.sku?' <span class="rcp-sku">['+l.sku+']</span>':'');
+    const calc  = l.qty+' x '+fmt(l.price||0)+(d>0?' (-'+d+'%)':'')+' = <strong>'+fmt(lt)+'</strong>';
+    return '<div class="rcp-item-name">'+label+'</div>'
+          +'<div class="rcp-item-calc">'+calc+'</div>';
   }).join('');
 
-  const dueLabel = terms==='COD'
-    ? 'COD — Cash on Delivery'
-    : fmtD(dueDate)+' ('+terms+')';
-
-  // Signature section
-  const sigData = getSignatureBase64();
-  const sigHtml = sigData
-    ? '<div class="ipv-sig-block"><img class="ipv-sig-img" src="'+sigData+'"><div class="ipv-sig-line">Customer Signature</div></div>'
-    : '<div class="ipv-sig-block"><div class="ipv-sig-blank"></div><div class="ipv-sig-line">Customer Signature</div></div>';
-
-  // Payment type line
-  const payHtml = '<div class="ipv-payment-row">Payment: <strong>'+payType+'</strong>'
-    +(checkRef?' &nbsp;·&nbsp; Check Ref: <strong>'+checkRef+'</strong>':'')+'</div>';
+  const dueLabel = terms==='COD' ? 'COD' : fmtD(dueDate)+' ('+terms+')';
+  const sigData  = getSignatureBase64();
 
   const pv = document.getElementById('inv-print-view');
+  const _logoSrc = typeof LOGO_SMALL !== 'undefined' ? LOGO_SMALL : '';
+  const _logoHtml = _logoSrc ? '<img src="'+_logoSrc+'" style="display:block;margin:0 auto 4px;height:48px;width:48px;object-fit:contain;border-radius:6px">' : '';
+
   pv.innerHTML =
-    '<div class="ipv-wrap">'
+    '<div class="rcp-wrap">'
     // Header
-    +'<div class="ipv-header">'
-      +'<div class="ipv-biz">'
-        +'<div class="ipv-biz-name">ALFRISCO ENTERPRISE</div>'
-        +'<div class="ipv-biz-sub">Animal Feed Distributor · Province of Pangasinan, Philippines</div>'
-        +'<div class="ipv-biz-sub">alfriscoenterprise@gmail.com</div>'
-      +'</div>'
-      +'<div class="ipv-inv-box">'
-        +'<div class="ipv-inv-label">SALES INVOICE</div>'
-        +'<div class="ipv-inv-num">'+invNum+'</div>'
-      +'</div>'
-    +'</div>'
-    // Meta row
-    +'<div class="ipv-meta">'
-      +'<div><span class="ipv-ml">Date:</span> '+fmtD(invDate)+'</div>'
-      +'<div><span class="ipv-ml">Due:</span> '+dueLabel+'</div>'
-      +(reference?'<div><span class="ipv-ml">Ref:</span> '+reference+'</div>':'')
-    +'</div>'
+    +_logoHtml
+    +'<div class="rcp-biz-name">ALFRISCO ENTERPRISE</div>'
+    +'<div class="rcp-biz-sub">Animal Feed Distributor</div>'
+    +'<div class="rcp-biz-sub">Province of Pangasinan, Philippines</div>'
+    +'<div class="rcp-biz-sub">alfriscoenterprise@gmail.com</div>'
+    +'<div class="rcp-div"></div>'
+    // Invoice number
+    +'<div class="rcp-inv-label">Sales Invoice</div>'
+    +'<div class="rcp-inv-num">'+invNum+'</div>'
+    +'<div class="rcp-row"><span>Date</span><span>'+fmtD(invDate)+'</span></div>'
+    +'<div class="rcp-row"><span>Due</span><span>'+dueLabel+'</span></div>'
+    +(reference?'<div class="rcp-row"><span>Ref</span><span>'+reference+'</span></div>':'')
+    +'<div class="rcp-div"></div>'
     // Bill To
-    +'<div class="ipv-bill">'
-      +'<div class="ipv-bill-label">BILL TO</div>'
-      +'<div class="ipv-bill-name">'+(dealer.storeName||'')+'</div>'
-      +'<div class="ipv-bill-sub">'+(dealer.ownerName||'')+'</div>'
-      +(dealer.area?'<div class="ipv-bill-sub">'+dealer.area+'</div>':'')
-      +(dealer.address?'<div class="ipv-bill-sub">'+dealer.address+'</div>':'')
-      +(dealer.phone1?'<div class="ipv-bill-sub">Tel: '+dealer.phone1+(dealer.phone2?' · '+dealer.phone2:'')+'</div>':'')
-    +'</div>'
-    // Table
-    +'<table class="ipv-table">'
-      +'<thead><tr>'
-        +'<th>#</th><th>SKU</th><th>Description</th>'
-        +'<th class="ipv-r">Qty</th><th class="ipv-r">Unit Price</th>'
-        +'<th class="ipv-r">Disc</th><th class="ipv-r">Total</th>'
-      +'</tr></thead>'
-      +'<tbody>'+lineRows+'</tbody>'
-    +'</table>'
+    +'<div class="rcp-section-label">Bill To</div>'
+    +'<div class="rcp-dealer-name">'+(dealer.storeName||'')+'</div>'
+    +(dealer.ownerName?'<div class="rcp-dealer-sub">'+dealer.ownerName+'</div>':'')
+    +(dealer.area?'<div class="rcp-dealer-sub">'+dealer.area+'</div>':'')
+    +(dealer.phone1?'<div class="rcp-dealer-sub">Tel: '+dealer.phone1+(dealer.phone2?' / '+dealer.phone2:'')+'</div>':'')
+    +'<div class="rcp-div"></div>'
+    // Items
+    +'<div class="rcp-section-label">Items</div>'
+    +itemsHtml
+    +'<div class="rcp-div"></div>'
     // Totals
-    +'<div class="ipv-totals">'
-      +'<div class="ipv-total-row"><span>Subtotal</span><span>'+fmt(subtotal)+'</span></div>'
-      +'<div class="ipv-total-row ipv-grand"><span>TOTAL DUE</span><span>'+fmt(subtotal)+'</span></div>'
-    +'</div>'
-    // Payment type
-    + payHtml
+    +'<div class="rcp-total-row"><span>Subtotal</span><span>'+fmt(subtotal)+'</span></div>'
+    +'<div class="rcp-total-row rcp-grand"><span>TOTAL DUE</span><span>'+fmt(subtotal)+'</span></div>'
+    +'<div class="rcp-div"></div>'
+    // Payment
+    +'<div class="rcp-payment">Payment: <strong>'+payType+'</strong></div>'
+    +(checkRef?'<div class="rcp-payment">Check Ref: <strong>'+checkRef+'</strong></div>':'')
+    +'<div class="rcp-div"></div>'
     // Signature
-    + sigHtml
+    +(sigData?'<img class="rcp-sig-img" src="'+sigData+'">'
+            :'<div class="rcp-sig-blank"></div>')
+    +'<div class="rcp-sig-label">Customer Signature</div>'
+    +'<div class="rcp-div"></div>'
     // Footer
-    +'<div class="ipv-footer">Thank you for your business! &nbsp;·&nbsp; Alfrisco Enterprise</div>'
+    +'<div class="rcp-footer">Thank you for your business!</div>'
+    +'<div class="rcp-footer">— Alfrisco Enterprise —</div>'
     +'</div>';
 
+  window.print();
+}
+
+// ── PRINTER SETUP ─────────────────────────────────────────────
+function openPrinterSetup(){
+  document.getElementById('printer-setup-modal').style.display='flex';
+}
+function closePrinterSetup(){
+  document.getElementById('printer-setup-modal').style.display='none';
+}
+function testPrint(){
+  const pv = document.getElementById('inv-print-view');
+  const _tLogoSrc = typeof LOGO_SMALL !== 'undefined' ? LOGO_SMALL : '';
+  const _tLogoHtml = _tLogoSrc ? '<img src="'+_tLogoSrc+'" style="display:block;margin:0 auto 4px;height:48px;width:48px;object-fit:contain;border-radius:6px">' : '';
+  pv.innerHTML =
+    '<div class="rcp-wrap">'
+    +_tLogoHtml
+    +'<div class="rcp-biz-name">ALFRISCO ENTERPRISE</div>'
+    +'<div class="rcp-biz-sub">--- PRINTER TEST ---</div>'
+    +'<div class="rcp-div"></div>'
+    +'<div class="rcp-inv-label">Test Receipt</div>'
+    +'<div style="text-align:center;font-size:10px;margin:8px 0">Printer is connected!</div>'
+    +'<div class="rcp-row"><span>Paper</span><span>58mm</span></div>'
+    +'<div class="rcp-row"><span>Date</span><span>'+phDate(phToday())+'</span></div>'
+    +'<div class="rcp-div"></div>'
+    +'<div class="rcp-footer">AE-ON · Alfrisco Enterprise Online</div>'
+    +'<div class="rcp-footer">If you can read this, your printer is ready.</div>'
+    +'</div>';
   window.print();
 }
 

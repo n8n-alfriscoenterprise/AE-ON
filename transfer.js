@@ -20,7 +20,7 @@ function showTrfSubtab(tab, el){
 
 // ── TRANSFER NUMBER ───────────────────────────────────
 function generateTrfNumber(){
-  const d = new Date();
+  const d = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Manila'}));
   const date = d.getFullYear().toString() +
     String(d.getMonth()+1).padStart(2,'0') +
     String(d.getDate()).padStart(2,'0');

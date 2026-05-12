@@ -83,4 +83,33 @@ function startOfflineSync() {
   _offlineSyncTimer = setInterval(syncOfflinePending, 30000);
 }
 
+// ── DATE HELPERS (Philippine Standard Time = UTC+8) ──────────────────────
+function _phParse(val) {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (!s || s === '—') return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s))            return new Date(s + 'T00:00:00+08:00');
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) return new Date(s.replace(' ','T') + '+08:00');
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+function phDate(val) {
+  const d = _phParse(val);
+  if (!d) return val ? String(val) : '—';
+  const ph = new Date(d.toLocaleString('en-US',{timeZone:'Asia/Manila'}));
+  return String(ph.getMonth()+1).padStart(2,'0')+'-'+String(ph.getDate()).padStart(2,'0')+'-'+ph.getFullYear();
+}
+function phDateTime(val) {
+  const d = _phParse(val);
+  if (!d) return val ? String(val) : '—';
+  const ph  = new Date(d.toLocaleString('en-US',{timeZone:'Asia/Manila'}));
+  const mon = String(ph.getMonth()+1).padStart(2,'0');
+  const day = String(ph.getDate()).padStart(2,'0');
+  const h   = ph.getHours(), ampm = h>=12?'PM':'AM', h12 = h%12||12;
+  const mi  = String(ph.getMinutes()).padStart(2,'0');
+  return mon+'-'+day+'-'+ph.getFullYear()+' · '+h12+':'+mi+' '+ampm;
+}
+function phToday(){ return new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'}); }
+function phNow()  { return new Date().toLocaleString('sv-SE',{timeZone:'Asia/Manila'}); }
+
 // ── STAFF LOADING ──

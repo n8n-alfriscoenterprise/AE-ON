@@ -1,15 +1,11 @@
 ﻿function generatePONumber(){
-  const d=new Date();const date=d.getFullYear().toString()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+  const d=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Manila'}));
+  const date=d.getFullYear().toString()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
   const todayPOs=poList.filter(p=>p.poNumber&&p.poNumber.includes(date));
   return 'PO-'+date+'-'+String(todayPOs.length+1).padStart(3,'0');
 }
 
-// Shared date formatter — handles ISO "2026-05-06 08:38:13" and raw Date strings
-function fmtPODate(d){
-  if(!d) return '';
-  const dt = new Date(String(d).replace(' ','T'));
-  return isNaN(dt) ? d : dt.toLocaleString('en-PH',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
-}
+function fmtPODate(d){ return phDateTime(d); }
 
 async function openPO(){
   showScreen('po-screen');updateFabVisibility();
@@ -315,7 +311,7 @@ function editPODraft(){
     // Pre-fill delivery date (YYYY-MM-DD format for date input)
     const ddEl = document.getElementById('po-delivery-date');
     if(ddEl && currentPO.deliveryDate){
-      try{ ddEl.value = new Date(currentPO.deliveryDate).toISOString().split('T')[0]; }
+      try{ ddEl.value = new Date(currentPO.deliveryDate).toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'}); }
       catch(e){}
     }
     document.getElementById('po-notes').value = currentPO.notes || '';
@@ -572,7 +568,7 @@ function renderPODetail(){
     const defTerms = supDef.defTerms   || '';
     // Convert po.deliveryDate to YYYY-MM-DD for date input
     let delivVal = '';
-    if(po.deliveryDate){ try{ delivVal = new Date(po.deliveryDate).toISOString().split('T')[0]; }catch(e){} }
+    if(po.deliveryDate){ try{ delivVal = new Date(po.deliveryDate).toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'}); }catch(e){} }
 
     const approvalDiv = document.createElement('div');
     approvalDiv.innerHTML = ''
@@ -754,7 +750,7 @@ function updatePODueDate(){
   const base = delivInput && delivInput.value ? new Date(delivInput.value) : new Date();
   const due  = new Date(base);
   due.setDate(due.getDate() + days);
-  el.textContent = due.toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) + ' (est.)';
+  el.textContent = phDate(due) + ' (est.)';
 }
 
 // ── SPLIT / INSTALLMENT HELPERS ───────────────────────────────────────────
@@ -1084,10 +1080,10 @@ function openEditPaymentModal(){
   const delivEl = document.getElementById('epm-delivery');
   try {
     const base = po.deliveryDate
-      ? new Date(po.deliveryDate).toISOString().split('T')[0]
-      : new Date().toISOString().split('T')[0];
+      ? new Date(po.deliveryDate).toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'})
+      : phToday();
     delivEl.value = base;
-  } catch(e){ delivEl.value = new Date().toISOString().split('T')[0]; }
+  } catch(e){ delivEl.value = phToday(); }
 
   epmCalcDue();
   epmCheckOverpay();
@@ -1159,8 +1155,7 @@ function epmCalcDue(){
     const base = delivEl && delivEl.value ? new Date(delivEl.value) : new Date();
     const due  = new Date(base);
     due.setDate(due.getDate() + parseInt(terms));
-    disp.textContent = 'Est. due date: '
-      + due.toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'});
+    disp.textContent = 'Est. due date: ' + phDate(due);
   } catch(e){ disp.textContent = 'Est. due date: —'; }
 }
 

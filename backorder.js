@@ -190,7 +190,7 @@ async function submitBackorder(){
   errEl.textContent='';
 
   const now=new Date().toLocaleString('sv-SE', {timeZone:'Asia/Manila'});
-  const promisedDate=date?new Date(date).toLocaleDateString('en-PH'):'';
+  const promisedDate=date?phDate(date):'';
   const who=currentUser?currentUser.username:'Unknown';
 
   const rows=validLines.map(line=>{
@@ -369,7 +369,7 @@ async function submitRetailBackorder(){
   errEl.textContent='';
 
   const now=new Date().toLocaleString('sv-SE', {timeZone:'Asia/Manila'});
-  const promisedDate=date?new Date(date).toLocaleDateString('en-PH'):'';
+  const promisedDate=date?phDate(date):'';
   const who=currentUser?currentUser.username:'Unknown';
 
   const rows=validLines.map(line=>{

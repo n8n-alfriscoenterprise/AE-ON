@@ -278,14 +278,7 @@ function _canEditMovBatch(batch){
 }
 
 function _fmtMovTs(ts){
-  if(!ts) return '—';
-  const d = new Date(ts);
-  if(isNaN(d.getTime())) return ts; // fallback — show raw if unparseable
-  const mn  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const ph  = new Date(d.toLocaleString('en-US',{timeZone:'Asia/Manila'}));
-  const h   = ph.getHours(), ampm = h>=12?'PM':'AM', h12 = h%12||12;
-  const mi  = String(ph.getMinutes()).padStart(2,'0');
-  return mn[ph.getMonth()]+' '+ph.getDate()+', '+ph.getFullYear()+' · '+h12+':'+mi+' '+ampm;
+  return phDateTime(ts);
 }
 
 function closeMovHistory(){

@@ -22,16 +22,24 @@ function showHome(){
   showScreen('home-screen');
   updateFabVisibility();
   document.getElementById('home-topbar-user').textContent=`${currentUser.username} · ${currentUser.role}`;
+  const isDriver=currentUser.role==='driver';
   const canPO=(currentUser.role==='admin'
     || currentUser.canManagePODist===true
     || currentUser.canManagePORetail===true)
-    && currentUser.role!=='driver';
+    && !isDriver;
   const isAdmin=currentUser.role==='admin';
   const hpo=document.getElementById('home-po-nav');
   const hadm=document.getElementById('home-admin-nav');
+  const hstock=document.getElementById('home-stock-nav');
+  const hcount=document.getElementById('home-count-nav');
   if(hpo)hpo.style.display=canPO?'block':'none';
   if(hadm)hadm.style.display=isAdmin?'block':'none';
-  const h=new Date().getHours();
+  if(hstock){
+    if(isDriver){ hstock.textContent='📋 Manifest'; hstock.onclick=showDriver; }
+    else { hstock.textContent='📦 Stock'; hstock.onclick=showMovement; }
+  }
+  if(hcount) hcount.style.display=isDriver?'none':'block';
+  const h=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Manila'})).getHours();
   const greet=h<12?'Good morning':h<17?'Good afternoon':'Good evening';
   document.getElementById('home-greeting').textContent=greet+', '+currentUser.username;
   buildHomeTiles();
@@ -45,8 +53,12 @@ function buildHomeTiles(){
   // 0. Product List — always visible if canViewProductList
   const canPL = currentUser.role==='admin' || currentUser.canViewProductList===true;
   if(canPL) tiles.push({icon:'📋',name:'Product List',desc:'Item prices & current stock levels',cls:'t-product',fn:'openPL()',badge:'ls-alert-badge'});
-  // 1. Stock Movement — always visible
-  tiles.push({icon:'📦',name:'Stock Movement',desc:'Load & return stocks for Bajaj routes',cls:'t-movement',fn:'showMovement()',badge:'mov-home-badge'});
+  // 1. Stock Movement / Manifest
+  if(currentUser.role==='driver'){
+    tiles.unshift({icon:'📋',name:"Today's Manifest",desc:"View today's van load & remaining stock",cls:'t-movement',fn:'showDriver()',badge:'mov-home-badge'});
+  } else {
+    tiles.push({icon:'📦',name:'Stock Movement',desc:'Load & return stocks for Bajaj routes',cls:'t-movement',fn:'showMovement()',badge:'mov-home-badge'});
+  }
   // 2. Transfer
   const canTrfTile=currentUser.role==='admin'||currentUser.canTransfer===true;
   if(canTrfTile) tiles.push({icon:'🔄',name:'Transfer',desc:'Move stock between warehouse, store & Bajaj',cls:'t-transfer',fn:'openTransfer()',badge:'trf-home-badge'});

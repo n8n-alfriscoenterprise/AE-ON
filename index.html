@@ -1138,8 +1138,8 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
     </div>
     <div class="topbar-nav-row">
       <button class="tnav active">🏠 Home</button>
-      <button class="tnav" onclick="showMovement()">📦 Stock</button>
-      <button class="tnav" onclick="openCount()">🔢 Inventory</button>
+      <button class="tnav" id="home-stock-nav" onclick="showMovement()">📦 Stock</button>
+      <button class="tnav" id="home-count-nav" onclick="openCount()">🔢 Inventory</button>
       <button class="tnav" id="home-po-nav" style="display:none" onclick="openPO()">📋 PO</button>
       <button class="tnav" id="home-admin-nav" style="display:none" onclick="openAdminFromHome()">⚙️ Admin</button>
       <button class="logout-btn" onclick="doLogout()">Sign out</button>
@@ -1259,13 +1259,12 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 </svg>
       <div class="topbar-user" id="driver-topbar-user" style="margin-top:2px"></div>
     </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+    <div style="display:flex;gap:8px;align-items:center">
+      <button onclick="showHome()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;letter-spacing:.2px">Home</button>
       <button class="logout-btn" onclick="doLogout()">Sign out</button>
-      <button class="driver-pl-btn" id="driver-pl-btn" onclick="openPL()" style="display:none">📋 Price List</button>
-      <button class="driver-pl-btn" onclick="openDealer()" style="background:#3949AB">👥 Dealers</button>
     </div>
-    <div style="display:none">
-    </div>
+    <!-- driver-pl-btn kept hidden — referenced by driver.js for permission check -->
+    <button id="driver-pl-btn" style="display:none" onclick="openPL()"></button>
   </div>
   <div class="driver-banner">
     <span class="driver-banner-text">Today's Manifest — View Only</span>

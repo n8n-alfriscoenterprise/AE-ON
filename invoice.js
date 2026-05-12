@@ -167,7 +167,7 @@ function _renderDealerOrderHistory(dealerId){
   if(!orders.length){ el.style.display='none'; return; }
 
   const fmt  = v=>'₱'+(Number(v)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  const fmtD = s=>{ if(!s)return''; const p=String(s).slice(0,10).split('-'); return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:s; };
+  const fmtD = s=>phDate(s);
 
   el.innerHTML =
     '<div class="inv-oh-title">Recent Orders</div>'
@@ -192,7 +192,7 @@ function onInvTermsChange(){
   const base = new Date(dateStr+'T00:00:00');
   const days = terms==='Net 7'?7:terms==='Net 15'?15:terms==='Net 30'?30:0;
   base.setDate(base.getDate()+days);
-  dueEl.value = base.toISOString().slice(0,10);
+  dueEl.value = base.toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'});
 }
 
 
@@ -501,7 +501,7 @@ async function printInvoice(){
   const validLines = invLines.filter(l=>l.sku && l.qty>0);
   let subtotal = 0;
   const fmt  = v=>'₱'+v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  const fmtD = s=>{ if(!s)return''; const [y,m,d]=s.split('-'); return d+'/'+m+'/'+y; };
+  const fmtD = s=>phDate(s);
 
   const lineRows = validLines.map((l,i)=>{
     const d  = Math.min(100,Math.max(0,l.disc||0));
@@ -692,7 +692,7 @@ function renderInvoiceHistory(){
     return;
   }
   const fmt  = v=>'₱'+(Number(v)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  const fmtD = s=>{ if(!s)return''; const p=String(s).slice(0,10).split('-'); return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:s; };
+  const fmtD = s=>phDate(s);
   body.innerHTML = '';
   list.forEach(inv=>{
     const pt  = inv.paymentType || 'Cash';
@@ -740,7 +740,7 @@ async function showDayTally(){
 function _renderDayTally(data){
   const body = document.getElementById('inv-tally-body');
   const fmt  = v=>'₱'+(Number(v)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  const fmtD = s=>{ if(!s)return''; const p=String(s).slice(0,10).split('-'); return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:s; };
+  const fmtD = s=>phDate(s);
 
   let html = '<div class="inv-tally-totals">';
   ['Cash','Check','Terms AR'].forEach(t=>{

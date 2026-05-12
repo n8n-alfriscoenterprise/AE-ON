@@ -174,55 +174,225 @@ function showBanner(id,msg){
   setTimeout(()=>{ if(b) b.style.display='none'; },5000);
 }
 
-// ── MOVEMENT HISTORY (admin) ────────────────────────────
+// ── MOVEMENT HISTORY (admin / staff) ────────────────────────────
+let _movHistBatches  = [];
+let _movHistExpanded = new Set();
+let _movEditBatch    = null;
+let _movEditChanges  = {}; // {rowIndex: {loaded, returned}}
+
 async function openMovHistory(){
   document.getElementById('mov-hist-modal').style.display='flex';
-  document.getElementById('mov-hist-body').innerHTML='<div style="text-align:center;padding:24px;color:#888;font-size:13px">Loading...</div>';
-  const r=await api({action:'getMovementHistory',limit:60});
+  await _loadMovHistory();
+}
+
+async function _loadMovHistory(){
+  const body = document.getElementById('mov-hist-body');
+  body.innerHTML = '<div style="text-align:center;padding:24px;color:#888;font-size:13px">Loading…</div>';
+  const mode = document.getElementById('mov-hist-mode')?.value || 'All';
+  const date = document.getElementById('mov-hist-date')?.value || '';
+  const r    = await api({action:'getMovementHistory', mode, date, limit:200});
   if(r.status!=='ok'){
-    document.getElementById('mov-hist-body').innerHTML='<div style="padding:16px;color:#E24B4A">Failed to load history.</div>';
+    body.innerHTML='<div style="padding:16px;color:#E24B4A">Failed to load history.</div>';
     return;
   }
-  const body=document.getElementById('mov-hist-body');
-  body.innerHTML='';
-  if(!r.batches||!r.batches.length){
+  _movHistBatches  = r.batches || [];
+  _movHistExpanded = new Set();
+  _renderMovHistory();
+}
+
+function _renderMovHistory(){
+  const body = document.getElementById('mov-hist-body');
+  if(!_movHistBatches.length){
     body.innerHTML='<div style="text-align:center;padding:24px;color:#888;font-size:13px">No movement records found.</div>';
     return;
   }
-  r.batches.forEach(b=>{
-    const isLoad=b.mode.toUpperCase()==='LOAD';
-    const row=document.createElement('div');
-    row.className='mov-hist-row';
-    row.innerHTML=`
-      <div class="mov-hist-main">
-        <div class="mov-hist-badge" style="background:${isLoad?'#E3F2FD':'#E8F5E9'};color:${isLoad?'#1565C0':'#2E7D32'}">${b.mode}</div>
-        <div class="mov-hist-info">
-          <div style="font-size:12px;font-weight:700;color:#222">${b.unit} · ${b.items} SKU(s)</div>
-          <div style="font-size:11px;color:#666">${b.submittedBy} · ${b.timestamp}</div>
-          <div style="font-size:11px;color:#888">
-            ${isLoad?'Loaded: '+b.totalLoaded:'Returned: '+b.totalReturned}
-          </div>
-        </div>
-      </div>
-      <button class="mov-hist-del-btn" onclick="deleteMovBatch('${b.batchKey.replace(/'/g,"\\'")}',this)">Delete</button>`;
-    body.appendChild(row);
+  body.innerHTML='';
+  _movHistBatches.forEach(b=>{
+    const isLoad   = b.mode.toUpperCase()==='LOAD';
+    const expanded = _movHistExpanded.has(b.batchKey);
+    const canEdit  = _canEditMovBatch(b);
+    const isAdmin  = currentUser && currentUser.role==='admin';
+    const ts       = _fmtMovTs(b.timestamp);
+
+    // Totals line — always show both sides so RETURN is never ambiguous
+    const loadedLine   = 'Loaded: <strong>'+b.totalLoaded+'</strong>';
+    const returnedLine = 'Returned: <strong>'+b.totalReturned+'</strong>';
+    const soldLine     = 'Sold: <strong>'+Math.max(0,b.totalLoaded-b.totalReturned)+'</strong>';
+    const totalsHtml   = isLoad
+      ? loadedLine
+      : loadedLine+' &nbsp;·&nbsp; '+returnedLine+' &nbsp;·&nbsp; '+soldLine;
+
+    const card = document.createElement('div');
+    card.className = 'mov-hist-card';
+    card.id        = 'mhc-'+b.batchKey.replace(/[^a-z0-9]/gi,'_');
+
+    let linesHtml = '';
+    if(expanded){
+      linesHtml = '<div class="mov-hist-lines">'
+        +'<table class="mov-hist-table">'
+        +'<thead><tr><th>SKU</th><th>Item</th><th class="mh-r">Loaded</th><th class="mh-r">Returned</th><th class="mh-r">Sold</th></tr></thead>'
+        +'<tbody>'
+        + b.lines.map(l=>`<tr>
+            <td class="mh-sku">${l.sku}</td>
+            <td>${l.name}</td>
+            <td class="mh-r">${l.loaded}</td>
+            <td class="mh-r ${l.returned>0?'mh-returned':''}">${l.returned}</td>
+            <td class="mh-r">${l.sold}</td>
+          </tr>`).join('')
+        +'</tbody></table></div>';
+    }
+
+    card.innerHTML =
+      '<div class="mov-hist-row">'
+        +'<div class="mov-hist-main">'
+          +'<div class="mov-hist-badge" style="background:'+(isLoad?'#E3F2FD':'#FFF3E0')+';color:'+(isLoad?'#1565C0':'#E65100')+'">'+b.mode+'</div>'
+          +'<div class="mov-hist-info">'
+            +'<div class="mh-unit">'+b.unit+' &nbsp;·&nbsp; '+b.items+' SKU'+(b.items!==1?'s':'')+'</div>'
+            +'<div class="mh-by">'+b.submittedBy+' · '+ts+'</div>'
+            +'<div class="mh-totals">'+totalsHtml+'</div>'
+          +'</div>'
+        +'</div>'
+        +'<div class="mov-hist-actions">'
+          +(canEdit?'<button class="mov-hist-edit-btn" onclick="openEditMovBatch(\''+b.batchKey.replace(/'/g,"\\'")+'\')" >✏ Edit</button>':'')
+          +(isAdmin?'<button class="mov-hist-del-btn" onclick="deleteMovBatch(\''+b.batchKey.replace(/'/g,"\\'")+'\')" >Delete</button>':'')
+          +'<button class="mov-hist-expand-btn" onclick="toggleMovBatch(\''+b.batchKey.replace(/'/g,"\\'")+'\')">'+( expanded?'▲ Hide':'▼ Items')+'</button>'
+        +'</div>'
+      +'</div>'
+      + linesHtml;
+    body.appendChild(card);
   });
+}
+
+function toggleMovBatch(key){
+  if(_movHistExpanded.has(key)) _movHistExpanded.delete(key);
+  else _movHistExpanded.add(key);
+  _renderMovHistory();
+}
+
+function _canEditMovBatch(batch){
+  if(!currentUser) return false;
+  if(currentUser.role==='driver') return false;
+  if(currentUser.role==='admin')  return true;
+  // Staff can edit only their own submissions
+  return batch.submittedBy === currentUser.username;
+}
+
+function _fmtMovTs(ts){
+  if(!ts) return '—';
+  const d = new Date(ts);
+  if(isNaN(d.getTime())) return ts; // fallback — show raw if unparseable
+  const mn  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const ph  = new Date(d.toLocaleString('en-US',{timeZone:'Asia/Manila'}));
+  const h   = ph.getHours(), ampm = h>=12?'PM':'AM', h12 = h%12||12;
+  const mi  = String(ph.getMinutes()).padStart(2,'0');
+  return mn[ph.getMonth()]+' '+ph.getDate()+', '+ph.getFullYear()+' · '+h12+':'+mi+' '+ampm;
 }
 
 function closeMovHistory(){
   document.getElementById('mov-hist-modal').style.display='none';
 }
 
-async function deleteMovBatch(batchKey, btn){
+// ── EDIT MODAL ─────────────────────────────────────────────────
+function openEditMovBatch(batchKey){
+  _movEditBatch   = _movHistBatches.find(b=>b.batchKey===batchKey);
+  if(!_movEditBatch) return;
+  _movEditChanges = {};
+
+  const title = document.getElementById('mov-edit-title');
+  if(title) title.textContent = '✏ Edit — '+_movEditBatch.unit+' '+_movEditBatch.mode+' · '+_fmtMovTs(_movEditBatch.timestamp);
+
+  const body = document.getElementById('mov-edit-body');
+  body.innerHTML =
+    '<div style="font-size:11px;color:#888;margin-bottom:10px">Adjust loaded / returned quantities per SKU. Sold is calculated automatically.</div>'
+    +'<table class="mov-hist-table" style="width:100%">'
+    +'<thead><tr><th>Item</th><th class="mh-r">Loaded</th><th class="mh-r">Returned</th></tr></thead>'
+    +'<tbody>'
+    + _movEditBatch.lines.map(l=>
+        '<tr>'
+          +'<td><div class="mh-sku">'+l.sku+'</div><div style="font-size:11px;color:#555">'+l.name+'</div></td>'
+          +'<td class="mh-r"><input class="mov-edit-input" type="number" min="0" step="1"'
+            +' id="mev-l-'+l.rowIndex+'" value="'+l.loaded+'"'
+            +' oninput="_movEditChanges['+l.rowIndex+'] = _movEditChanges['+l.rowIndex+'] || {}; _movEditChanges['+l.rowIndex+'].loaded=Number(this.value)||0; _movEditUpdateSoldLabel('+l.rowIndex+')"></td>'
+          +'<td class="mh-r"><input class="mov-edit-input" type="number" min="0" step="1"'
+            +' id="mev-r-'+l.rowIndex+'" value="'+l.returned+'"'
+            +' oninput="_movEditChanges['+l.rowIndex+'] = _movEditChanges['+l.rowIndex+'] || {}; _movEditChanges['+l.rowIndex+'].returned=Number(this.value)||0; _movEditUpdateSoldLabel('+l.rowIndex+')"></td>'
+        +'</tr>'
+      ).join('')
+    +'</tbody></table>'
+    +'<div id="mov-edit-err" style="font-size:11px;color:#c00;margin-top:8px;min-height:14px"></div>';
+
+  document.getElementById('mov-edit-modal').style.display='flex';
+}
+
+function _movEditUpdateSoldLabel(rowIndex){
+  // no-op for now — sold is just recalculated on save
+}
+
+function closeEditMov(){
+  document.getElementById('mov-edit-modal').style.display='none';
+  _movEditBatch   = null;
+  _movEditChanges = {};
+}
+
+async function saveMovEdits(){
+  if(!_movEditBatch) return;
+  const errEl  = document.getElementById('mov-edit-err');
+  const saveBtn = document.getElementById('mov-edit-save');
+  errEl.textContent='';
+
+  // Build list of rows that actually changed
+  const updates = [];
+  _movEditBatch.lines.forEach(l=>{
+    const loadedEl   = document.getElementById('mev-l-'+l.rowIndex);
+    const returnedEl = document.getElementById('mev-r-'+l.rowIndex);
+    if(!loadedEl||!returnedEl) return;
+    const newLoaded   = Math.max(0, Number(loadedEl.value)  ||0);
+    const newReturned = Math.max(0, Number(returnedEl.value)||0);
+    if(newLoaded!==l.loaded || newReturned!==l.returned){
+      updates.push({rowIndex:l.rowIndex, loaded:newLoaded, returned:newReturned});
+    }
+  });
+
+  if(!updates.length){ closeEditMov(); return; }
+
+  saveBtn.disabled=true; saveBtn.textContent='Saving…';
+
+  let failed = 0;
+  for(const u of updates){
+    const r = await api({action:'updateMovementRow', rowIndex:u.rowIndex, loaded:u.loaded, returned:u.returned, editedBy: currentUser?currentUser.username:''});
+    if(r.status!=='ok') failed++;
+    else {
+      // Update local batch data
+      const line = _movEditBatch.lines.find(l=>l.rowIndex===u.rowIndex);
+      if(line){ line.loaded=u.loaded; line.returned=u.returned; line.sold=Math.max(0,u.loaded-u.returned); }
+    }
+  }
+
+  saveBtn.disabled=false; saveBtn.textContent='💾 Save Changes';
+
+  if(failed){
+    errEl.textContent = failed+' row(s) failed to save. Try again.';
+    return;
+  }
+
+  // Recompute batch totals
+  _movEditBatch.totalLoaded   = _movEditBatch.lines.reduce((s,l)=>s+l.loaded,  0);
+  _movEditBatch.totalReturned = _movEditBatch.lines.reduce((s,l)=>s+l.returned,0);
+
+  showToast(updates.length+' row'+(updates.length!==1?'s':'')+' updated ✓','success');
+  closeEditMov();
+  _renderMovHistory(); // refresh cards with new values
+}
+
+// ── DELETE ─────────────────────────────────────────────────────
+async function deleteMovBatch(batchKey){
   if(!confirm('Delete this movement batch? Stock counts will NOT be reversed automatically.')) return;
-  const orig=btn.textContent;
-  btn.disabled=true; btn.textContent='Deleting...';
-  const r=await api({action:'deleteMovementBatch', batchKey});
+  const r = await api({action:'deleteMovementBatch', batchKey});
   if(r.status==='ok'){
-    btn.closest('.mov-hist-row').remove();
+    _movHistBatches = _movHistBatches.filter(b=>b.batchKey!==batchKey);
+    _renderMovHistory();
     showToast('Movement batch deleted','success');
   } else {
-    btn.disabled=false; btn.textContent=orig;
     alert('Delete failed: '+(r.msg||'Unknown error'));
   }
 }

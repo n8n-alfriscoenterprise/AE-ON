@@ -1784,26 +1784,77 @@ function doPost(e) {
     if (data.action === 'getMovementHistory') {
       const s = ss.getSheetByName('Stock Movements');
       if (!s) return ok({ batches: [] });
-      // Group rows into batches by timestamp+unit+mode
+
       const batchMap = {};
-      s.getDataRange().getValues().slice(1).filter(r=>r[0]).forEach((r, i) => {
+      s.getDataRange().getValues().slice(1).forEach(function(r, i) {
+        if (!r[0]) return;
         const ts = r[0] instanceof Date
           ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
           : String(r[0]);
         const key = ts + '|' + String(r[2]) + '|' + String(r[3]);
         if (!batchMap[key]) batchMap[key] = {
-          batchKey: key, timestamp: ts, submittedBy: String(r[1]),
-          unit: String(r[2]), mode: String(r[3]), items: 0,
-          totalLoaded:0, totalReturned:0
+          batchKey:      key,
+          timestamp:     ts,
+          submittedBy:   String(r[1]),
+          unit:          String(r[2]),
+          mode:          String(r[3]),
+          items:         0,
+          totalLoaded:   0,
+          totalReturned: 0,
+          lines:         []
         };
+        const loaded   = Number(r[7]) || 0;
+        const returned = Number(r[8]) || 0;
+        const sold     = Number(r[9]) || 0;
         batchMap[key].items++;
-        batchMap[key].totalLoaded   += Number(r[7]||0);
-        batchMap[key].totalReturned += Number(r[8]||0);
+        batchMap[key].totalLoaded   += loaded;
+        batchMap[key].totalReturned += returned;
+        batchMap[key].lines.push({
+          rowIndex: i + 2,  // +1 for header row, +1 for 1-based index
+          sku:      String(r[4]),
+          name:     String(r[5]),
+          category: String(r[6]),
+          loaded,
+          returned,
+          sold
+        });
       });
-      const batches = Object.values(batchMap)
-        .sort((a,b) => b.timestamp.localeCompare(a.timestamp))
-        .slice(0, Number(data.limit)||60);
-      return ok({ batches });
+
+      let batches = Object.values(batchMap);
+
+      // Optional filters
+      if (data.mode && data.mode !== 'All') {
+        batches = batches.filter(function(b){ return b.mode.toUpperCase() === data.mode.toUpperCase(); });
+      }
+      if (data.date) {
+        batches = batches.filter(function(b){ return b.timestamp.slice(0,10) === data.date; });
+      }
+
+      // Sort newest first — compare as real dates, fall back to string compare
+      batches.sort(function(a, b) {
+        const ta = new Date(a.timestamp).getTime() || 0;
+        const tb = new Date(b.timestamp).getTime() || 0;
+        return (tb - ta) || b.timestamp.localeCompare(a.timestamp);
+      });
+
+      return ok({ batches: batches.slice(0, Number(data.limit) || 200) });
+    }
+
+    // ── UPDATE MOVEMENT ROW (admin / staff edit) ───────────────────────
+    if (data.action === 'updateMovementRow') {
+      const s = ss.getSheetByName('Stock Movements');
+      if (!s) return err('Stock Movements sheet not found');
+      const rowIndex = Number(data.rowIndex);
+      if (!rowIndex || rowIndex < 2) return err('Invalid row index');
+      const allRows = s.getDataRange().getValues();
+      if (rowIndex > allRows.length) return err('Row not found');
+      const loaded   = Math.max(0, Number(data.loaded)   || 0);
+      const returned = Math.max(0, Number(data.returned) || 0);
+      const sold     = Math.max(0, loaded - returned);
+      s.getRange(rowIndex,  8).setValue(loaded);
+      s.getRange(rowIndex,  9).setValue(returned);
+      s.getRange(rowIndex, 10).setValue(sold);
+      return ok({ rowIndex, loaded, returned, sold });
     }
 
     // ── DELETE MOVEMENT BATCH ──────────────────────────────────────────

@@ -770,14 +770,36 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .trf-card-admin{cursor:pointer}
 .trf-card-admin:hover{background:#f0f2ff}
 /* Movement history modal */
-.mov-hist-sheet{background:white;border-radius:16px 16px 0 0;width:100%;max-height:80vh;display:flex;flex-direction:column}
+.mov-hist-sheet{background:white;border-radius:16px 16px 0 0;width:100%;max-height:85vh;display:flex;flex-direction:column}
 .mov-hist-body{overflow-y:auto;flex:1;padding:0 0 8px}
-.mov-hist-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #f5f5f5;gap:10px}
-.mov-hist-main{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
-.mov-hist-badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0}
+.mov-hist-filters{display:flex;gap:8px;padding:8px 14px;border-bottom:1px solid #eee;flex-shrink:0;align-items:center}
+.mov-hist-filters select,.mov-hist-filters input{border:1.5px solid #ddd;border-radius:7px;padding:6px 9px;font-size:12px;outline:none;background:#fff}
+.mov-hist-filters select{flex:1}.mov-hist-filters input{flex:1.2}
+.mov-hist-refresh{background:#0A5C46;color:#fff;border:none;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+/* batch card */
+.mov-hist-card{border-bottom:1px solid #f0f0f0}
+.mov-hist-row{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 14px;gap:10px}
+.mov-hist-main{display:flex;align-items:flex-start;gap:10px;flex:1;min-width:0}
+.mov-hist-badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0;margin-top:2px}
 .mov-hist-info{min-width:0}
-.mov-hist-del-btn{padding:4px 10px;background:#FDECEA;color:#C62828;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0}
-.mov-hist-del-btn:disabled{opacity:.5;cursor:not-allowed}
+.mh-unit{font-size:12px;font-weight:700;color:#222}
+.mh-by{font-size:11px;color:#777;margin-top:1px}
+.mh-totals{font-size:11px;color:#555;margin-top:3px}
+.mh-returned{color:#E65100;font-weight:700}
+.mov-hist-actions{display:flex;flex-direction:column;gap:4px;flex-shrink:0;align-items:flex-end}
+.mov-hist-edit-btn{padding:4px 10px;background:#E8F0F7;color:#1565C0;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer}
+.mov-hist-del-btn{padding:4px 10px;background:#FDECEA;color:#C62828;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer}
+.mov-hist-expand-btn{padding:4px 10px;background:#F5F5F5;color:#555;border:none;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer}
+/* expanded lines table */
+.mov-hist-lines{background:#FAFAFA;border-top:1px solid #eee;padding:8px 14px 10px}
+.mov-hist-table{width:100%;border-collapse:collapse;font-size:11px}
+.mov-hist-table th{text-align:left;font-size:10px;font-weight:700;color:#888;text-transform:uppercase;padding:3px 6px;border-bottom:1px solid #e0e0e0}
+.mov-hist-table td{padding:4px 6px;border-bottom:1px solid #f5f5f5;color:#333}
+.mh-r{text-align:right!important}
+.mh-sku{font-size:10px;color:#888;font-family:monospace}
+/* edit modal */
+.mov-edit-input{width:64px;border:1.5px solid #ddd;border-radius:6px;padding:5px 7px;font-size:12px;text-align:right;outline:none}
+.mov-edit-input:focus{border-color:#0A5C46}
 
 /* ══ TRANSFER SYSTEM ══════════════════════════════ */
 #transfer-screen{background:#f0f2f5}
@@ -2546,14 +2568,39 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
   </div>
 </div>
 
-<!-- ── MOVEMENT HISTORY MODAL (admin) ── -->
+<!-- ── MOVEMENT HISTORY MODAL ── -->
 <div class="modal-overlay" id="mov-hist-modal" style="display:none;align-items:flex-end">
   <div class="mov-hist-sheet">
     <div class="adm-modal-header" style="padding:14px 16px 10px">
       <span class="adm-modal-title">🕘 Movement History</span>
       <button class="adm-modal-close" onclick="closeMovHistory()">✕</button>
     </div>
+    <!-- Filters -->
+    <div class="mov-hist-filters">
+      <select id="mov-hist-mode">
+        <option value="All">All Modes</option>
+        <option value="LOAD">LOAD only</option>
+        <option value="RETURN">RETURN only</option>
+      </select>
+      <input type="date" id="mov-hist-date" placeholder="Filter by date">
+      <button class="mov-hist-refresh" onclick="_loadMovHistory()">↺ Refresh</button>
+    </div>
     <div id="mov-hist-body" class="mov-hist-body"></div>
+  </div>
+</div>
+
+<!-- ── MOVEMENT EDIT MODAL ── -->
+<div class="modal-overlay" id="mov-edit-modal" style="display:none;align-items:flex-end">
+  <div class="mov-hist-sheet" style="max-height:88vh">
+    <div class="adm-modal-header" style="padding:14px 16px 10px">
+      <span class="adm-modal-title" id="mov-edit-title">✏ Edit Movement</span>
+      <button class="adm-modal-close" onclick="closeEditMov()">✕</button>
+    </div>
+    <div id="mov-edit-body" style="overflow-y:auto;flex:1;padding:12px 14px"></div>
+    <div style="padding:12px 14px;border-top:1px solid #eee;display:flex;gap:8px;flex-shrink:0">
+      <button class="back-btn" style="flex:1;padding:10px" onclick="closeEditMov()">Cancel</button>
+      <button id="mov-edit-save" style="flex:2;padding:10px;background:#0A5C46;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer" onclick="saveMovEdits()">💾 Save Changes</button>
+    </div>
   </div>
 </div>
 

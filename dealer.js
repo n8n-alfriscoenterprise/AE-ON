@@ -4,7 +4,6 @@
 
 // ── MATH HELPERS ─────────────────────────────────────────────
 
-// Haversine formula — returns distance in metres between two GPS points
 function _haversineMeters(lat1, lng1, lat2, lng2){
   const R    = 6371000;
   const toRad = x => x * Math.PI / 180;
@@ -15,7 +14,6 @@ function _haversineMeters(lat1, lng1, lat2, lng2){
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Levenshtein similarity — returns 0 (nothing alike) to 1 (identical)
 function _nameSimilarity(a, b){
   a = a.toLowerCase().trim();
   b = b.toLowerCase().trim();
@@ -37,24 +35,21 @@ function _nameSimilarity(a, b){
 }
 
 // ── ANALYSIS ──────────────────────────────────────────────────
-// _dealerFlags: { dealerId → { incomplete, duplicate, autoInactive, dupWith } }
-let _dealerFlags = {};
+let _dealerFlags            = {};
+let _pendingDeletionRequests = [];
 
 function analyzeDealers(activityMap){
-  // activityMap: { dealerId: 'YYYY-MM-DD' } from getRecentDealerActivity, or null
   _dealerFlags = {};
-  const now       = Date.now();
-  const ms4Weeks  = 28 * 24 * 60 * 60 * 1000;
+  const now      = Date.now();
+  const ms4Weeks = 28 * 24 * 60 * 60 * 1000;
 
   dealerList.forEach(d => {
     const flags = { incomplete: false, duplicate: false, autoInactive: false, dupWith: null };
 
-    // Incomplete: any of the critical fields is missing
     if(!d.storeName || !d.ownerName || !d.phone1 || !d.area || !d.lat || !d.lng){
       flags.incomplete = true;
     }
 
-    // Auto-inactive: Active dealer with no invoice in the last 4 weeks
     if(activityMap && d.status === 'Active'){
       const lastDate = activityMap[d.dealerId];
       if(!lastDate || (now - new Date(lastDate).getTime()) > ms4Weeks){
@@ -65,7 +60,6 @@ function analyzeDealers(activityMap){
     _dealerFlags[d.dealerId] = flags;
   });
 
-  // GPS duplicate: any two dealers within 30 m of each other
   const withGps = dealerList.filter(d => d.lat && d.lng);
   for(let i = 0; i < withGps.length; i++){
     for(let j = i + 1; j < withGps.length; j++){
@@ -91,10 +85,10 @@ function analyzeDealers(activityMap){
 async function openDealer(){
   showScreen('dealer-screen');
   updateFabVisibility();
-  // Always start on the list — prevents the new-dealer-tab flash
   showDealerSubtab('list', document.getElementById('dlr-tab-list'));
   await loadDealers();
-  // Fetch lightweight activity data for the auto-inactive badge
+
+  // Activity data for auto-inactive badge
   try{
     const r = await api({ action: 'getRecentDealerActivity' });
     if(r.status === 'ok'){
@@ -107,11 +101,21 @@ async function openDealer(){
   }catch(e){
     analyzeDealers(null);
   }
+
+  // Admin: load any pending deletion requests
+  if(currentUser && currentUser.role === 'admin'){
+    await loadPendingDeletionRequests();
+  }
+
   renderDealerList();
 }
 
 function closeDealer(){ showHome(); }
 
+// ── SUB-TAB SWITCHING ─────────────────────────────────────────
+// IMPORTANT: showDealerSubtab never calls resetDealerForm().
+// resetDealerForm is only called by openNewDealerForm() so that
+// currentDealer is never wiped out mid-edit.
 function showDealerSubtab(tab, el){
   document.querySelectorAll('.dlr-subtab').forEach(t => t.classList.remove('active'));
   if(el) el.classList.add('active');
@@ -119,7 +123,12 @@ function showDealerSubtab(tab, el){
   document.getElementById('dlr-view-form').style.display    = tab === 'new'     ? 'flex' : 'none';
   document.getElementById('dlr-view-profile').style.display = tab === 'profile' ? 'flex' : 'none';
   if(tab === 'list') renderDealerList();
-  if(tab === 'new')  resetDealerForm();
+}
+
+// Called only when the user explicitly taps "+ New Dealer"
+function openNewDealerForm(){
+  resetDealerForm();
+  showDealerSubtab('new', document.getElementById('dlr-tab-new'));
 }
 
 // ── LOAD ──────────────────────────────────────────────────────
@@ -138,7 +147,7 @@ function renderDealerList(){
   const visible = dealerList.filter(d => {
     if(dealerFilter !== 'All' && d.status !== dealerFilter) return false;
     if(search
-      && !d.storeName.toLowerCase().includes(search)
+      && !(d.storeName || '').toLowerCase().includes(search)
       && !(d.ownerName || '').toLowerCase().includes(search)
       && !(d.phone1    || '').includes(search)
       && !(d.area      || '').toLowerCase().includes(search)) return false;
@@ -181,7 +190,6 @@ function renderDealerList(){
     const flags      = _dealerFlags[d.dealerId] || {};
     const phone1Safe = (d.phone1 || '').replace(/\s/g, '');
 
-    // Smart badges
     let badges = '';
     if(flags.incomplete)   badges += '<span class="dlr-badge dlr-badge-incomplete">⚠ Incomplete</span>';
     if(flags.duplicate)    badges += '<span class="dlr-badge dlr-badge-duplicate">⚑ Possible Duplicate</span>';
@@ -203,14 +211,13 @@ function renderDealerList(){
       + (badges ? '<div class="dlr-badges-wrap">' + badges + '</div>' : '')
       + '<div class="dlr-card-row2">'
         + (d.phone1
-          ? '<a class="dlr-tel-link" href="tel:' + phone1Safe + '" onclick="event.stopPropagation()">📞 ' + d.phone1 + '</a>'
+          ? '<a class="dlr-tel-link" href="tel:' + phone1Safe
+              + '" onclick="event.stopPropagation()">📞 ' + d.phone1 + '</a>'
           : '')
         + (d.area ? '<span class="dlr-meta">📍 ' + d.area + '</span>' : '')
       + '</div>'
       + '<div class="dlr-card-row3">'
-        + (d.dealerType
-          ? '<span class="dlr-type-tag">' + d.dealerType + '</span>'
-          : '')
+        + (d.dealerType ? '<span class="dlr-type-tag">' + d.dealerType + '</span>' : '')
         + (d.lat && d.lng
           ? '<a class="dlr-map-link" href="https://maps.google.com/?q=' + d.lat + ',' + d.lng
               + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">🗺 View on Map</a>'
@@ -227,7 +234,6 @@ async function openDealerProfile(d){
   _renderDealerProfile(d);
   showDealerSubtab('profile', null);
 
-  // Load last 10 orders for this dealer
   const ordersEl = document.getElementById('dlr-profile-orders');
   try{
     const r = await api({ action: 'getInvoices', dealerId: d.dealerId });
@@ -250,8 +256,7 @@ function _renderDealerProfile(d){
   const phone1Safe = (d.phone1 || '').replace(/\s/g, '');
   const phone2Safe = (d.phone2 || '').replace(/\s/g, '');
   const mapUrl     = (d.lat && d.lng)
-    ? 'https://maps.google.com/?q=' + d.lat + ',' + d.lng
-    : null;
+    ? 'https://maps.google.com/?q=' + d.lat + ',' + d.lng : null;
 
   let badgesHtml = '';
   if(flags.incomplete)
@@ -272,7 +277,8 @@ function _renderDealerProfile(d){
         <div class="dlr-prof-owner">${d.ownerName || ''}</div>
         ${badgesHtml ? '<div class="dlr-prof-badges">' + badgesHtml + '</div>' : ''}
       </div>
-      <span class="dlr-status-badge ${statusCls[d.status] || 'dlr-s-prospect'}" style="margin-left:10px;flex-shrink:0">${d.status}</span>
+      <span class="dlr-status-badge ${statusCls[d.status] || 'dlr-s-prospect'}"
+            style="margin-left:10px;flex-shrink:0">${d.status}</span>
     </div>
 
     <div class="dlr-prof-section">
@@ -288,8 +294,8 @@ function _renderDealerProfile(d){
     ${(d.area || d.address) ? `
     <div class="dlr-prof-section">
       <div class="dlr-prof-section-label">Location</div>
-      ${d.area    ? `<div class="dlr-prof-info-row">📍 ${d.area}</div>` : ''}
-      ${d.address ? `<div class="dlr-prof-address">${d.address}</div>`  : ''}
+      ${d.area    ? `<div class="dlr-prof-info-row">📍 ${d.area}</div>`   : ''}
+      ${d.address ? `<div class="dlr-prof-address">${d.address}</div>`    : ''}
       ${mapUrl    ? `<a class="dlr-map-link" href="${mapUrl}" target="_blank" rel="noopener"
                        style="display:inline-block;margin-top:8px;font-size:12px">🗺 Open in Google Maps</a>` : ''}
     </div>` : ''}
@@ -326,9 +332,7 @@ function _renderProfileOrders(invoices){
     const total = Number(inv.total || inv.grandTotal || 0);
     const date  = inv.invoiceDate || inv.date || '';
     let dateStr = '—';
-    if(date){
-      try{ dateStr = phDate(new Date(date)); }catch(e){ dateStr = date; }
-    }
+    if(date){ try{ dateStr = phDate(new Date(date)); }catch(e){ dateStr = date; } }
     return `<div class="dlr-prof-oh-row">
       <div class="dlr-prof-oh-num">${inv.invoiceNumber || inv.invNo || '—'}</div>
       <div class="dlr-prof-oh-date">${dateStr}</div>
@@ -337,7 +341,7 @@ function _renderProfileOrders(invoices){
   }).join('');
 }
 
-// ── NAME SIMILARITY SUGGESTION ────────────────────────────────
+// ── NAME SUGGESTION ───────────────────────────────────────────
 function onDlrStoreNameInput(val){
   const sugg = document.getElementById('dlr-name-suggestion');
   if(!sugg) return;
@@ -355,18 +359,88 @@ function onDlrStoreNameInput(val){
   const top = matches[0];
   sugg.style.display = 'block';
   sugg.innerHTML = '⚠️ Similar name found: <strong>' + top.name + '</strong>'
-    + (top.score >= 0.99
-      ? ' — exact match, check for duplicate!'
-      : ' — is this the same dealer?');
+    + (top.score >= 0.99 ? ' — exact match, check for duplicate!' : ' — is this the same dealer?');
+}
+
+// ── PENDING DELETION REQUESTS (admin) ─────────────────────────
+async function loadPendingDeletionRequests(){
+  try{
+    const r = await api({ action: 'getDealerDeletionRequests' });
+    if(r.status === 'ok'){
+      _pendingDeletionRequests = r.requests || [];
+      renderPendingDeletionPanel();
+    }
+  }catch(e){ console.error('loadPendingDeletionRequests', e); }
+}
+
+function renderPendingDeletionPanel(){
+  const panel = document.getElementById('dlr-pending-panel');
+  if(!panel) return;
+
+  if(!_pendingDeletionRequests.length){
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+
+  panel.style.display = 'block';
+  panel.innerHTML =
+    '<div class="dlr-pending-header">🚩 '
+      + _pendingDeletionRequests.length
+      + ' Deletion Request'
+      + (_pendingDeletionRequests.length > 1 ? 's' : '')
+      + ' Pending</div>'
+    + _pendingDeletionRequests.map(req =>
+        '<div class="dlr-pending-row">'
+          + '<div class="dlr-pending-info">'
+            + '<div class="dlr-pending-name">' + req.storeName + '</div>'
+            + '<div class="dlr-pending-meta">Requested by ' + req.requestedBy + ' · ' + req.requestedAt + '</div>'
+          + '</div>'
+          + '<div class="dlr-pending-actions">'
+            + '<button class="dlr-pending-approve" onclick="resolveDeletionRequest(\''
+              + req.requestId + '\',\'' + req.dealerId + '\',true)">✓ Delete</button>'
+            + '<button class="dlr-pending-reject" onclick="resolveDeletionRequest(\''
+              + req.requestId + '\',\'' + req.dealerId + '\',false)">✕ Dismiss</button>'
+          + '</div>'
+        + '</div>'
+      ).join('');
+}
+
+async function resolveDeletionRequest(requestId, dealerId, approve){
+  const msg = approve
+    ? 'Confirm deletion of this dealer.\nThis cannot be undone.'
+    : 'Dismiss this deletion request?';
+  if(!confirm(msg)) return;
+
+  try{
+    const r = await api({
+      action: 'resolveDealerDeletion',
+      requestId, dealerId, approve,
+      resolvedBy: currentUser.username
+    });
+    if(r.status === 'ok'){
+      _pendingDeletionRequests = _pendingDeletionRequests.filter(req => req.requestId !== requestId);
+      if(approve){
+        dealerList = dealerList.filter(d => d.dealerId !== dealerId);
+        showToast('Dealer deleted ✓', 'success');
+      } else {
+        showToast('Request dismissed', 'info');
+      }
+      renderPendingDeletionPanel();
+      renderDealerList();
+    } else {
+      alert('Error: ' + (r.msg || 'Could not process request'));
+    }
+  }catch(e){ alert('Network error: ' + e.message); }
 }
 
 // ── FORM — NEW / EDIT ─────────────────────────────────────────
 function resetDealerForm(){
   currentDealer = null;
-  document.getElementById('dlr-form-title').textContent     = 'New Dealer';
-  document.getElementById('dlr-save-btn').textContent       = '💾 Save Dealer';
-  document.getElementById('dlr-delete-row').style.display   = 'none';
-  document.getElementById('dlr-err').textContent            = '';
+  document.getElementById('dlr-form-title').textContent   = 'New Dealer';
+  document.getElementById('dlr-save-btn').textContent     = '💾 Save Dealer';
+  document.getElementById('dlr-delete-row').style.display = 'none';
+  document.getElementById('dlr-err').textContent          = '';
   ['dlr-store','dlr-owner','dlr-phone1','dlr-phone2',
    'dlr-area','dlr-address','dlr-notes','dlr-lat','dlr-lng','dlr-acc']
     .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
@@ -381,14 +455,21 @@ function resetDealerForm(){
 }
 
 function openEditDealer(d){
+  // Set currentDealer FIRST — before any function that might clear it
   currentDealer = d;
+
+  // Switch to the form view WITHOUT calling resetDealerForm
   showDealerSubtab('new', document.getElementById('dlr-tab-new'));
 
   document.getElementById('dlr-form-title').textContent = 'Edit Dealer';
   document.getElementById('dlr-save-btn').textContent   = '💾 Update Dealer';
+  document.getElementById('dlr-err').textContent        = '';
+
+  // Role-based delete/request row
   const isAdmin = currentUser && currentUser.role === 'admin';
-  document.getElementById('dlr-delete-row').style.display = isAdmin ? 'block' : 'none';
-  document.getElementById('dlr-err').textContent = '';
+  document.getElementById('dlr-delete-row').style.display    = 'block';
+  document.getElementById('dlr-real-delete-btn').style.display   = isAdmin ? '' : 'none';
+  document.getElementById('dlr-request-del-btn').style.display   = isAdmin ? 'none' : '';
 
   document.getElementById('dlr-store').value   = d.storeName  || '';
   document.getElementById('dlr-owner').value   = d.ownerName  || '';
@@ -417,7 +498,6 @@ function openEditDealer(d){
     if(btn) btn.textContent = '📍 Pin My Location';
   }
 
-  // Suppress suggestion when editing (don't flag the dealer's own name)
   const sugg = document.getElementById('dlr-name-suggestion');
   if(sugg) sugg.style.display = 'none';
 }
@@ -505,7 +585,7 @@ async function saveDealerForm(){
 
     if(r.status === 'ok'){
       await loadDealers();
-      analyzeDealers(null);   // re-analyse after change
+      analyzeDealers(null);
       showToast(currentDealer ? storeName + ' updated ✓' : storeName + ' added to directory ✓', 'success');
       showDealerSubtab('list', document.getElementById('dlr-tab-list'));
     } else {
@@ -518,9 +598,17 @@ async function saveDealerForm(){
   btn.textContent = currentDealer ? '💾 Update Dealer' : '💾 Save Dealer';
 }
 
+// ── DELETE (admin only) ───────────────────────────────────────
 async function deleteDealer(){
-  if(!currentDealer) return;
-  if(!confirm('Delete ' + currentDealer.storeName + '?\n\nThis cannot be undone.')) return;
+  if(!currentDealer){
+    alert('No dealer selected.');
+    return;
+  }
+  if(!confirm('Delete "' + currentDealer.storeName + '"?\n\nThis permanently removes the dealer from the directory and cannot be undone.')) return;
+
+  const btn = document.getElementById('dlr-real-delete-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Deleting...'; }
+
   try{
     const r = await api({
       action: 'deleteDealer',
@@ -534,6 +622,41 @@ async function deleteDealer(){
       showDealerSubtab('list', document.getElementById('dlr-tab-list'));
     } else {
       alert('Error: ' + (r.msg || 'Could not delete'));
+      if(btn){ btn.disabled = false; btn.textContent = '🗑 Delete Dealer'; }
     }
-  }catch(e){ alert('Network error: ' + e.message); }
+  }catch(e){
+    alert('Network error: ' + e.message);
+    if(btn){ btn.disabled = false; btn.textContent = '🗑 Delete Dealer'; }
+  }
+}
+
+// ── REQUEST DELETION (non-admin staff / drivers) ───────────────
+async function requestDealerDeletion(){
+  if(!currentDealer){
+    alert('No dealer selected.');
+    return;
+  }
+  if(!confirm('Submit a request to delete "' + currentDealer.storeName + '"?\n\nAn admin will review this with you before anything is removed.')) return;
+
+  const btn = document.getElementById('dlr-request-del-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Submitting…'; }
+
+  try{
+    const r = await api({
+      action: 'requestDealerDeletion',
+      dealerId:    currentDealer.dealerId,
+      storeName:   currentDealer.storeName,
+      requestedBy: currentUser.username
+    });
+    if(r.status === 'ok'){
+      showToast('Deletion request submitted — admin will follow up with you', 'info', 5500);
+      showDealerSubtab('list', document.getElementById('dlr-tab-list'));
+    } else {
+      alert('Error: ' + (r.msg || 'Could not submit request'));
+      if(btn){ btn.disabled = false; btn.textContent = '🚩 Request Deletion'; }
+    }
+  }catch(e){
+    alert('Network error: ' + e.message);
+    if(btn){ btn.disabled = false; btn.textContent = '🚩 Request Deletion'; }
+  }
 }

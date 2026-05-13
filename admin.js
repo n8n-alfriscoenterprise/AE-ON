@@ -71,22 +71,32 @@ async function addStaff(){
   const p=document.getElementById('new-password').value;
   const r=document.getElementById('new-role').value;
   const unit=r==='driver'?document.getElementById('new-unit').value:'All';
-  const canDist=document.getElementById('new-can-dist').checked;
-  const canRetail=document.getElementById('new-can-retail').checked;
-  const canPO=document.getElementById('new-can-po').checked;
-  const canPL=document.getElementById('new-can-pl')?document.getElementById('new-can-pl').checked:true;
-  const canTrf=document.getElementById('new-can-transfer')?document.getElementById('new-can-transfer').checked:false;
-  const canPODist=document.getElementById('new-can-po-dist')?document.getElementById('new-can-po-dist').checked:false;
-  const canPORetail=document.getElementById('new-can-po-retail')?document.getElementById('new-can-po-retail').checked:false;
-  const canProd=document.getElementById('new-can-production')?document.getElementById('new-can-production').checked:false;
-  const canBoDist=document.getElementById('new-can-bo-dist')?document.getElementById('new-can-bo-dist').checked:true;
-  const canBoRetail=document.getElementById('new-can-bo-retail')?document.getElementById('new-can-bo-retail').checked:false;
+  const canDist    =document.getElementById('new-can-dist')      ?document.getElementById('new-can-dist').checked      :true;
+  const canRetail  =document.getElementById('new-can-retail')    ?document.getElementById('new-can-retail').checked    :true;
+  const canPL      =document.getElementById('new-can-pl')        ?document.getElementById('new-can-pl').checked        :true;
+  const canSA      =document.getElementById('new-can-sa')        ?document.getElementById('new-can-sa').checked        :false;
+  const canTrf     =document.getElementById('new-can-transfer')  ?document.getElementById('new-can-transfer').checked  :false;
+  const canPODist  =document.getElementById('new-can-po-dist')   ?document.getElementById('new-can-po-dist').checked   :false;
+  const canPORetail=document.getElementById('new-can-po-retail') ?document.getElementById('new-can-po-retail').checked :false;
+  const canProd    =document.getElementById('new-can-production') ?document.getElementById('new-can-production').checked:false;
+  const canBoDist  =document.getElementById('new-can-bo-dist')   ?document.getElementById('new-can-bo-dist').checked   :true;
+  const canBoRetail=document.getElementById('new-can-bo-retail') ?document.getElementById('new-can-bo-retail').checked :false;
   if(!u||!p){alert('Username and password are required.');return;}
   if(staff.find(s=>s.username.toLowerCase()===u.toLowerCase())){alert('Username already exists.');return;}
   try{
-    const result=await api({action:'addStaff',username:u,password:p,role:r,assignedUnit:unit,canCountDist:canDist,canCountRetail:canRetail,canManagePODist:canPODist,canManagePORetail:canPORetail,canViewProductList:canPL,canTransfer:canTrf,canProduction:canProd,canBackorderDist:canBoDist,canBackorderRetail:canBoRetail});
+    const result=await api({action:'addStaff',username:u,password:p,role:r,assignedUnit:unit,
+      canCountDist:canDist,canCountRetail:canRetail,
+      canManagePODist:canPODist,canManagePORetail:canPORetail,
+      canViewProductList:canPL,canStockAdjust:canSA,
+      canTransfer:canTrf,canProduction:canProd,
+      canBackorderDist:canBoDist,canBackorderRetail:canBoRetail});
     if(result.status==='ok'){
-      staff.push({username:u,password:p,role:r,assignedUnit:unit,canCountDist:canDist,canCountRetail:canRetail,canManagePODist:canPODist,canManagePORetail:canPORetail,canViewProductList:canPL,canTransfer:canTrf,canProduction:canProd,canBackorderDist:canBoDist,canBackorderRetail:canBoRetail});
+      staff.push({username:u,password:p,role:r,assignedUnit:unit,
+        canCountDist:canDist,canCountRetail:canRetail,
+        canManagePODist:canPODist,canManagePORetail:canPORetail,
+        canViewProductList:canPL,canStockAdjust:canSA,
+        canTransfer:canTrf,canProduction:canProd,
+        canBackorderDist:canBoDist,canBackorderRetail:canBoRetail});
       LS.set('alf_staff_cache',staff);
       document.getElementById('new-username').value='';
       document.getElementById('new-password').value='';

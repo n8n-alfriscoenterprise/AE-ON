@@ -23,9 +23,9 @@ function closeBoModal(){
   document.getElementById('bo-modal').style.display='none';
 }
 
-function addBoLineItem(){
-  // Distribution backorder — always dist
-  boLines.push({type:'dist',skuValue:'',skuName:'',qty:1,unit:'bag'});
+function addBoLineItem(type){
+  const lineType = type || 'dist';
+  boLines.push({type:lineType,skuValue:'',skuName:'',qty:1,unit:'bag'});
   renderBoLines();
   setTimeout(()=>{
     const container=document.getElementById('bo-line-items');

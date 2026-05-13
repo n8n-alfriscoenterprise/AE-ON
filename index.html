@@ -307,6 +307,39 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .dlr-save-btn{width:100%;padding:13px;background:#0A5C46;color:white;border:none;border-radius:11px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px}
 .dlr-save-btn:disabled{opacity:0.6}
 .dlr-delete-btn{width:100%;padding:11px;background:none;border:1.5px solid #E24B4A;color:#E24B4A;border-radius:11px;font-size:13px;font-weight:600;cursor:pointer}
+/* ── DEALER SMART BADGES ── */
+.dlr-badges-wrap{display:flex;flex-wrap:wrap;gap:4px;margin:5px 0 2px}
+.dlr-badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;white-space:nowrap}
+.dlr-badge-incomplete{background:#FFF3E0;color:#E65100;border:1px solid #FFCC80}
+.dlr-badge-duplicate{background:#FFFDE7;color:#827717;border:1px solid #F9A825}
+.dlr-badge-autoinactive{background:#ECEFF1;color:#546E7A;border:1px solid #B0BEC5}
+/* ── CLICK-TO-CALL ── */
+.dlr-tel-link{color:#1565C0;text-decoration:none;font-size:11px;font-weight:600}
+.dlr-tel-block{display:block;background:#E3F2FD;border:1px solid #BBDEFB;border-radius:9px;padding:11px 14px;font-size:14px;font-weight:600;color:#0D47A1;text-decoration:none}
+.dlr-tel-block:active{background:#BBDEFB}
+/* ── NAME SUGGESTION ── */
+.dlr-name-suggestion{font-size:11px;color:#BF360C;background:#FBE9E7;border:1px solid #FFAB91;border-radius:7px;padding:7px 10px;margin-top:4px;line-height:1.5}
+/* ── PROFILE VIEW ── */
+.dlr-prof-topbar{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#1565C0;flex-shrink:0;gap:8px}
+.dlr-prof-back-btn{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);color:white;padding:7px 13px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0}
+.dlr-prof-edit-btn{background:#0A5C46;border:none;color:white;padding:7px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0}
+.dlr-prof-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.dlr-prof-name{font-size:19px;font-weight:700;color:#1A3A5C;line-height:1.2}
+.dlr-prof-owner{font-size:13px;color:#666;margin-top:3px}
+.dlr-prof-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+.dlr-prof-section{background:white;border-radius:10px;padding:13px 14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+.dlr-prof-section-label{font-size:10px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.6px;margin-bottom:9px}
+.dlr-prof-info-row{font-size:13px;color:#333;line-height:1.5}
+.dlr-prof-address{font-size:12px;color:#666;margin-top:3px;line-height:1.5}
+.dlr-prof-notes{font-size:12px;color:#555;line-height:1.6}
+.dlr-prof-missing{font-size:12px;color:#bbb;font-style:italic}
+.dlr-prof-oh-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:12px}
+.dlr-prof-oh-row:last-child{border-bottom:none}
+.dlr-prof-oh-num{font-weight:700;color:#1A3A5C;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dlr-prof-oh-date{color:#888;min-width:76px;font-size:11px}
+.dlr-prof-oh-total{font-weight:700;color:#0A5C46;min-width:80px;text-align:right}
+.dlr-prof-oh-empty{font-size:12px;color:#aaa;font-style:italic;padding:6px 0}
+.dlr-prof-oh-loading{font-size:12px;color:#888;padding:6px 0}
 /* PAYMENT HISTORY LOG */
 .po-pay-history{background:#FFFBF0;border:1.5px solid #FAC775;border-radius:10px;padding:10px 12px;margin-top:10px}
 .po-pay-history-title{font-size:10px;font-weight:700;color:#7D5A00;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
@@ -2694,7 +2727,9 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 
       <div class="dlr-section-label">Business Info</div>
       <label class="dlr-field-label">Store / Business Name *</label>
-      <input class="dlr-input" id="dlr-store" type="text" placeholder="e.g. Juan's Pet Shop">
+      <input class="dlr-input" id="dlr-store" type="text" placeholder="e.g. Juan's Pet Shop"
+             oninput="onDlrStoreNameInput(this.value)">
+      <div id="dlr-name-suggestion" class="dlr-name-suggestion" style="display:none"></div>
       <label class="dlr-field-label">Owner / Contact Name *</label>
       <input class="dlr-input" id="dlr-owner" type="text" placeholder="Full name">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -2782,6 +2817,17 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
         <button class="dlr-delete-btn" onclick="deleteDealer()">🗑 Delete Dealer</button>
       </div>
     </div>
+  </div>
+
+  <!-- PROFILE VIEW -->
+  <div id="dlr-view-profile" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+    <div class="dlr-prof-topbar">
+      <button class="dlr-prof-back-btn"
+              onclick="showDealerSubtab('list',document.getElementById('dlr-tab-list'))">← Back to List</button>
+      <button class="dlr-prof-edit-btn"
+              onclick="openEditDealer(currentDealer)">✏️ Edit</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:14px 14px 80px" id="dlr-profile-content"></div>
   </div>
 </div>
 

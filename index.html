@@ -340,6 +340,32 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .dlr-prof-oh-total{font-weight:700;color:#0A5C46;min-width:80px;text-align:right}
 .dlr-prof-oh-empty{font-size:12px;color:#aaa;font-style:italic;padding:6px 0}
 .dlr-prof-oh-loading{font-size:12px;color:#888;padding:6px 0}
+/* ── SHARED MODAL HELPERS ── */
+.modal-label{font-size:11px;font-weight:600;color:#555;display:block;margin-bottom:4px;margin-top:10px}
+.modal-label:first-of-type{margin-top:0}
+.modal-input{width:100%;padding:10px 12px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;background:white;outline:none;color:#222;box-sizing:border-box;margin-bottom:0}
+.modal-input:focus{border-color:#1565C0}
+.modal-cancel-btn{flex:1;padding:11px;background:#f0f2f5;color:#555;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer}
+.modal-submit-btn{flex:1;padding:11px;background:#1565C0;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer}
+.modal-submit-btn:disabled{opacity:0.55}
+.skureq-approve-confirm{background:#0A5C46}
+/* ── SKU ADD REQUESTS — ADMIN PANEL ── */
+.skureq-admin-badge{background:#E65100;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:8px}
+.skureq-admin-row{display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:1px solid #f0f0f0}
+.skureq-admin-row:last-child{border-bottom:none}
+.skureq-admin-info{flex:1;min-width:0}
+.skureq-admin-name{font-size:13px;font-weight:700;color:#1A3A5C;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.skureq-admin-cat{font-size:11px;color:#666;margin-top:2px}
+.skureq-admin-meta{font-size:10px;color:#aaa;margin-top:2px}
+.skureq-admin-notes{font-size:11px;color:#777;margin-top:3px;font-style:italic}
+.skureq-admin-actions{display:flex;flex-direction:column;gap:5px;flex-shrink:0}
+.skureq-approve-btn{padding:6px 12px;background:#0A5C46;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap}
+.skureq-reject-btn{padding:6px 10px;background:#ECEFF1;color:#546E7A;border:none;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer}
+.skureq-seg-badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;white-space:nowrap}
+.skureq-seg-dist{background:#EDE0F5;color:#7B2D8B}
+.skureq-seg-retail{background:#FFF3DC;color:#C07000}
+.skureq-prod-toggle{background:#F0F4F8;border-radius:9px;padding:11px 13px;margin-top:10px}
+.skureq-prod-card{background:#E8F5E9;border:1.5px solid #A5D6A7;border-radius:9px;padding:12px 13px;margin-top:8px}
 /* ── REQUEST DELETION BUTTON (non-admin) ── */
 .dlr-req-del-btn{width:100%;padding:11px;background:none;border:1.5px solid #E65100;color:#E65100;border-radius:11px;font-size:13px;font-weight:600;cursor:pointer}
 .dlr-req-del-btn:disabled{opacity:0.5}
@@ -668,6 +694,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .tile.t-xero{background:linear-gradient(135deg,#1a3a5c,#1e4d7a)}
 .tile.t-dealer{background:linear-gradient(135deg,#1565C0,#1976D2)}
 .tile.t-admin{background:linear-gradient(135deg,#404040,#555)}
+.tile.t-skureq{background:linear-gradient(135deg,#1565C0,#0277BD)}
 .tile.t-driver{background:linear-gradient(135deg,#1F4E78,#2A6699)}
 .tile.t-backorder{background:linear-gradient(135deg,#A32D2D,#C23B3B)}
 .tile.t-retail-bo{background:linear-gradient(135deg,#7A4500,#C07000)}
@@ -1527,9 +1554,180 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
         <button class="admin-add-btn green" onclick="addCsSku()">Add Cross-sell SKU</button>
       </div>
     </div>
+    <!-- SKU Add Requests (admin review) -->
+    <div class="admin-section">
+      <div class="admin-section-hdr">
+        📥 Item Add Requests
+        <span id="skureq-admin-badge" class="skureq-admin-badge" style="display:none">0</span>
+      </div>
+      <div id="sku-req-list">
+        <div class="empty-state">Loading…</div>
+      </div>
+    </div>
+
     <div class="admin-section">
       <div class="admin-section-hdr">Recent Submissions</div>
       <div id="access-log"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SKU ADD REQUEST MODAL (staff / driver) ═════════════════ -->
+<!-- ══ SKU ADD REQUEST MODAL (staff / driver) ═════════════════ -->
+<div class="modal-overlay" id="sku-req-modal" style="display:none">
+  <div class="modal-card" style="max-height:90vh;overflow-y:auto">
+    <div class="modal-title" style="color:#1565C0">📥 Request New Item</div>
+    <div style="font-size:12px;color:#888;margin-bottom:14px;line-height:1.5">
+      Suggest a product to be added to the SKU Master list.<br>
+      An admin will review and approve it before it goes live.
+    </div>
+
+    <label class="modal-label">Segment *</label>
+    <select class="modal-input" id="skureq-segment" onchange="_skureqUpdateCatList()">
+      <option value="DIST">Distribution</option>
+      <option value="RETAIL">Retail</option>
+    </select>
+
+    <label class="modal-label">Category *</label>
+    <input class="modal-input" id="skureq-cat" type="text"
+           list="skureq-cat-list" placeholder="e.g. Dog Food" autocomplete="off">
+    <datalist id="skureq-cat-list"></datalist>
+
+    <label class="modal-label">Item Name *</label>
+    <input class="modal-input" id="skureq-name" type="text"
+           placeholder="Full product name (e.g. Pedigree Adult 3kg)">
+
+    <label class="modal-label">SKU Code <span style="font-weight:400;color:#aaa">(optional)</span></label>
+    <input class="modal-input" id="skureq-code" type="text" placeholder="e.g. 10488">
+
+    <label class="modal-label">Supplier <span style="font-weight:400;color:#aaa">(optional)</span></label>
+    <input class="modal-input" id="skureq-supplier" type="text" placeholder="Supplier name">
+
+    <!-- RETAIL-ONLY FIELDS -->
+    <div id="skureq-retail-fields" style="display:none">
+      <label class="modal-label">Unit of Measure</label>
+      <input class="modal-input" id="skureq-unit" type="text"
+             placeholder="e.g. bag, pack, piece, sachet">
+
+      <div class="skureq-prod-toggle">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:600;color:#333">
+          <input type="checkbox" id="skureq-is-prod"
+                 onchange="_skureqToggleProdFields()"
+                 style="width:18px;height:18px;accent-color:#0A5C46;cursor:pointer;flex-shrink:0">
+          This is a production item
+          <span style="font-size:10px;font-weight:400;color:#888">(assembled / disassembled in warehouse)</span>
+        </label>
+      </div>
+
+      <!-- Production detail fields — shown only when checkbox is ticked -->
+      <div id="skureq-prod-fields" style="display:none;margin-top:4px">
+        <div class="skureq-prod-card">
+          <label class="modal-label" style="margin-top:0">Operation Type *</label>
+          <select class="modal-input" id="skureq-prod-type">
+            <option value="disassemble">Break Down — split one big unit into smaller ones</option>
+            <option value="assemble">Build Up — combine smaller units into one bigger unit</option>
+          </select>
+
+          <label class="modal-label">Related SKU Code *
+            <span style="font-weight:400;color:#888"> — the other item involved</span>
+          </label>
+          <input class="modal-input" id="skureq-related-sku" type="text"
+                 placeholder="SKU code of the input or output item">
+
+          <label class="modal-label">Standard Ratio *
+            <span style="font-weight:400;color:#888"> — how many output units per source unit</span>
+          </label>
+          <input class="modal-input" id="skureq-ratio" type="number"
+                 min="1" step="1" placeholder="e.g. 10">
+        </div>
+      </div>
+    </div>
+    <!-- END RETAIL-ONLY -->
+
+    <label class="modal-label">Notes / Reason</label>
+    <textarea class="modal-input" id="skureq-notes"
+              style="min-height:64px;resize:vertical;line-height:1.5"
+              placeholder="Why is this item needed? Any additional details…"></textarea>
+
+    <div class="modal-err" id="skureq-err"></div>
+
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="modal-cancel-btn" onclick="closeSKURequestModal()">Cancel</button>
+      <button class="modal-submit-btn" id="skureq-submit-btn"
+              onclick="submitSKURequest()">📥 Submit Request</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SKU APPROVE MODAL (admin) ══════════════════════════════ -->
+<div class="modal-overlay" id="sku-approve-modal" style="display:none">
+  <div class="modal-card" style="max-height:90vh;overflow-y:auto">
+    <div class="modal-title" style="color:#0A5C46">✓ Approve Item Request</div>
+    <div style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;
+                letter-spacing:0.6px;margin-bottom:12px" id="sku-approve-seg-label">
+      Distribution SKU Master
+    </div>
+
+    <label class="modal-label">SKU Code * <span style="font-weight:400;color:#aaa">(required)</span></label>
+    <input class="modal-input" id="sku-approve-code" type="text" placeholder="Official SKU code">
+
+    <label class="modal-label">Item Name *</label>
+    <input class="modal-input" id="sku-approve-name" type="text">
+
+    <label class="modal-label">Category *</label>
+    <input class="modal-input" id="sku-approve-cat" type="text">
+
+    <label class="modal-label">Supplier</label>
+    <input class="modal-input" id="sku-approve-supplier" type="text">
+
+    <!-- RETAIL-ONLY APPROVAL FIELDS -->
+    <div id="sku-approve-retail-fields" style="display:none">
+      <label class="modal-label">Unit of Measure</label>
+      <input class="modal-input" id="sku-approve-unit" type="text"
+             placeholder="e.g. bag, pack, piece">
+
+      <div class="skureq-prod-toggle" style="margin-top:10px">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:600;color:#333">
+          <input type="checkbox" id="sku-approve-is-prod"
+                 onchange="_skuApproveToggleProdFields()"
+                 style="width:18px;height:18px;accent-color:#0A5C46;cursor:pointer;flex-shrink:0">
+          Production item
+        </label>
+      </div>
+
+      <div id="sku-approve-prod-fields" style="display:none;margin-top:4px">
+        <div class="skureq-prod-card">
+          <label class="modal-label" style="margin-top:0">Operation Type</label>
+          <select class="modal-input" id="sku-approve-prod-type">
+            <option value="disassemble">Break Down (Disassemble)</option>
+            <option value="assemble">Build Up (Assemble)</option>
+          </select>
+
+          <label class="modal-label">Related SKU Code</label>
+          <input class="modal-input" id="sku-approve-related-sku" type="text"
+                 placeholder="SKU code of the other item">
+
+          <label class="modal-label">Standard Ratio</label>
+          <input class="modal-input" id="sku-approve-ratio" type="number"
+                 min="1" step="1" placeholder="e.g. 10">
+        </div>
+      </div>
+    </div>
+    <!-- END RETAIL-ONLY -->
+
+    <div style="font-size:11px;color:#888;background:#F5F5F5;border-radius:7px;
+                padding:8px 10px;margin-top:10px;line-height:1.5">
+      💡 Cost price can be set afterwards via the Cost Price Editor.
+      The item will be Active immediately after approval.
+    </div>
+
+    <div class="modal-err" id="sku-approve-err"></div>
+
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="modal-cancel-btn" onclick="closeApproveSKUModal()">Cancel</button>
+      <button class="modal-submit-btn skureq-approve-confirm"
+              id="sku-approve-confirm-btn"
+              onclick="confirmApproveSKU()">✓ Add to SKU Master</button>
     </div>
   </div>
 </div>
@@ -3031,6 +3229,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 <script src="driver.js"></script>
 <script src="admin.js"></script>
 <script src="sku-master.js"></script>
+<script src="sku-requests.js"></script>
 <script src="backorder.js"></script>
 <script src="suppliers.js"></script>
 <script src="transfer.js"></script>

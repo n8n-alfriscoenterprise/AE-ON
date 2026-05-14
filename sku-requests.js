@@ -8,6 +8,56 @@
 let _skuReqPending    = [];   // pending requests cache (admin)
 let _skuApproveTarget = null; // request currently being approved
 
+// ── SUPPLIER DROPDOWN HELPERS ─────────────────────────────────
+function _skureqPopulateSuppliers(selectId, otherInputId, selectedVal){
+  const suppliers = [...new Set(
+    liveSKUs.map(s => s.supplier).filter(Boolean)
+  )].sort();
+
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+
+  sel.innerHTML = '<option value="">-- Select a supplier --</option>';
+  suppliers.forEach(sup => {
+    const opt = document.createElement('option');
+    opt.value = sup; opt.textContent = sup;
+    sel.appendChild(opt);
+  });
+  const otherOpt = document.createElement('option');
+  otherOpt.value = '__OTHER__'; otherOpt.textContent = 'Other (not in list)';
+  sel.appendChild(otherOpt);
+
+  const otherInput = document.getElementById(otherInputId);
+
+  // Set initial value
+  if(selectedVal && suppliers.includes(selectedVal)){
+    sel.value = selectedVal;
+    if(otherInput) otherInput.style.display = 'none';
+  } else if(selectedVal){
+    sel.value = '__OTHER__';
+    if(otherInput){ otherInput.style.display = 'block'; otherInput.value = selectedVal; }
+  } else {
+    if(otherInput) otherInput.style.display = 'none';
+  }
+}
+
+function _skureqOnSupplierChange(selectId, otherInputId){
+  const sel = document.getElementById(selectId);
+  const otherInput = document.getElementById(otherInputId);
+  if(!sel || !otherInput) return;
+  otherInput.style.display = sel.value === '__OTHER__' ? 'block' : 'none';
+  if(sel.value !== '__OTHER__') otherInput.value = '';
+}
+
+function _skureqGetSupplier(selectId, otherInputId){
+  const sel = document.getElementById(selectId);
+  if(!sel) return '';
+  if(sel.value === '__OTHER__'){
+    return document.getElementById(otherInputId)?.value.trim() || '';
+  }
+  return sel.value;
+}
+
 // ── STAFF: SHOW / HIDE HELPERS ────────────────────────────────
 function _skureqUpdateCatList(){
   const seg = document.getElementById('skureq-segment')?.value || 'DIST';
@@ -37,7 +87,6 @@ function _skureqToggleProdFields(){
   const prodFields = document.getElementById('skureq-prod-fields');
   if(prodFields) prodFields.style.display = checked ? 'block' : 'none';
   if(!checked){
-    // Clear fields when unchecked
     ['skureq-related-sku','skureq-ratio'].forEach(id => {
       const el = document.getElementById(id);
       if(el) el.value = '';
@@ -52,10 +101,13 @@ function openSKURequestModal(){
   const dl = document.getElementById('skureq-cat-list');
   if(dl) dl.innerHTML = cats.map(c => '<option value="' + c + '">').join('');
 
+  // Populate supplier dropdown
+  _skureqPopulateSuppliers('skureq-supplier', 'skureq-supplier-other', '');
+
   // Reset all fields
   document.getElementById('skureq-segment').value = 'DIST';
-  ['skureq-cat','skureq-name','skureq-code','skureq-supplier',
-   'skureq-unit','skureq-related-sku','skureq-ratio','skureq-notes']
+  ['skureq-code','skureq-cat','skureq-name','skureq-unit',
+   'skureq-cost','skureq-related-sku','skureq-ratio','skureq-notes']
     .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   const isProd = document.getElementById('skureq-is-prod');
   if(isProd) isProd.checked = false;
@@ -70,7 +122,7 @@ function openSKURequestModal(){
   if(btn){ btn.disabled = false; btn.textContent = '📥 Submit Request'; }
 
   document.getElementById('sku-req-modal').style.display = 'flex';
-  setTimeout(() => document.getElementById('skureq-name')?.focus(), 120);
+  setTimeout(() => document.getElementById('skureq-code')?.focus(), 120);
 }
 
 function closeSKURequestModal(){
@@ -79,23 +131,25 @@ function closeSKURequestModal(){
 
 async function submitSKURequest(){
   const segment  = document.getElementById('skureq-segment').value;
-  const cat      = document.getElementById('skureq-cat').value.trim();
-  const name     = document.getElementById('skureq-name').value.trim();
   const code     = document.getElementById('skureq-code').value.trim();
-  const supplier = document.getElementById('skureq-supplier').value.trim();
+  const name     = document.getElementById('skureq-name').value.trim();
+  const cat      = document.getElementById('skureq-cat').value.trim();
+  const unit     = document.getElementById('skureq-unit')?.value.trim() || '';
+  const supplier = _skureqGetSupplier('skureq-supplier', 'skureq-supplier-other');
+  const cost     = parseFloat(document.getElementById('skureq-cost')?.value) || 0;
   const notes    = document.getElementById('skureq-notes').value.trim();
   const errEl    = document.getElementById('skureq-err');
 
   // Retail-specific fields
-  const unit       = segment === 'RETAIL' ? (document.getElementById('skureq-unit')?.value.trim()       || '') : '';
-  const isProd     = segment === 'RETAIL' && (document.getElementById('skureq-is-prod')?.checked         || false);
+  const isProd     = segment === 'RETAIL' && (document.getElementById('skureq-is-prod')?.checked || false);
   const prodType   = isProd ? (document.getElementById('skureq-prod-type')?.value    || 'disassemble') : '';
-  const relatedSku = isProd ? (document.getElementById('skureq-related-sku')?.value.trim() || '')        : '';
-  const ratio      = isProd ? (document.getElementById('skureq-ratio')?.value.trim() || '')               : '';
+  const relatedSku = isProd ? (document.getElementById('skureq-related-sku')?.value.trim() || '')      : '';
+  const ratio      = isProd ? (document.getElementById('skureq-ratio')?.value.trim() || '')            : '';
 
   errEl.textContent = '';
-  if(!cat)  { errEl.textContent = 'Category is required.'; return; }
+  if(!code) { errEl.textContent = 'SKU code is required.'; return; }
   if(!name) { errEl.textContent = 'Item name is required.'; return; }
+  if(!cat)  { errEl.textContent = 'Category is required.'; return; }
   if(isProd && !relatedSku){ errEl.textContent = 'Related SKU code is required for production items.'; return; }
   if(isProd && !ratio)     { errEl.textContent = 'Standard ratio is required for production items.'; return; }
 
@@ -105,7 +159,7 @@ async function submitSKURequest(){
   try{
     const r = await api({
       action:   'submitSKURequest',
-      segment, category: cat, name, code, supplier, notes,
+      segment, category: cat, name, code, supplier, cost, notes,
       unit, isProd: isProd ? 'YES' : 'NO',
       prodType, relatedSku, ratio,
       requestedBy: currentUser.username
@@ -166,11 +220,13 @@ function renderPendingSKURequests(){
     row.innerHTML =
       '<div class="skureq-admin-info">'
         + '<div class="skureq-admin-name">' + req.name + ' ' + segBadge + prodBadge + '</div>'
-        + '<div class="skureq-admin-cat">' + req.category
+        + '<div class="skureq-admin-cat">'
+          + (req.code ? '<strong>' + req.code + '</strong> · ' : '')
+          + req.category
           + (req.supplier ? ' · ' + req.supplier : '')
           + (req.unit ? ' · Unit: ' + req.unit : '')
+          + (req.cost ? ' · Cost: ₱' + Number(req.cost).toFixed(2) : '')
           + '</div>'
-        + (req.code ? '<div class="skureq-admin-meta">Suggested code: <strong>' + req.code + '</strong></div>' : '')
         + (req.isProd === 'YES'
             ? '<div class="skureq-admin-meta" style="color:#0A5C46">⚙️ '
               + (req.prodType === 'assemble' ? 'Build Up' : 'Break Down')
@@ -206,18 +262,20 @@ function openApproveSKUModal(requestId){
     isRetail ? 'Retail SKU Master' : 'Distribution SKU Master';
 
   // Core fields
-  document.getElementById('sku-approve-code').value     = req.code     || '';
-  document.getElementById('sku-approve-name').value     = req.name;
-  document.getElementById('sku-approve-cat').value      = req.category;
-  document.getElementById('sku-approve-supplier').value = req.supplier  || '';
+  document.getElementById('sku-approve-code').value = req.code     || '';
+  document.getElementById('sku-approve-name').value = req.name;
+  document.getElementById('sku-approve-cat').value  = req.category;
+  document.getElementById('sku-approve-unit').value = req.unit     || '';
+  document.getElementById('sku-approve-cost').value = req.cost     || '';
 
-  // Retail-specific
+  // Supplier dropdown
+  _skureqPopulateSuppliers('sku-approve-supplier', 'sku-approve-supplier-other', req.supplier || '');
+
+  // Retail-specific production fields
   const retailFields = document.getElementById('sku-approve-retail-fields');
   if(retailFields) retailFields.style.display = isRetail ? 'block' : 'none';
 
   if(isRetail){
-    document.getElementById('sku-approve-unit').value = req.unit || '';
-
     const isProdChecked = req.isProd === 'YES';
     const isProdEl = document.getElementById('sku-approve-is-prod');
     if(isProdEl) isProdEl.checked = isProdChecked;
@@ -252,12 +310,13 @@ async function confirmApproveSKU(){
   const code     = document.getElementById('sku-approve-code').value.trim();
   const name     = document.getElementById('sku-approve-name').value.trim();
   const cat      = document.getElementById('sku-approve-cat').value.trim();
-  const supplier = document.getElementById('sku-approve-supplier').value.trim();
+  const unit     = document.getElementById('sku-approve-unit')?.value.trim() || '';
+  const supplier = _skureqGetSupplier('sku-approve-supplier', 'sku-approve-supplier-other');
+  const cost     = parseFloat(document.getElementById('sku-approve-cost')?.value) || 0;
   const errEl    = document.getElementById('sku-approve-err');
 
   // Retail-specific reads
-  const unit       = isRetail ? (document.getElementById('sku-approve-unit')?.value.trim()       || 'bag') : '';
-  const isProd     = isRetail && (document.getElementById('sku-approve-is-prod')?.checked         || false);
+  const isProd     = isRetail && (document.getElementById('sku-approve-is-prod')?.checked || false);
   const prodType   = isProd ? (document.getElementById('sku-approve-prod-type')?.value || 'disassemble') : '';
   const relatedSku = isProd ? (document.getElementById('sku-approve-related-sku')?.value.trim() || '') : '';
   const ratio      = isProd ? (parseFloat(document.getElementById('sku-approve-ratio')?.value) || 0) : 0;
@@ -278,8 +337,8 @@ async function confirmApproveSKU(){
       requestId: _skuApproveTarget.requestId,
       approve:   true,
       segment:   _skuApproveTarget.segment,
-      code, name, category: cat, supplier,
-      unit, isProd: isProd ? 'YES' : 'NO',
+      code, name, category: cat, supplier, cost, unit,
+      isProd: isProd ? 'YES' : 'NO',
       prodType, relatedSku, ratio,
       resolvedBy: currentUser.username
     });
@@ -288,7 +347,7 @@ async function confirmApproveSKU(){
       liveSKUs.push({
         code, name, category: cat, supplier,
         type: _skuApproveTarget.segment,
-        cost: 0, order: 9999
+        cost: cost, order: 9999
       });
       rebuildSKUData();
       buildBoDropdown();

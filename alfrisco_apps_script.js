@@ -1318,11 +1318,11 @@ function doPost(e) {
 
     if (data.action === 'submitSKURequest') {
       // Columns: A:RequestID B:Segment C:Category D:ItemName E:SKUCode
-      //          F:Supplier G:Notes H:RequestedBy I:RequestedAt J:Status
-      //          K:ResolvedBy L:ResolvedAt M:Unit N:IsProd O:ProdType P:RelatedSKU Q:Ratio
+      //          F:Supplier G:CostPrice H:Notes I:RequestedBy J:RequestedAt K:Status
+      //          L:ResolvedBy M:ResolvedAt N:Unit O:IsProd P:ProdType Q:RelatedSKU R:Ratio
       const sheet = getOrCreateSheet(ss, 'SKU Add Requests', [
         'Request ID','Segment','Category','Item Name','SKU Code',
-        'Supplier','Notes','Requested By','Requested At',
+        'Supplier','Cost Price','Notes','Requested By','Requested At',
         'Status','Resolved By','Resolved At',
         'Unit','Is Production Item','Prod Type','Related SKU','Standard Ratio'
       ]);
@@ -1335,15 +1335,16 @@ function doPost(e) {
         data.name        || '',       // D
         data.code        || '',       // E
         data.supplier    || '',       // F
-        data.notes       || '',       // G
-        data.requestedBy || '',       // H
-        now,                          // I
-        'Pending', '', '',            // J K L
-        data.unit        || '',       // M
-        data.isProd      || 'NO',     // N
-        data.prodType    || '',       // O
-        data.relatedSku  || '',       // P
-        data.ratio       || ''        // Q
+        Number(data.cost) || 0,       // G: Cost Price
+        data.notes       || '',       // H
+        data.requestedBy || '',       // I
+        now,                          // J
+        'Pending', '', '',            // K L M
+        data.unit        || '',       // N
+        data.isProd      || 'NO',     // O
+        data.prodType    || '',       // P
+        data.relatedSku  || '',       // Q
+        data.ratio       || ''        // R
       ]);
       return ok({ requestId: reqId });
     }
@@ -1352,7 +1353,7 @@ function doPost(e) {
       const sheet = ss.getSheetByName('SKU Add Requests');
       if (!sheet) return ok({ requests: [] });
       const requests = sheet.getDataRange().getValues().slice(1)
-        .filter(function(r){ return r[0] && String(r[9]) === 'Pending'; })
+        .filter(function(r){ return r[0] && String(r[10]) === 'Pending'; })
         .map(function(r){
           return {
             requestId:   String(r[0]),
@@ -1361,16 +1362,17 @@ function doPost(e) {
             name:        String(r[3]),
             code:        String(r[4]  || ''),
             supplier:    String(r[5]  || ''),
-            notes:       String(r[6]  || ''),
-            requestedBy: String(r[7]),
-            requestedAt: r[8] instanceof Date
-              ? Utilities.formatDate(r[8], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')
-              : String(r[8] || '').slice(0, 16),
-            unit:        String(r[12] || ''),
-            isProd:      String(r[13] || 'NO'),
-            prodType:    String(r[14] || ''),
-            relatedSku:  String(r[15] || ''),
-            ratio:       String(r[16] || '')
+            cost:        r[6] || 0,
+            notes:       String(r[7]  || ''),
+            requestedBy: String(r[8]),
+            requestedAt: r[9] instanceof Date
+              ? Utilities.formatDate(r[9], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')
+              : String(r[9] || '').slice(0, 16),
+            unit:        String(r[13] || ''),
+            isProd:      String(r[14] || 'NO'),
+            prodType:    String(r[15] || ''),
+            relatedSku:  String(r[16] || ''),
+            ratio:       String(r[17] || '')
           };
         });
       return ok({ requests: requests });
@@ -1385,9 +1387,9 @@ function doPost(e) {
         const reqRows = reqSheet.getDataRange().getValues();
         for (var ri = 1; ri < reqRows.length; ri++) {
           if (String(reqRows[ri][0]) === data.requestId) {
-            reqSheet.getRange(ri + 1, 10).setValue(data.approve ? 'Approved' : 'Rejected');
-            reqSheet.getRange(ri + 1, 11).setValue(data.resolvedBy || '');
-            reqSheet.getRange(ri + 1, 12).setValue(now);
+            reqSheet.getRange(ri + 1, 11).setValue(data.approve ? 'Approved' : 'Rejected');
+            reqSheet.getRange(ri + 1, 12).setValue(data.resolvedBy || '');
+            reqSheet.getRange(ri + 1, 13).setValue(now);
             break;
           }
         }
@@ -1422,9 +1424,9 @@ function doPost(e) {
             '',                     // F: Rev
             rMax + 10,              // G: Order
             'YES',                  // H: Active
-            data.supplier || '',    // I: Supplier
-            0,                      // J: Cost
-            0,                      // K: Selling Price
+            data.supplier || '',          // I: Supplier
+            Number(data.cost) || 0,       // J: Cost
+            0,                            // K: Selling Price
             isProd ? 'YES' : 'NO',  // L: IsProductionItem
             disUOM,                 // M: DisassemblyUOM
             asmUOM,                 // N: AssemblyUOM
@@ -1448,8 +1450,8 @@ function doPost(e) {
             dMax + 10,           // E: Order
             'YES',               // F: Active
             '',                  // G: Display Order
-            data.supplier || '', // H: Supplier
-            0                    // I: Cost
+            data.supplier || '',       // H: Supplier
+            Number(data.cost) || 0    // I: Cost
           ]);
         }
       }

@@ -1573,7 +1573,6 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 </div>
 
 <!-- ══ SKU ADD REQUEST MODAL (staff / driver) ═════════════════ -->
-<!-- ══ SKU ADD REQUEST MODAL (staff / driver) ═════════════════ -->
 <div class="modal-overlay" id="sku-req-modal" style="display:none">
   <div class="modal-card" style="max-height:90vh;overflow-y:auto">
     <div class="modal-title" style="color:#1565C0">📥 Request New Item</div>
@@ -1588,28 +1587,36 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
       <option value="RETAIL">Retail</option>
     </select>
 
-    <label class="modal-label">Category *</label>
-    <input class="modal-input" id="skureq-cat" type="text"
-           list="skureq-cat-list" placeholder="e.g. Dog Food" autocomplete="off">
-    <datalist id="skureq-cat-list"></datalist>
+    <label class="modal-label">SKU Code *</label>
+    <input class="modal-input" id="skureq-code" type="text" placeholder="e.g. 10488">
 
     <label class="modal-label">Item Name *</label>
     <input class="modal-input" id="skureq-name" type="text"
            placeholder="Full product name (e.g. Pedigree Adult 3kg)">
 
-    <label class="modal-label">SKU Code <span style="font-weight:400;color:#aaa">(optional)</span></label>
-    <input class="modal-input" id="skureq-code" type="text" placeholder="e.g. 10488">
+    <label class="modal-label">Category *</label>
+    <input class="modal-input" id="skureq-cat" type="text"
+           list="skureq-cat-list" placeholder="e.g. Dog Food" autocomplete="off">
+    <datalist id="skureq-cat-list"></datalist>
 
-    <label class="modal-label">Supplier <span style="font-weight:400;color:#aaa">(optional)</span></label>
-    <input class="modal-input" id="skureq-supplier" type="text" placeholder="Supplier name">
+    <label class="modal-label">Selling Unit</label>
+    <input class="modal-input" id="skureq-unit" type="text"
+           placeholder="e.g. bag, pack, piece, sachet">
 
-    <!-- RETAIL-ONLY FIELDS -->
+    <label class="modal-label">Supplier</label>
+    <select class="modal-input" id="skureq-supplier" onchange="_skureqOnSupplierChange('skureq-supplier','skureq-supplier-other')">
+      <option value="">-- Select a supplier --</option>
+    </select>
+    <input class="modal-input" id="skureq-supplier-other" type="text"
+           placeholder="Enter supplier name" style="display:none;margin-top:6px">
+
+    <label class="modal-label">Cost Price (₱)</label>
+    <input class="modal-input" id="skureq-cost" type="number"
+           min="0" step="0.01" placeholder="0.00">
+
+    <!-- RETAIL-ONLY: Production Item -->
     <div id="skureq-retail-fields" style="display:none">
-      <label class="modal-label">Unit of Measure</label>
-      <input class="modal-input" id="skureq-unit" type="text"
-             placeholder="e.g. bag, pack, piece, sachet">
-
-      <div class="skureq-prod-toggle">
+      <div class="skureq-prod-toggle" style="margin-top:6px">
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:600;color:#333">
           <input type="checkbox" id="skureq-is-prod"
                  onchange="_skureqToggleProdFields()"
@@ -1619,7 +1626,6 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
         </label>
       </div>
 
-      <!-- Production detail fields — shown only when checkbox is ticked -->
       <div id="skureq-prod-fields" style="display:none;margin-top:4px">
         <div class="skureq-prod-card">
           <label class="modal-label" style="margin-top:0">Operation Type *</label>
@@ -1668,7 +1674,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
       Distribution SKU Master
     </div>
 
-    <label class="modal-label">SKU Code * <span style="font-weight:400;color:#aaa">(required)</span></label>
+    <label class="modal-label">SKU Code *</label>
     <input class="modal-input" id="sku-approve-code" type="text" placeholder="Official SKU code">
 
     <label class="modal-label">Item Name *</label>
@@ -1677,15 +1683,23 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
     <label class="modal-label">Category *</label>
     <input class="modal-input" id="sku-approve-cat" type="text">
 
+    <label class="modal-label">Selling Unit</label>
+    <input class="modal-input" id="sku-approve-unit" type="text"
+           placeholder="e.g. bag, pack, piece">
+
     <label class="modal-label">Supplier</label>
-    <input class="modal-input" id="sku-approve-supplier" type="text">
+    <select class="modal-input" id="sku-approve-supplier" onchange="_skureqOnSupplierChange('sku-approve-supplier','sku-approve-supplier-other')">
+      <option value="">-- Select a supplier --</option>
+    </select>
+    <input class="modal-input" id="sku-approve-supplier-other" type="text"
+           placeholder="Enter supplier name" style="display:none;margin-top:6px">
+
+    <label class="modal-label">Cost Price (₱) *</label>
+    <input class="modal-input" id="sku-approve-cost" type="number"
+           min="0" step="0.01" placeholder="0.00">
 
     <!-- RETAIL-ONLY APPROVAL FIELDS -->
     <div id="sku-approve-retail-fields" style="display:none">
-      <label class="modal-label">Unit of Measure</label>
-      <input class="modal-input" id="sku-approve-unit" type="text"
-             placeholder="e.g. bag, pack, piece">
-
       <div class="skureq-prod-toggle" style="margin-top:10px">
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:600;color:#333">
           <input type="checkbox" id="sku-approve-is-prod"
@@ -1714,12 +1728,6 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
       </div>
     </div>
     <!-- END RETAIL-ONLY -->
-
-    <div style="font-size:11px;color:#888;background:#F5F5F5;border-radius:7px;
-                padding:8px 10px;margin-top:10px;line-height:1.5">
-      💡 Cost price can be set afterwards via the Cost Price Editor.
-      The item will be Active immediately after approval.
-    </div>
 
     <div class="modal-err" id="sku-approve-err"></div>
 

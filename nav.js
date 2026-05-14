@@ -73,6 +73,10 @@ function buildHomeTiles(){
   if(canCount) tiles.push({icon:'🔢',name:'General Inventory',desc:'Physical count for Distribution or Retail',cls:'t-inventory',fn:'openCount()'});
   const canSATile = currentUser.role==='admin' || currentUser.canStockAdjust===true;
   if(canSATile) tiles.push({icon:'📊',name:'Stock Adjustment',desc:'Receive, count, remove or record damage',cls:'t-sa',fn:'openSA()'});
+  // Request New Item — staff & drivers (not admin; admin reviews via Admin panel)
+  if(currentUser.role !== 'admin'){
+    tiles.push({icon:'📥',name:'Request New Item',desc:'Suggest a product to be added to the SKU Master list',cls:'t-skureq',fn:'openSKURequestModal()'});
+  }
   // 5. Suppliers — admin + PO staff
   const canSuppliers = currentUser.role==='admin'||currentUser.canManagePODist===true||currentUser.canManagePORetail===true;
   if(canSuppliers) tiles.push({icon:'🏢',name:'Suppliers',desc:'Contacts, payment terms & delivery schedules',cls:'t-supplier',fn:'openSuppliers()'});

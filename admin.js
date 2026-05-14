@@ -12,7 +12,13 @@ function verifyAdmin(){
 }
 
 // ── ADMIN SCREEN ──
-function showAdmin(){showScreen('admin-screen');renderStaff();renderCs();renderLog();}
+function showAdmin(){
+  showScreen('admin-screen');
+  renderStaff();
+  renderCs();
+  renderLog();
+  loadPendingSKURequests(); // load pending item requests
+}
 function closeAdmin(){
   if(currentUser.role==='driver') showDriver();
   else showHome();

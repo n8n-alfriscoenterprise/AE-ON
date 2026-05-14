@@ -9,9 +9,20 @@
 //   5. Deploy → Manage Deployments → pencil icon → New version → Deploy
 // ════════════════════════════════════════════════════════════════════════
 
+// ── SECURITY TOKEN — must match API_SECRET in config.js ──────────────────
+const API_TOKEN = 'ALF-1b9KshUR1pds6qKb7jwaYEKF';
+
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
+
+    // Reject requests that don't carry the correct token
+    if (!data._token || data._token !== API_TOKEN) {
+      return ContentService
+        .createTextOutput(JSON.stringify({status:'error', msg:'Unauthorized'}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
     // ── GET STAFF ──────────────────────────────────────────────────────
@@ -64,17 +75,23 @@ function doPost(e) {
                          'CanManageDealers','CanCreateInvoice']);
       }
       sheet.appendRow([
-        data.username,
-        data.password,
-        data.role,
-        data.assignedUnit      || 'All',
-        data.canCountDist      !== false ? 'YES' : 'NO',
-        data.canCountRetail    !== false ? 'YES' : 'NO',
-        data.canManagePO       !== false ? 'YES' : 'NO',
-        data.canBackorderDist  !== false ? 'YES' : 'NO',
-        data.canBackorderRetail ? 'YES' : 'NO',
-        data.canProduction ? 'YES' : 'NO',
-        data.canTransfer ? 'YES' : 'NO'
+        data.username,                                              // A: Username
+        data.password,                                              // B: Password
+        data.role,                                                  // C: Role
+        data.assignedUnit || 'All',                                 // D: AssignedUnit
+        data.canCountDist      !== false ? 'YES' : 'NO',           // E: CanCountDist
+        data.canCountRetail    !== false ? 'YES' : 'NO',           // F: CanCountRetail
+        data.canManagePODist    ? 'YES' : 'NO',                    // G: CanManagePODist
+        data.canManagePORetail  ? 'YES' : 'NO',                    // H: CanManagePORetail
+        data.canBackorderDist  !== false ? 'YES' : 'NO',           // I: CanBackorderDist
+        data.canBackorderRetail ? 'YES' : 'NO',                    // J: CanBackorderRetail
+        data.canProduction      ? 'YES' : 'NO',                    // K: CanProduction
+        data.canTransfer        ? 'YES' : 'NO',                    // L: CanTransfer
+        data.canViewProductList !== false ? 'YES' : 'NO',          // M: CanViewProductList
+        data.canStockAdjust     ? 'YES' : 'NO',                    // N: CanStockAdjust
+        data.plView || 'both',                                      // O: PLView
+        data.canManageDealers   ? 'YES' : 'NO',                    // P: CanManageDealers
+        data.canCreateInvoice   ? 'YES' : 'NO'                     // Q: CanCreateInvoice
       ]);
       return ok({});
     }
@@ -1219,6 +1236,227 @@ function doPost(e) {
       return err('Dealer not found: ' + data.dealerId);
     }
 
+    // ── DEALER DELETION REQUESTS ──────────────────────────────────────
+    // Staff/drivers submit requests; admins approve or reject them.
+
+    if (data.action === 'requestDealerDeletion') {
+      const sheet = getOrCreateSheet(ss, 'Dealer Deletion Requests', [
+        'Request ID','Dealer ID','Store Name','Requested By','Requested At',
+        'Status','Resolved By','Resolved At'
+      ]);
+      const now   = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+      const reqId = 'DELREQ-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMddHHmmss');
+      sheet.appendRow([
+        reqId,
+        data.dealerId    || '',
+        data.storeName   || '',
+        data.requestedBy || '',
+        now,
+        'Pending',
+        '',
+        ''
+      ]);
+      return ok({ requestId: reqId });
+    }
+
+    if (data.action === 'getDealerDeletionRequests') {
+      const sheet = ss.getSheetByName('Dealer Deletion Requests');
+      if (!sheet) return ok({ requests: [] });
+      const requests = sheet.getDataRange().getValues().slice(1)
+        .filter(function(r){ return r[0] && String(r[5]) === 'Pending'; })
+        .map(function(r){
+          return {
+            requestId:   String(r[0]),
+            dealerId:    String(r[1]),
+            storeName:   String(r[2]),
+            requestedBy: String(r[3]),
+            requestedAt: r[4] instanceof Date
+              ? Utilities.formatDate(r[4], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')
+              : String(r[4] || '').slice(0, 16),
+            status:      String(r[5])
+          };
+        });
+      return ok({ requests: requests });
+    }
+
+    if (data.action === 'resolveDealerDeletion') {
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+
+      // 1. Update the request row status
+      const reqSheet = ss.getSheetByName('Dealer Deletion Requests');
+      if (reqSheet) {
+        const reqRows = reqSheet.getDataRange().getValues();
+        for (var ri = 1; ri < reqRows.length; ri++) {
+          if (String(reqRows[ri][0]) === data.requestId) {
+            reqSheet.getRange(ri + 1, 6).setValue(data.approve ? 'Approved' : 'Rejected');
+            reqSheet.getRange(ri + 1, 7).setValue(data.resolvedBy || '');
+            reqSheet.getRange(ri + 1, 8).setValue(now);
+            break;
+          }
+        }
+      }
+
+      // 2. If approved, physically delete the dealer row
+      if (data.approve) {
+        const dlrSheet = ss.getSheetByName('Dealer Directory');
+        if (dlrSheet) {
+          const dlrRows = dlrSheet.getDataRange().getValues();
+          for (var di = dlrRows.length - 1; di >= 1; di--) {
+            if (String(dlrRows[di][0]) === data.dealerId) {
+              dlrSheet.deleteRow(di + 1);
+              break;
+            }
+          }
+        }
+      }
+
+      return ok({ resolved: data.requestId, approved: !!data.approve });
+    }
+
+    // ── SKU ADD REQUESTS ──────────────────────────────────────────────
+    // Staff submit item suggestions; admins approve (writes to SKU Master) or reject.
+
+    if (data.action === 'submitSKURequest') {
+      // Columns: A:RequestID B:Segment C:Category D:ItemName E:SKUCode
+      //          F:Supplier G:Notes H:RequestedBy I:RequestedAt J:Status
+      //          K:ResolvedBy L:ResolvedAt M:Unit N:IsProd O:ProdType P:RelatedSKU Q:Ratio
+      const sheet = getOrCreateSheet(ss, 'SKU Add Requests', [
+        'Request ID','Segment','Category','Item Name','SKU Code',
+        'Supplier','Notes','Requested By','Requested At',
+        'Status','Resolved By','Resolved At',
+        'Unit','Is Production Item','Prod Type','Related SKU','Standard Ratio'
+      ]);
+      const now   = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+      const reqId = 'SKUREQ-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMddHHmmss');
+      sheet.appendRow([
+        reqId,
+        data.segment     || 'DIST',  // B
+        data.category    || '',       // C
+        data.name        || '',       // D
+        data.code        || '',       // E
+        data.supplier    || '',       // F
+        data.notes       || '',       // G
+        data.requestedBy || '',       // H
+        now,                          // I
+        'Pending', '', '',            // J K L
+        data.unit        || '',       // M
+        data.isProd      || 'NO',     // N
+        data.prodType    || '',       // O
+        data.relatedSku  || '',       // P
+        data.ratio       || ''        // Q
+      ]);
+      return ok({ requestId: reqId });
+    }
+
+    if (data.action === 'getSKURequests') {
+      const sheet = ss.getSheetByName('SKU Add Requests');
+      if (!sheet) return ok({ requests: [] });
+      const requests = sheet.getDataRange().getValues().slice(1)
+        .filter(function(r){ return r[0] && String(r[9]) === 'Pending'; })
+        .map(function(r){
+          return {
+            requestId:   String(r[0]),
+            segment:     String(r[1]),
+            category:    String(r[2]),
+            name:        String(r[3]),
+            code:        String(r[4]  || ''),
+            supplier:    String(r[5]  || ''),
+            notes:       String(r[6]  || ''),
+            requestedBy: String(r[7]),
+            requestedAt: r[8] instanceof Date
+              ? Utilities.formatDate(r[8], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')
+              : String(r[8] || '').slice(0, 16),
+            unit:        String(r[12] || ''),
+            isProd:      String(r[13] || 'NO'),
+            prodType:    String(r[14] || ''),
+            relatedSku:  String(r[15] || ''),
+            ratio:       String(r[16] || '')
+          };
+        });
+      return ok({ requests: requests });
+    }
+
+    if (data.action === 'resolveSKURequest') {
+      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+
+      // Update request row status in SKU Add Requests sheet
+      const reqSheet = ss.getSheetByName('SKU Add Requests');
+      if (reqSheet) {
+        const reqRows = reqSheet.getDataRange().getValues();
+        for (var ri = 1; ri < reqRows.length; ri++) {
+          if (String(reqRows[ri][0]) === data.requestId) {
+            reqSheet.getRange(ri + 1, 10).setValue(data.approve ? 'Approved' : 'Rejected');
+            reqSheet.getRange(ri + 1, 11).setValue(data.resolvedBy || '');
+            reqSheet.getRange(ri + 1, 12).setValue(now);
+            break;
+          }
+        }
+      }
+
+      // If approved, append to the appropriate SKU Master sheet
+      if (data.approve) {
+        const isProd = String(data.isProd || 'NO').toUpperCase() === 'YES';
+
+        if (String(data.segment) === 'RETAIL') {
+          // SKU Master - Retail:
+          // A:Code B:Name C:Category D:Type E:Unit F:Rev G:Order H:Active
+          // I:Supplier J:Cost K:SellingPrice
+          // L:IsProductionItem M:DisassemblyUOM N:AssemblyUOM O:StandardRatio
+          const rSheet = getOrCreateSheet(ss, 'SKU Master - Retail', [
+            'Code','Name','Category','Type','Unit','Rev','Order',
+            'Active','Supplier','Cost','Selling Price',
+            'Is Production Item','Disassembly UOM','Assembly UOM','Standard Ratio'
+          ]);
+          const rRows = rSheet.getDataRange().getValues().slice(4).filter(function(r){ return r[0]; });
+          const rMax  = rRows.reduce(function(m, r){ return Math.max(m, Number(r[6]) || 0); }, 1000);
+
+          const disUOM = (isProd && String(data.prodType) === 'disassemble') ? (data.relatedSku || '') : '';
+          const asmUOM = (isProd && String(data.prodType) === 'assemble')    ? (data.relatedSku || '') : '';
+
+          rSheet.appendRow([
+            data.code,              // A: Code
+            data.name,              // B: Name
+            data.category || '',    // C: Category
+            '',                     // D: Type
+            data.unit     || 'bag', // E: Unit
+            '',                     // F: Rev
+            rMax + 10,              // G: Order
+            'YES',                  // H: Active
+            data.supplier || '',    // I: Supplier
+            0,                      // J: Cost
+            0,                      // K: Selling Price
+            isProd ? 'YES' : 'NO',  // L: IsProductionItem
+            disUOM,                 // M: DisassemblyUOM
+            asmUOM,                 // N: AssemblyUOM
+            isProd ? (Number(data.ratio) || 0) : '' // O: StandardRatio
+          ]);
+
+        } else {
+          // SKU Master (DIST):
+          // A:Code B:Name C:Category D:Description E:Order F:Active G:DisplayOrder H:Supplier I:Cost
+          const dSheet = getOrCreateSheet(ss, 'SKU Master', [
+            'Code','Name','Category','Description','Order','Active',
+            'Display Order','Supplier','Cost'
+          ]);
+          const dRows = dSheet.getDataRange().getValues().slice(4).filter(function(r){ return r[0]; });
+          const dMax  = dRows.reduce(function(m, r){ return Math.max(m, Number(r[4]) || 0); }, 100);
+          dSheet.appendRow([
+            data.code,           // A: Code
+            data.name,           // B: Name
+            data.category || '', // C: Category
+            '',                  // D: Description
+            dMax + 10,           // E: Order
+            'YES',               // F: Active
+            '',                  // G: Display Order
+            data.supplier || '', // H: Supplier
+            0                    // I: Cost
+          ]);
+        }
+      }
+
+      return ok({ resolved: data.requestId, approved: !!data.approve });
+    }
+
     // ── SALES INVOICES ────────────────────────────────────────────────
     if (data.action === 'saveInvoice') {
       const invSheet  = getOrCreateSheet(ss, 'Sales Invoices', [
@@ -1313,6 +1551,29 @@ function doPost(e) {
         };
       });
       return ok({ invoices: invoices });
+    }
+
+    // ── DEALER ACTIVITY (lightweight: last invoice date per dealer) ───────
+    if (data.action === 'getRecentDealerActivity') {
+      const invSheet = ss.getSheetByName('Sales Invoices');
+      if (!invSheet) return ok({ activity: [] });
+      const rows = invSheet.getDataRange().getValues().slice(1).filter(function(r){ return r[0]; });
+      const latestMap = {};
+      rows.forEach(function(r){
+        const dealerId = String(r[2] || '').trim();
+        if (!dealerId) return;
+        const dateVal = r[4] instanceof Date
+          ? Utilities.formatDate(r[4], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+          : String(r[4] || '').slice(0, 10);
+        if (!dateVal) return;
+        if (!latestMap[dealerId] || dateVal > latestMap[dealerId]) {
+          latestMap[dealerId] = dateVal;
+        }
+      });
+      const activity = Object.keys(latestMap).map(function(id){
+        return { dealerId: id, lastDate: latestMap[id] };
+      });
+      return ok({ activity: activity });
     }
 
     // ── VAN STOCK (driver's available qty per SKU today) ──────────────

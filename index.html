@@ -2775,35 +2775,52 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
   </div>
 </div>
 
-<!-- ── TRANSFER ADMIN MODAL ── -->
+<!-- ── TRANSFER EDIT MODAL (admin: full control · creator: via/notes/items only) ── -->
 <div class="modal-overlay" id="trf-admin-modal" style="display:none">
-  <div class="modal-card adm-modal-card">
-    <div class="adm-modal-header">
+  <div class="modal-card adm-modal-card" style="max-height:90vh;overflow-y:auto">
+    <div class="adm-modal-header" style="position:sticky;top:0;background:white;z-index:1">
       <div>
         <div class="adm-modal-title" id="trf-adm-num"></div>
         <div class="adm-modal-sub" id="trf-adm-route"></div>
       </div>
       <button class="adm-modal-close" onclick="closeTrfAdminModal()">✕</button>
     </div>
-    <label class="adm-field-label">Status</label>
-    <select id="trf-adm-status" class="adm-input">
-      <option value="PENDING">PENDING</option>
-      <option value="IN TRANSIT">IN TRANSIT</option>
-      <option value="PARTIAL">PARTIAL</option>
-      <option value="RECEIVED">RECEIVED</option>
-      <option value="CANCELLED">CANCELLED</option>
-    </select>
+
+    <!-- Admin-only: Status -->
+    <div id="trf-adm-status-wrap">
+      <label class="adm-field-label">Status</label>
+      <select id="trf-adm-status" class="adm-input">
+        <option value="PENDING">PENDING</option>
+        <option value="IN TRANSIT">IN TRANSIT</option>
+        <option value="PARTIAL">PARTIAL</option>
+        <option value="RECEIVED">RECEIVED</option>
+        <option value="CANCELLED">CANCELLED</option>
+      </select>
+    </div>
+
     <label class="adm-field-label">Via</label>
     <select id="trf-adm-via" class="adm-input">
       <option value="Direct">Direct</option>
       <option value="Bajaj1">Bajaj 1</option>
       <option value="Bajaj2">Bajaj 2</option>
     </select>
+
     <label class="adm-field-label">Notes</label>
     <textarea id="trf-adm-notes" class="adm-input adm-textarea" placeholder="Optional notes"></textarea>
+
+    <!-- Line Items -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px 4px">
+      <span style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:0.5px">Items</span>
+      <button onclick="_trfEditAddLine()"
+        style="font-size:11px;background:#E8EAF6;color:#283593;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-weight:600">+ Add Item</button>
+    </div>
+    <div id="trf-adm-lines" style="padding:0 16px 6px"></div>
+
     <div id="trf-adm-err" class="adm-err"></div>
     <div class="adm-modal-actions">
-      <button class="adm-btn-delete" onclick="deleteTrf()">🗑 Delete</button>
+      <div id="trf-adm-delete-wrap">
+        <button class="adm-btn-delete" onclick="deleteTrf()">🗑</button>
+      </div>
       <button class="adm-btn-cancel" onclick="closeTrfAdminModal()">Cancel</button>
       <button class="adm-btn-save" id="trf-adm-save-btn" onclick="saveTrfEdit()">Save</button>
     </div>

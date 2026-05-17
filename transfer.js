@@ -605,70 +605,219 @@ function renderAllTransfers(){
         <span style="font-size:11px;color:#888">${trf.lineCount||0} item(s)</span>
         ${trf.receivedBy?`<span style="font-size:11px;color:#27AE60">Rcvd by ${trf.receivedBy}</span>`:''}
         ${!isAdmin&&trf.status==='IN TRANSIT'&&trf.createdBy===currentUser.username
-          ?`<button onclick="event.stopPropagation();cancelTransfer('${trf.trfNumber}')"
-              style="font-size:10px;background:none;border:1px solid #ccc;color:#888;padding:2px 8px;border-radius:6px;cursor:pointer">
-              Cancel
-            </button>`:''}
+          ?`<span style="display:flex;gap:6px;align-items:center">
+              <button onclick="event.stopPropagation();openTrfEditModal('${trf.trfNumber}',false)"
+                style="font-size:10px;background:#E8EAF6;color:#283593;border:none;padding:3px 8px;border-radius:6px;cursor:pointer;font-weight:600">
+                ✏ Edit
+              </button>
+              <button onclick="event.stopPropagation();cancelTransfer('${trf.trfNumber}')"
+                style="font-size:10px;background:none;border:1px solid #ccc;color:#888;padding:2px 8px;border-radius:6px;cursor:pointer">
+                Cancel
+              </button>
+            </span>`:''}
         ${isAdmin?'<span style="font-size:10px;color:#3949AB;font-weight:600">tap to manage →</span>':''}
       </div>`;
     body.appendChild(card);
   });
 }
 
-// ── ADMIN: TRANSFER MANAGE MODAL ──────────────────────
+// ── EDIT MODAL (admin: all fields · creator: via/notes/items only) ────────────
 let _trfAdminTarget = null;
+let _trfEditLines   = [];
+let _trfEditIsAdmin = false;
 
-function openTrfAdminModal(trf){
+async function openTrfAdminModal(trf){
+  // Admin path — called when admin taps any card in All view
+  await openTrfEditModal(trf, true);
+}
+
+async function openTrfEditModal(trfOrNumber, adminMode){
+  const trf = typeof trfOrNumber === 'string'
+    ? trfList.find(t => t.trfNumber === trfOrNumber)
+    : trfOrNumber;
+  if(!trf) return;
+
   _trfAdminTarget = trf;
+  _trfEditIsAdmin = adminMode === true || currentUser.role === 'admin';
+
+  // Header
   document.getElementById('trf-adm-num').textContent   = trf.trfNumber;
-  document.getElementById('trf-adm-route').textContent = trf.fromLocation+' → '+trf.toLocation;
-  document.getElementById('trf-adm-via').value         = trf.via    || 'Direct';
-  document.getElementById('trf-adm-status').value      = trf.status || 'IN TRANSIT';
-  document.getElementById('trf-adm-notes').value       = trf.notes  || '';
+  document.getElementById('trf-adm-route').textContent = trf.fromLocation + ' → ' + trf.toLocation;
+  document.getElementById('trf-adm-via').value         = trf.via   || 'Direct';
+  document.getElementById('trf-adm-notes').value       = trf.notes || '';
   document.getElementById('trf-adm-err').textContent   = '';
-  const btn=document.getElementById('trf-adm-save-btn');
-  if(btn){btn.disabled=false;btn.textContent='Save Changes';}
-  document.getElementById('trf-admin-modal').style.display='flex';
+
+  // Show/hide admin-only fields
+  const statusWrap = document.getElementById('trf-adm-status-wrap');
+  const deleteWrap = document.getElementById('trf-adm-delete-wrap');
+  if(statusWrap) statusWrap.style.display = _trfEditIsAdmin ? 'block'        : 'none';
+  if(deleteWrap) deleteWrap.style.display = _trfEditIsAdmin ? 'inline-block' : 'none';
+  if(_trfEditIsAdmin) document.getElementById('trf-adm-status').value = trf.status || 'IN TRANSIT';
+
+  const btn = document.getElementById('trf-adm-save-btn');
+  if(btn){ btn.disabled = false; btn.textContent = 'Save Changes'; }
+
+  // Show modal immediately
+  document.getElementById('trf-admin-modal').style.display = 'flex';
+
+  // Load line items async
+  document.getElementById('trf-adm-lines').innerHTML =
+    '<div style="color:#aaa;font-size:12px;padding:4px 0">Loading items…</div>';
+  try{
+    const r = await api({ action:'getTransferDetail', trfNumber: trf.trfNumber });
+    if(r.status === 'ok'){
+      _trfEditLines = (r.lineItems || []).map(li => ({
+        skuCode: li.skuCode,
+        skuName: li.itemName || li.skuCode,
+        qty:     li.qtyDispatched || li.qtyOrdered || 1,
+        unit:    li.unit || 'bag'
+      }));
+      buildTrfDatalist();
+      renderTrfEditLines();
+    } else {
+      document.getElementById('trf-adm-lines').innerHTML =
+        '<div style="color:#E24B4A;font-size:12px;padding:4px 0">Could not load items.</div>';
+    }
+  }catch(e){
+    document.getElementById('trf-adm-lines').innerHTML =
+      '<div style="color:#E24B4A;font-size:12px;padding:4px 0">Network error loading items.</div>';
+  }
+}
+
+function renderTrfEditLines(){
+  const container = document.getElementById('trf-adm-lines');
+  if(!container) return;
+  container.innerHTML = '';
+  if(!_trfEditLines.length){
+    container.innerHTML = '<div style="color:#aaa;font-size:12px;padding:4px 0">No items. Use + Add Item.</div>';
+    return;
+  }
+  _trfEditLines.forEach((line, idx) => {
+    const row = document.createElement('div');
+    row.className = 'trf-line-row';
+    row.id = 'trf-edit-row-' + idx;
+    row.innerHTML = `
+      <div class="trf-line-num">Item ${idx+1}
+        ${_trfEditLines.length > 1
+          ? `<button class="trf-line-remove" onclick="_trfEditRemoveLine(${idx})">×</button>` : ''}
+      </div>
+      <input type="text"
+        id="trf-edit-sku-${idx}"
+        class="trf-line-sku"
+        placeholder="Type to search item name…"
+        list="trf-sku-datalist"
+        autocomplete="off"
+        value="${line.skuName || ''}"
+        oninput="_trfEditSkuInput(${idx},this.value)">
+      <div class="trf-line-qty-row">
+        <input type="number" class="trf-line-qty"
+          min="1" step="1" value="${line.qty || 1}"
+          oninput="_trfEditLines[${idx}].qty=parseFloat(this.value)||1">
+        <select class="trf-line-unit"
+          onchange="_trfEditLines[${idx}].unit=this.value">
+          ${['bag','sack','box','case','pc','bottle','kg']
+            .map(u=>`<option value="${u}"${line.unit===u?' selected':''}>${u}</option>`)
+            .join('')}
+        </select>
+      </div>`;
+    container.appendChild(row);
+  });
+}
+
+function _trfEditRemoveLine(idx){
+  _trfEditLines.splice(idx, 1);
+  renderTrfEditLines();
+}
+
+function _trfEditAddLine(){
+  _trfEditLines.push({ skuCode:'', skuName:'', qty:1, unit:'bag' });
+  renderTrfEditLines();
+  setTimeout(()=>{
+    const container = document.getElementById('trf-adm-lines');
+    if(container && container.lastElementChild)
+      container.lastElementChild.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }, 100);
+}
+
+function _trfEditSkuInput(idx, val){
+  const match = liveSKUs.find(s => s.name.toLowerCase() === val.toLowerCase());
+  _trfEditLines[idx].skuName = val;
+  _trfEditLines[idx].skuCode = match ? match.code : '';
 }
 
 function closeTrfAdminModal(){
-  document.getElementById('trf-admin-modal').style.display='none';
-  _trfAdminTarget=null;
+  document.getElementById('trf-admin-modal').style.display = 'none';
+  _trfAdminTarget = null;
+  _trfEditLines   = [];
 }
 
 async function saveTrfEdit(){
   if(!_trfAdminTarget) return;
-  const btn=document.getElementById('trf-adm-save-btn');
-  btn.disabled=true; btn.textContent='Saving...';
+
+  // Sync any partially typed SKU names
+  _trfEditLines.forEach((line, idx) => {
+    const input = document.getElementById('trf-edit-sku-' + idx);
+    if(input && input.value.trim()) _trfEditLines[idx].skuName = input.value.trim();
+  });
+
+  const validLines = _trfEditLines.filter(l => l.skuName && l.skuName.trim() && l.qty > 0);
+  if(!validLines.length){
+    document.getElementById('trf-adm-err').textContent = 'At least one item is required.';
+    return;
+  }
+
+  const btn = document.getElementById('trf-adm-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
   const via    = document.getElementById('trf-adm-via').value;
-  const status = document.getElementById('trf-adm-status').value;
+  const status = _trfEditIsAdmin
+    ? document.getElementById('trf-adm-status').value
+    : _trfAdminTarget.status;
   const notes  = document.getElementById('trf-adm-notes').value.trim();
-  const r=await api({action:'editTransfer', trfNumber:_trfAdminTarget.trfNumber, via, status, notes});
-  if(r.status==='ok'){
-    const t=trfList.find(x=>x.trfNumber===_trfAdminTarget.trfNumber);
-    if(t){t.via=via;t.status=status;t.notes=notes;}
-    closeTrfAdminModal();
-    updatePendingBadge();
-    renderAllTransfers();
-    showToast('Transfer updated', 'success');
-  } else {
-    document.getElementById('trf-adm-err').textContent=r.msg||'Save failed';
-    btn.disabled=false; btn.textContent='Save Changes';
+
+  const lineItems = validLines.map(l => ({
+    skuCode: l.skuCode || '',
+    skuName: l.skuName,
+    qty:     l.qty,
+    unit:    l.unit || 'bag'
+  }));
+
+  try{
+    const r = await api({
+      action:'editTransfer',
+      trfNumber: _trfAdminTarget.trfNumber,
+      via, status, notes, lineItems,
+      editedBy: currentUser.username
+    });
+    if(r.status === 'ok'){
+      const t = trfList.find(x => x.trfNumber === _trfAdminTarget.trfNumber);
+      if(t){ t.via = via; t.status = status; t.notes = notes; t.lineCount = lineItems.length; }
+      closeTrfAdminModal();
+      updatePendingBadge();
+      renderAllTransfers();
+      showToast('Transfer updated ✓', 'success');
+    } else {
+      document.getElementById('trf-adm-err').textContent = r.msg || 'Save failed';
+      btn.disabled = false; btn.textContent = 'Save Changes';
+    }
+  }catch(e){
+    document.getElementById('trf-adm-err').textContent = 'Network error: ' + e.message;
+    btn.disabled = false; btn.textContent = 'Save Changes';
   }
 }
 
 async function deleteTrf(){
   if(!_trfAdminTarget) return;
   if(!confirm(`Delete transfer ${_trfAdminTarget.trfNumber}?\n\nAll line items will be removed. This cannot be undone.`)) return;
-  const r=await api({action:'deleteTransfer', trfNumber:_trfAdminTarget.trfNumber});
-  if(r.status==='ok'){
-    trfList=trfList.filter(x=>x.trfNumber!==_trfAdminTarget.trfNumber);
+  const r = await api({ action:'deleteTransfer', trfNumber:_trfAdminTarget.trfNumber });
+  if(r.status === 'ok'){
+    trfList = trfList.filter(x => x.trfNumber !== _trfAdminTarget.trfNumber);
     closeTrfAdminModal();
     updatePendingBadge();
     renderAllTransfers();
     showToast('Transfer deleted', 'success');
   } else {
-    alert('Delete failed: '+(r.msg||'Unknown error'));
+    alert('Delete failed: ' + (r.msg || 'Unknown error'));
   }
 }
 

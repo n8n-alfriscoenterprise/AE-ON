@@ -2029,18 +2029,60 @@ function doPost(e) {
     if (data.action === 'editTransfer') {
       const s = ss.getSheetByName('Transfer Log');
       if (!s) return err('Sheet not found');
-      const rows = s.getDataRange().getValues();
-      // Columns: 1=TrfNo 2=From 3=To 4=Via 5=Status 6=CreatedBy 7=CreatedDate
-      //          8=ReceivedBy 9=ReceivedDate 10=SKU 11=Name 12=QtyDisp 13=QtyRcvd
-      //          14=Discrepancy 15=Unit 16=Notes
-      for (let i = 1; i < rows.length; i++) {
-        if (String(rows[i][0]) === data.trfNumber) {
-          if (data.via    != null) s.getRange(i+1, 4).setValue(data.via);
-          if (data.status != null) s.getRange(i+1, 5).setValue(data.status);
-          if (data.notes  != null) s.getRange(i+1,16).setValue(data.notes);
+
+      if (data.lineItems && data.lineItems.length > 0) {
+        // Rebuild: delete existing rows for this transfer, then re-insert
+        const rows = s.getDataRange().getValues();
+        var firstRowData = null;
+        var rowsToDelete = [];
+        for (var i = 1; i < rows.length; i++) {
+          if (String(rows[i][0]) === data.trfNumber) {
+            if (!firstRowData) firstRowData = rows[i];
+            rowsToDelete.push(i + 1); // 1-based
+          }
+        }
+        if (!firstRowData) return err('Transfer not found');
+
+        // Delete from bottom to top to avoid row-index shift
+        for (var j = rowsToDelete.length - 1; j >= 0; j--) {
+          s.deleteRow(rowsToDelete[j]);
+        }
+
+        // Re-insert with updated fields
+        data.lineItems.forEach(function(li) {
+          s.appendRow([
+            data.trfNumber,
+            firstRowData[1],                                             // fromLocation
+            firstRowData[2],                                             // toLocation
+            data.via    != null ? data.via    : firstRowData[3],         // via
+            data.status != null ? data.status : firstRowData[4],         // status
+            firstRowData[5],                                             // createdBy
+            firstRowData[6],                                             // createdDate
+            firstRowData[7],                                             // receivedBy
+            firstRowData[8],                                             // receivedDate
+            li.skuCode  || '',                                           // SKU code
+            li.skuName  || '',                                           // item name
+            Number(li.qty) || 0,                                         // qty dispatched
+            0,                                                           // qty received (reset)
+            Number(li.qty) || 0,                                         // discrepancy
+            li.unit     || 'bag',                                        // unit
+            data.notes  != null ? data.notes  : firstRowData[15]         // notes
+          ]);
+        });
+
+      } else {
+        // No line items — just update via / status / notes on all matching rows
+        const rows = s.getDataRange().getValues();
+        for (var i = 1; i < rows.length; i++) {
+          if (String(rows[i][0]) === data.trfNumber) {
+            if (data.via    != null) s.getRange(i+1, 4).setValue(data.via);
+            if (data.status != null) s.getRange(i+1, 5).setValue(data.status);
+            if (data.notes  != null) s.getRange(i+1,16).setValue(data.notes);
+          }
         }
       }
-      return ok({});
+
+      return ok({ trfNumber: data.trfNumber });
     }
 
     // ── GET MOVEMENT HISTORY ───────────────────────────────────────────

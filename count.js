@@ -240,7 +240,7 @@ async function _chLoadSegment(seg){
 
 function _chRenderSummary(s){
   const setEl = (id, val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
-  setEl('ch-summary-last',     s.lastCountDate || 'Never');
+  setEl('ch-summary-last',     s.lastCountDate ? phDateTime(s.lastCountDate) : 'Never');
   setEl('ch-summary-total',    (s.totalSKUs||0)+' SKUs');
   setEl('ch-summary-variance', (s.varianceCount||0)+' items');
   setEl('ch-summary-stale',    (s.staleSKUs||0)+' items');
@@ -316,7 +316,7 @@ function _chRenderList(){
       const shrinkBadge = item.isShrinkage
         ? '<span class="ch-shrinkage-badge">⚠ Shrinkage</span>' : '';
 
-      const dateDisplay = item.lastCounted ? item.lastCounted.slice(0,10) : '—';
+      const dateDisplay = item.lastCounted ? phDate(item.lastCounted) : '—';
       const metaParts   = [dateDisplay];
       if(isAdmin && item.submittedBy) metaParts.push(item.submittedBy);
       if(item.location) metaParts.push(item.location);
@@ -370,7 +370,7 @@ async function openCountItemHistory(skuCode, skuName, unit){
         div.className = 'ch-hist-row' + (idx === 0 ? ' ch-hist-latest' : '');
         div.innerHTML =
           '<div>'
-            + '<div style="font-size:12px;font-weight:600;color:#222">'+rec.date.slice(0,16)+'</div>'
+            + '<div style="font-size:12px;font-weight:600;color:#222">'+(rec.date ? phDateTime(rec.date) : '—')+'</div>'
             + '<div style="font-size:11px;color:#888">'+rec.location+(isAdmin&&rec.submittedBy?' · '+rec.submittedBy:'')+'</div>'
           + '</div>'
           + '<div style="text-align:right">'

@@ -813,16 +813,22 @@ function doPost(e) {
         if (!sheet) return map;
         const rows = sheet.getDataRange().getValues();
         rows.slice(1).filter(r=>r[0]&&r[3]).forEach(r=>{
-          const code    = String(r[3]).trim();
-          // Normalise timestamp — Sheets auto-converts stored date strings to Date objects
-          const tsFormatted = r[0] instanceof Date
-            ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
-            : String(r[0]);
+          const code = String(r[3]).trim();
+          // Normalise timestamp — handles Date objects AND legacy "M/D/YYYY, H:MM:" strings
+          var tsFormatted;
+          if (r[0] instanceof Date) {
+            tsFormatted = Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+          } else {
+            var d = new Date(String(r[0]));
+            tsFormatted = isNaN(d.getTime())
+              ? String(r[0])
+              : Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+          }
           const ts = new Date(tsFormatted);
-          if (!map[code] || ts > new Date(map[code].lastUpdated)) {
+          if (!map[code] || (!isNaN(ts.getTime()) && ts > new Date(map[code].lastUpdated))) {
             map[code] = {
               stock:       Number(r[5]) || 0,
-              lastUpdated: tsFormatted,   // always an ISO string now, never a raw toString()
+              lastUpdated: tsFormatted,
               unit:        String(r[6]||'units')
             };
           }
@@ -1021,6 +1027,7 @@ function doPost(e) {
 
       const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       let imported = 0, skipped = 0;
+      const importedXeroRows = [];
 
       (data.rows || []).forEach(r => {
         const key = String(r.invoiceNumber).trim() + '|' + String(r.skuCode).trim();
@@ -1033,9 +1040,57 @@ function doPost(e) {
         ]);
         existing.add(key);
         imported++;
+        importedXeroRows.push(r);
       });
 
-      return ok({ imported, skipped });
+      // ── Auto-deduct from Stock Counts - Distribution ──────────────
+      // Build net qty map per SKU from newly imported rows only
+      const xeroDeductMap = {}; // skuCode → { netQty, item }
+      importedXeroRows.forEach(function(r) {
+        const sku = String(r.skuCode).trim();
+        if (!xeroDeductMap[sku]) xeroDeductMap[sku] = { netQty: 0, item: String(r.description||'') };
+        xeroDeductMap[sku].netQty += Number(r.quantity) || 0;
+      });
+
+      // Read current stock from Stock Counts - Distribution
+      // Cols: Timestamp(0) SubmittedBy(1) Location(2) SKUCode(3) ItemName(4) QtyOnHand(5) Unit(6) Type(7) Category(8)
+      const distCntSheet = getOrCreateSheet(ss, 'Stock Counts - Distribution', [
+        'Timestamp','Submitted By','Location','SKU Code',
+        'Item Name','Qty On Hand','Unit','Type','Category'
+      ]);
+      const distCntRows = distCntSheet.getDataRange().getValues().slice(1)
+        .filter(function(r) { return r[0] && r[3]; });
+
+      // Find latest stock entry per SKU
+      const distLatestStock = {};
+      distCntRows.forEach(function(r) {
+        const sku = String(r[3]).trim();
+        distLatestStock[sku] = { qty: Number(r[5]) || 0, unit: String(r[6] || 'bag'), category: String(r[8] || '') };
+      });
+
+      // Append new stock count entries for affected SKUs
+      let stockUpdated = 0;
+      Object.keys(xeroDeductMap).forEach(function(sku) {
+        const info = xeroDeductMap[sku];
+        if (info.netQty === 0) return;
+        if (!distLatestStock.hasOwnProperty(sku)) return; // No baseline — skip
+        const current = distLatestStock[sku];
+        const newQty  = current.qty - info.netQty;
+        distCntSheet.appendRow([
+          now,
+          'Xero Import (' + (data.importedBy || 'system') + ')',
+          'Warehouse',
+          sku,
+          info.item,
+          newQty,
+          current.unit,
+          'DIST',
+          current.category
+        ]);
+        stockUpdated++;
+      });
+
+      return ok({ imported, skipped, stockUpdated });
     }
 
     // ── IMPORT LOYVERSE SALES ─────────────────────────────────────────
@@ -2088,9 +2143,16 @@ function doPost(e) {
       // Build per-SKU record list
       var skuMap = {};
       rows.forEach(function(r) {
-        var ts   = r[0] instanceof Date
-          ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
-          : String(r[0]);
+        // Normalise timestamp — handles Date objects AND legacy "M/D/YYYY, H:MM:" strings
+        var ts;
+        if (r[0] instanceof Date) {
+          ts = Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        } else {
+          var d = new Date(String(r[0]));
+          ts = isNaN(d.getTime())
+            ? String(r[0])
+            : Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        }
         var code = String(r[3]);
         if (!skuMap[code]) skuMap[code] = { name: String(r[4]||code), unit: String(r[6]||'bag'), category: String(r[8]||''), records: [] };
         skuMap[code].records.push({ date: ts, qty: Number(r[5])||0, submittedBy: String(r[1]||''), location: String(r[2]||'') });
@@ -2098,6 +2160,7 @@ function doPost(e) {
 
       var now = new Date();
       var lastCountDate = '';
+      var lastCountDateMs = 0; // track as epoch ms to avoid mixed-format string comparison bugs
       var varianceCount = 0;
 
       var items = Object.keys(skuMap).map(function(code) {
@@ -2106,9 +2169,17 @@ function doPost(e) {
         var latest   = info.records[0];
         var prev     = info.records[1];
         var variance = prev != null ? latest.qty - prev.qty : null;
-        if (!lastCountDate || latest.date > lastCountDate) lastCountDate = latest.date;
+        var latestMs = new Date(latest.date).getTime();
+        if (!isNaN(latestMs) && latestMs > lastCountDateMs) { lastCountDateMs = latestMs; lastCountDate = latest.date; }
         if (variance !== null && variance !== 0) varianceCount++;
         var daysSince = Math.floor((now - new Date(latest.date)) / 86400000);
+
+        // Shrinkage flag: negative variance on a manual count that's unexpectedly large
+        // Auto-generated entries (Loyverse/Xero imports, PO receipts, transfers) are excluded
+        var isManualEntry = !/(loyverse|xero|import|stock.?in|po.?receipt|transfer|production)/i
+          .test(String(latest.submittedBy || ''));
+        var isShrinkage = isManualEntry && variance !== null && variance < -3;
+
         return {
           skuCode:     code,
           skuName:     info.name,
@@ -2120,7 +2191,8 @@ function doPost(e) {
           variance:    variance,
           submittedBy: latest.submittedBy,
           location:    latest.location,
-          daysSince:   daysSince
+          daysSince:   daysSince,
+          isShrinkage: isShrinkage
         };
       });
 
@@ -2146,10 +2218,17 @@ function doPost(e) {
       var records = sheet2.getDataRange().getValues().slice(1)
         .filter(function(r){ return r[0] && String(r[3]) === String(data.skuCode); })
         .map(function(r){
+          var recDate;
+          if (r[0] instanceof Date) {
+            recDate = Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+          } else {
+            var d2 = new Date(String(r[0]));
+            recDate = isNaN(d2.getTime())
+              ? String(r[0])
+              : Utilities.formatDate(d2, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+          }
           return {
-            date:        r[0] instanceof Date
-              ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
-              : String(r[0]),
+            date:        recDate,
             qty:         Number(r[5])||0,
             submittedBy: String(r[1]||''),
             location:    String(r[2]||'')

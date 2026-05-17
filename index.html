@@ -904,6 +904,49 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .mov-edit-input{width:64px;border:1.5px solid #ddd;border-radius:6px;padding:5px 7px;font-size:12px;text-align:right;outline:none}
 .mov-edit-input:focus{border-color:#0A5C46}
 
+/* ══ COUNT HISTORY SCREEN ════════════════════════════ */
+#count-history-screen{background:#f0f2f5}
+.ch-topbar{background:linear-gradient(135deg,#6A1B9A,#7B2D8B);padding:11px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.ch-topbar-title{color:white;font-size:15px;font-weight:700}
+.ch-tabs{display:flex;background:white;border-bottom:2px solid #f0f0f0;flex-shrink:0}
+.ch-tab{flex:1;padding:10px;text-align:center;font-size:12px;font-weight:700;color:#999;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px}
+.ch-tab.active{color:#7B2D8B;border-color:#7B2D8B}
+.ch-search-bar{display:flex;gap:8px;padding:10px 12px;background:white;border-bottom:1px solid #eee;flex-shrink:0}
+.ch-search-input{flex:1;padding:8px 12px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;outline:none}
+.ch-search-input:focus{border-color:#7B2D8B}
+.ch-export-btn{padding:8px 12px;background:#F3E5F5;color:#6A1B9A;border:none;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.ch-summary-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 12px;flex-shrink:0}
+.ch-summary-card{background:white;border-radius:10px;padding:10px 12px;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
+.ch-summary-card-val{font-size:16px;font-weight:700;color:#222;margin-bottom:2px}
+.ch-summary-card-lbl{font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:0.4px}
+.ch-summary-card.warn .ch-summary-card-val{color:#E24B4A}
+.ch-summary-card.alert .ch-summary-card-val{color:#C07000}
+.ch-body{flex:1;overflow-y:auto;padding-bottom:20px}
+.ch-cat-hdr{font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;padding:10px 14px 4px;background:#f0f2f5;position:sticky;top:0;z-index:1}
+.ch-item-row{background:white;padding:11px 14px;border-bottom:1px solid #f5f5f5;display:flex;align-items:center;justify-content:space-between;cursor:pointer}
+.ch-item-row:active{background:#faf7ff}
+.ch-item-main{flex:1;min-width:0;margin-right:12px}
+.ch-item-name{font-size:13px;font-weight:600;color:#222;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-item-meta{font-size:10px;color:#aaa;margin-top:2px}
+.ch-item-right{text-align:right;flex-shrink:0}
+.ch-item-qty{font-size:14px;font-weight:700;color:#222}
+.ch-item-var{font-size:11px;margin-top:1px}
+.ch-variance-up{color:#1B5E20;font-weight:700}
+.ch-variance-down{color:#E24B4A;font-weight:700}
+.ch-variance-zero{color:#999}
+.ch-variance-na{color:#ccc}
+.ch-stale-badge{font-size:9px;background:#FFF3DC;color:#C07000;padding:1px 5px;border-radius:8px;font-weight:700;margin-left:4px;vertical-align:middle}
+.ch-loading,.ch-empty{text-align:center;color:#aaa;font-size:13px;padding:32px 16px}
+.ch-item-panel{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:300;display:none;align-items:flex-end;justify-content:center}
+.ch-panel-sheet{background:white;border-radius:18px 18px 0 0;width:100%;max-width:480px;max-height:70vh;display:flex;flex-direction:column;overflow:hidden}
+.ch-panel-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid #eee;flex-shrink:0}
+.ch-panel-title{font-size:14px;font-weight:700;color:#222;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch-panel-close{background:none;border:none;font-size:18px;color:#aaa;cursor:pointer;padding:0;flex-shrink:0}
+.ch-panel-body{overflow-y:auto;flex:1;padding:8px 0}
+.ch-hist-row{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f5f5f5}
+.ch-hist-row.ch-hist-latest{background:#F3E5F5}
+.tile.t-count-history{background:linear-gradient(135deg,#6A1B9A,#7B2D8B)}
+
 /* ══ TRANSFER SYSTEM ══════════════════════════════ */
 #transfer-screen{background:#f0f2f5}
 .trf-topbar{background:#3949AB;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
@@ -1519,6 +1562,10 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;cursor:pointer">
               <input type="checkbox" id="new-can-sa" style="width:16px;height:16px;accent-color:#00695C;cursor:pointer">
               📊 Stock Adjustment
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;cursor:pointer">
+              <input type="checkbox" id="new-can-count-history" style="width:16px;height:16px;accent-color:#6A1B9A;cursor:pointer">
+              📊 View Count History
             </label>
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;cursor:pointer">
               <input type="checkbox" id="new-can-transfer" style="width:16px;height:16px;accent-color:#3949AB;cursor:pointer">
@@ -2160,6 +2207,12 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
         <span class="sku-count" id="count-card-retail-count">13 SKUs</span>
       </div>
     </div>
+    <div id="ch-type-history-btn" style="display:none;padding:0 16px 16px">
+      <button onclick="openCountHistory()"
+        style="width:100%;padding:12px;background:white;border:1.5px solid #7B2D8B;color:#7B2D8B;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer">
+        📊 View Count History
+      </button>
+    </div>
   </div>
 </div>
 
@@ -2208,6 +2261,64 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 
 
 
+
+<!-- COUNT HISTORY SCREEN -->
+<div id="count-history-screen" class="screen" style="flex-direction:column">
+  <div class="ch-topbar">
+    <span class="ch-topbar-title">📊 Count History</span>
+    <button class="back-btn" onclick="closeCountHistory()">← Back</button>
+  </div>
+
+  <div class="ch-tabs">
+    <div class="ch-tab active" id="ch-tab-dist" onclick="_chLoadSegment('dist')">📦 Distribution</div>
+    <div class="ch-tab" id="ch-tab-retail" onclick="_chLoadSegment('retail')">🛒 Retail</div>
+  </div>
+
+  <div class="ch-search-bar">
+    <input class="ch-search-input" id="ch-search" type="text"
+           placeholder="Search item name or SKU code…"
+           oninput="_chRenderList()">
+    <button class="ch-export-btn" onclick="exportCountHistory()">⬇ Export</button>
+  </div>
+
+  <div class="ch-summary-cards">
+    <div class="ch-summary-card">
+      <div class="ch-summary-card-val" id="ch-summary-last">—</div>
+      <div class="ch-summary-card-lbl">Last Count Date</div>
+    </div>
+    <div class="ch-summary-card">
+      <div class="ch-summary-card-val" id="ch-summary-total">—</div>
+      <div class="ch-summary-card-lbl">SKUs on Record</div>
+    </div>
+    <div class="ch-summary-card warn">
+      <div class="ch-summary-card-val" id="ch-summary-variance">—</div>
+      <div class="ch-summary-card-lbl">Items with Variance</div>
+    </div>
+    <div class="ch-summary-card alert">
+      <div class="ch-summary-card-val" id="ch-summary-stale">—</div>
+      <div class="ch-summary-card-lbl">Overdue (30+ days)</div>
+    </div>
+  </div>
+
+  <div class="count-chips-bar" id="ch-cat-chips" style="padding:0 12px 8px;flex-shrink:0"></div>
+
+  <div class="ch-body" id="ch-body">
+    <div class="ch-loading">Loading…</div>
+  </div>
+
+  <!-- Item History Panel (slide-up) -->
+  <div class="ch-item-panel" id="ch-item-panel"
+       onclick="if(event.target===this)closeCountItemPanel()">
+    <div class="ch-panel-sheet">
+      <div class="ch-panel-header">
+        <div class="ch-panel-title" id="ch-panel-title">Item History</div>
+        <button class="ch-panel-close" onclick="closeCountItemPanel()">✕</button>
+      </div>
+      <div style="font-size:11px;color:#888;padding:6px 16px 0" id="ch-panel-sub"></div>
+      <div class="ch-panel-body" id="ch-panel-body"></div>
+    </div>
+  </div>
+</div>
 
 <!-- COST PRICE EDITOR SCREEN -->
 <div id="cost-editor-screen" class="screen" style="flex-direction:column">
@@ -2439,6 +2550,16 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
             </div>
             <label class="edit-toggle">
               <input type="checkbox" id="edit-can-count-retail">
+              <span class="edit-toggle-slider"></span>
+            </label>
+          </div>
+          <div class="edit-perm-row">
+            <div>
+              <div class="edit-perm-label">📊 View Count History</div>
+              <div class="edit-perm-sub">Can view submitted count records, variance analysis & export</div>
+            </div>
+            <label class="edit-toggle">
+              <input type="checkbox" id="edit-can-count-history">
               <span class="edit-toggle-slider"></span>
             </label>
           </div>

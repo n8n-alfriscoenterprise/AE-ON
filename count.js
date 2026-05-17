@@ -54,6 +54,9 @@ function updateCountTypeCards(){
   const retailCard=document.getElementById('count-card-retail');
   if(distCard){distCard.className='count-type-card dist'+(canDist?'':' disabled');distCard.onclick=canDist?()=>startCount('dist'):null;const dc=document.getElementById('count-card-dist-count');if(dc)dc.textContent=distCount+' SKUs';}
   if(retailCard){retailCard.className='count-type-card retail'+(canRetail?'':' disabled');retailCard.onclick=canRetail?()=>startCount('retail'):null;const rc=document.getElementById('count-card-retail-count');if(rc)rc.textContent=retailCount+' SKUs';}
+  // Show "View History" button if user has permission
+  const histBtn = document.getElementById('ch-type-history-btn');
+  if(histBtn) histBtn.style.display = _chCanView() ? 'block' : 'none';
 }
 
 function closeCountType(){if(currentUser&&currentUser.role==='driver')showDriver();else showHome();}
@@ -165,6 +168,267 @@ async function submitCount(){
     }else{alert('Error: '+(r.msg||'Could not submit'));}
   }catch(e){alert('Network error: '+e.message);}
   btn.disabled=false;updateCountProgress();
+}
+
+// ══════════════════════════════════════════════════════════════
+// COUNT HISTORY SYSTEM
+// ══════════════════════════════════════════════════════════════
+let _chSegment  = 'dist';
+let _chAllItems = [];
+
+function _chCanView(){
+  return currentUser && (currentUser.role === 'admin' || currentUser.canViewCountHistory === true);
+}
+
+async function openCountHistory(){
+  if(!_chCanView()){ alert('You do not have permission to view count history.'); return; }
+  showScreen('count-history-screen');
+  updateFabVisibility();
+
+  // Default to a segment this user can count; fall back to dist
+  const canDist   = currentUser.role==='admin' || currentUser.canCountDist!==false;
+  const canRetail = currentUser.role==='admin' || currentUser.canCountRetail!==false;
+  _chSegment = canDist ? 'dist' : 'retail';
+
+  // Tab visibility
+  const dtab = document.getElementById('ch-tab-dist');
+  const rtab = document.getElementById('ch-tab-retail');
+  if(dtab) dtab.style.display = canDist   ? 'block' : 'none';
+  if(rtab) rtab.style.display = canRetail ? 'block' : 'none';
+
+  const searchEl = document.getElementById('ch-search');
+  if(searchEl) searchEl.value = '';
+
+  await _chLoadSegment(_chSegment);
+}
+
+function closeCountHistory(){ showHome(); }
+
+async function _chLoadSegment(seg){
+  _chSegment = seg;
+  _chAllItems = [];
+
+  // Update tab highlight
+  ['dist','retail'].forEach(s => {
+    const t = document.getElementById('ch-tab-'+s);
+    if(t) t.classList.toggle('active', s === seg);
+  });
+
+  // Reset summary
+  ['ch-summary-last','ch-summary-total','ch-summary-variance','ch-summary-stale']
+    .forEach(id => { const el=document.getElementById(id); if(el) el.textContent='—'; });
+
+  const body = document.getElementById('ch-body');
+  body.innerHTML = '<div class="ch-loading">Loading count history…</div>';
+
+  try{
+    const r = await api({ action:'getCountHistory', segment: seg });
+    if(r.status === 'ok'){
+      _chAllItems = r.items || [];
+      _chRenderSummary(r.summary || {});
+      _chBuildCatChips();
+      _chRenderList();
+    } else {
+      body.innerHTML = '<div class="ch-empty">Could not load: '+(r.msg||'Unknown error')+'</div>';
+    }
+  }catch(e){
+    body.innerHTML = '<div class="ch-empty">Network error: '+e.message+'</div>';
+  }
+}
+
+function _chRenderSummary(s){
+  const setEl = (id, val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
+  setEl('ch-summary-last',     s.lastCountDate || 'Never');
+  setEl('ch-summary-total',    (s.totalSKUs||0)+' SKUs');
+  setEl('ch-summary-variance', (s.varianceCount||0)+' items');
+  setEl('ch-summary-stale',    (s.staleSKUs||0)+' items');
+}
+
+function _chBuildCatChips(){
+  const bar = document.getElementById('ch-cat-chips');
+  if(!bar) return;
+  const cats = ['All', ...[...new Set(_chAllItems.map(i=>i.category).filter(Boolean))].sort()];
+  bar.innerHTML = '';
+  // Store current filter
+  if(!window._chCatFilter) window._chCatFilter = 'All';
+  cats.forEach(cat => {
+    const c = document.createElement('div');
+    c.className = 'count-chip' + (cat === window._chCatFilter ? ' active' : '');
+    c.textContent = cat;
+    c.onclick = () => { window._chCatFilter = cat; _chBuildCatChips(); _chRenderList(); };
+    bar.appendChild(c);
+  });
+}
+
+function _chRenderList(){
+  const body    = document.getElementById('ch-body');
+  const isAdmin = currentUser.role === 'admin';
+  const search  = (document.getElementById('ch-search')?.value || '').toLowerCase().trim();
+  const catFilter = window._chCatFilter || 'All';
+
+  let items = _chAllItems.slice();
+  if(catFilter !== 'All') items = items.filter(i => i.category === catFilter);
+  if(search) items = items.filter(i =>
+    i.skuName.toLowerCase().includes(search) || i.skuCode.toLowerCase().includes(search));
+
+  if(!items.length){
+    body.innerHTML = '<div class="ch-empty">No records match the current filters.</div>';
+    return;
+  }
+
+  body.innerHTML = '';
+
+  // Group by category
+  const groups = {};
+  items.forEach(item => {
+    const cat = item.category || 'Uncategorized';
+    if(!groups[cat]) groups[cat] = [];
+    groups[cat].push(item);
+  });
+
+  Object.entries(groups).forEach(([cat, catItems]) => {
+    const hdr = document.createElement('div');
+    hdr.className = 'ch-cat-hdr';
+    hdr.textContent = cat + ' (' + catItems.length + ')';
+    body.appendChild(hdr);
+
+    catItems.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'ch-item-row';
+      row.onclick = () => openCountItemHistory(item.skuCode, item.skuName, item.unit);
+
+      // Variance display
+      let varHtml;
+      if(item.variance === null || item.variance === undefined){
+        varHtml = '<span class="ch-variance-na">first count</span>';
+      } else if(item.variance > 0){
+        varHtml = '<span class="ch-variance-up">▲ +'+item.variance+'</span>';
+      } else if(item.variance < 0){
+        varHtml = '<span class="ch-variance-down">▼ '+item.variance+'</span>';
+      } else {
+        varHtml = '<span class="ch-variance-zero">±0</span>';
+      }
+
+      const staleBadge = item.daysSince > 30
+        ? '<span class="ch-stale-badge">⏰ '+item.daysSince+'d ago</span>' : '';
+
+      const dateDisplay = item.lastCounted ? item.lastCounted.slice(0,10) : '—';
+      const metaParts   = [dateDisplay];
+      if(isAdmin && item.submittedBy) metaParts.push(item.submittedBy);
+      if(item.location) metaParts.push(item.location);
+
+      row.innerHTML =
+        '<div class="ch-item-main">'
+          + '<div class="ch-item-name">'+item.skuName+staleBadge+'</div>'
+          + '<div class="ch-item-meta">'+metaParts.join(' · ')+'</div>'
+        + '</div>'
+        + '<div class="ch-item-right">'
+          + '<div class="ch-item-qty">'+item.lastQty+' <span style="font-size:10px;color:#aaa">'+item.unit+'</span></div>'
+          + '<div class="ch-item-var">'+varHtml+'</div>'
+        + '</div>';
+      body.appendChild(row);
+    });
+  });
+}
+
+// ── ITEM HISTORY DRILL-DOWN ───────────────────────────────────
+async function openCountItemHistory(skuCode, skuName, unit){
+  const panel    = document.getElementById('ch-item-panel');
+  const titleEl  = document.getElementById('ch-panel-title');
+  const subEl    = document.getElementById('ch-panel-sub');
+  const bodyEl   = document.getElementById('ch-panel-body');
+
+  if(titleEl) titleEl.textContent = skuName;
+  if(subEl)   subEl.textContent   = skuCode + (unit ? ' · '+unit : '');
+  if(bodyEl)  bodyEl.innerHTML    = '<div style="color:#aaa;font-size:12px;padding:12px 16px">Loading…</div>';
+  if(panel)   panel.style.display = 'flex';
+
+  try{
+    const r = await api({ action:'getCountItemHistory', skuCode, segment: _chSegment });
+    if(r.status === 'ok'){
+      const records = r.records || [];
+      if(!records.length){
+        bodyEl.innerHTML = '<div class="ch-empty">No records found for this item.</div>';
+        return;
+      }
+      const isAdmin = currentUser.role === 'admin';
+      bodyEl.innerHTML = '';
+      records.forEach((rec, idx) => {
+        const prev     = records[idx + 1];
+        const variance = prev != null ? rec.qty - prev.qty : null;
+        let varHtml = '';
+        if(variance !== null){
+          if(variance > 0)      varHtml = '<span class="ch-variance-up" style="font-size:11px">▲ +'+variance+'</span>';
+          else if(variance < 0) varHtml = '<span class="ch-variance-down" style="font-size:11px">▼ '+variance+'</span>';
+          else                  varHtml = '<span class="ch-variance-zero" style="font-size:11px">±0</span>';
+        }
+        const div = document.createElement('div');
+        div.className = 'ch-hist-row' + (idx === 0 ? ' ch-hist-latest' : '');
+        div.innerHTML =
+          '<div>'
+            + '<div style="font-size:12px;font-weight:600;color:#222">'+rec.date.slice(0,16)+'</div>'
+            + '<div style="font-size:11px;color:#888">'+rec.location+(isAdmin&&rec.submittedBy?' · '+rec.submittedBy:'')+'</div>'
+          + '</div>'
+          + '<div style="text-align:right">'
+            + '<div style="font-size:15px;font-weight:700;color:#222">'+rec.qty+'</div>'
+            + varHtml
+          + '</div>';
+        bodyEl.appendChild(div);
+      });
+    } else {
+      bodyEl.innerHTML = '<div class="ch-empty">Error: '+(r.msg||'Could not load')+'</div>';
+    }
+  }catch(e){
+    bodyEl.innerHTML = '<div class="ch-empty">Network error: '+e.message+'</div>';
+  }
+}
+
+function closeCountItemPanel(){
+  const panel = document.getElementById('ch-item-panel');
+  if(panel) panel.style.display = 'none';
+}
+
+// ── EXPORT ────────────────────────────────────────────────────
+function exportCountHistory(){
+  const isAdmin   = currentUser.role === 'admin';
+  const search    = (document.getElementById('ch-search')?.value||'').toLowerCase().trim();
+  const catFilter = window._chCatFilter || 'All';
+
+  let items = _chAllItems.slice();
+  if(catFilter !== 'All') items = items.filter(i => i.category === catFilter);
+  if(search) items = items.filter(i =>
+    i.skuName.toLowerCase().includes(search) || i.skuCode.toLowerCase().includes(search));
+
+  if(!items.length){ showToast('No data to export', 'info'); return; }
+
+  const headers = ['SKU Code','Item Name','Category','Last Counted','Qty On Hand',
+    'Unit','vs Previous Count','Days Since Count'];
+  if(isAdmin) headers.push('Submitted By','Location');
+
+  const rows = items.map(i => {
+    const varDisplay = i.variance === null ? 'First count'
+      : i.variance > 0 ? '+'+i.variance
+      : String(i.variance);
+    const row = [
+      i.skuCode, i.skuName, i.category,
+      (i.lastCounted||'').slice(0,16),
+      i.lastQty, i.unit, varDisplay, i.daysSince
+    ];
+    if(isAdmin){ row.push(i.submittedBy||''); row.push(i.location||''); }
+    return row;
+  });
+
+  const csv = [headers, ...rows]
+    .map(r => r.map(v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"').join(','))
+    .join('\n');
+
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'count-history-'+_chSegment.toUpperCase()+'-'
+    + new Date().toISOString().slice(0,10)+'.csv';
+  a.click();
+  showToast('Export ready ✓', 'success');
 }
 
 // ── PURCHASE ORDER SYSTEM ──

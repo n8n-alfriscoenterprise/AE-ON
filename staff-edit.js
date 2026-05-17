@@ -57,6 +57,7 @@ function openEditStaff(idx){
     ['edit-can-sa',          isAdmin || s.canStockAdjust === true],
     ['edit-can-count-dist',  isAdmin || s.canCountDist !== false],
     ['edit-can-count-retail',isAdmin || s.canCountRetail !== false],
+    ['edit-can-count-history', isAdmin || s.canViewCountHistory === true],
     ['edit-can-po-dist',     isAdmin || s.canManagePODist===true],
     ['edit-can-po-retail',   isAdmin || s.canManagePORetail===true],
     ['edit-can-transfer',    isAdmin || s.canTransfer === true],
@@ -99,6 +100,7 @@ function onEditRoleChange(){
   // If admin selected — auto-check all permissions and disable toggles
   const isAdmin = role === 'admin';
   ['edit-can-pl','edit-can-sa','edit-can-count-dist','edit-can-count-retail',
+   'edit-can-count-history',
    'edit-can-po-dist','edit-can-po-retail',
    'edit-can-transfer','edit-can-production',
    'edit-can-bo-dist','edit-can-bo-retail',
@@ -147,6 +149,7 @@ async function saveStaffEdit(){
   const PERM_MAP = [
     { key:'canCountDist',      id:'edit-can-count-dist'  },
     { key:'canCountRetail',    id:'edit-can-count-retail' },
+    { key:'canViewCountHistory', id:'edit-can-count-history' },
     { key:'canManagePODist',   id:'edit-can-po-dist'      },
     { key:'canManagePORetail', id:'edit-can-po-retail'    },
     { key:'canTransfer',       id:'edit-can-transfer'     },

@@ -456,6 +456,13 @@ function renderLyPreview(){
   const dr = dates.length ? (dates[0]===dates[dates.length-1] ? dates[0] : dates[0]+' – '+dates[dates.length-1]) : '—';
   const refundCount = lyRows.filter(r=>r.receiptType.toLowerCase().includes('refund')).length;
 
+  // ── Cross-check Loyverse SKUs against Retail SKU Master ───────────
+  const lySkuCodes   = [...new Set(lyRows.map(r=>r.sku))];
+  const retailKnown  = new Set(
+    (liveSKUs||[]).filter(s=>s.type==='RETAIL').map(s=>s.code.trim().toLowerCase())
+  );
+  const unknownSkus  = lySkuCodes.filter(s=>!retailKnown.has(s.trim().toLowerCase()));
+
   let html = `
     <div class="si-summary-grid">
       <div class="si-stat"><div class="si-stat-val">${receipts.length}</div><div class="si-stat-label">Receipts</div></div>
@@ -463,8 +470,24 @@ function renderLyPreview(){
       <div class="si-stat"><div class="si-stat-val si-green">₱${revenue.toLocaleString('en-PH',{minimumFractionDigits:2})}</div><div class="si-stat-label">Net Sales</div></div>
       <div class="si-stat"><div class="si-stat-val si-profit">₱${profit.toLocaleString('en-PH',{minimumFractionDigits:2})}</div><div class="si-stat-label">Gross Profit</div></div>
     </div>
-    <div class="si-date-range">📅 &nbsp;${dr}${refundCount>0?' &nbsp;·&nbsp; <span style="color:#C62828">'+refundCount+' refund line'+(refundCount!==1?'s':'')+' included</span>':''}</div>
-    <div class="si-table-wrap">
+    <div class="si-date-range">📅 &nbsp;${dr}${refundCount>0?' &nbsp;·&nbsp; <span style="color:#C62828">'+refundCount+' refund line'+(refundCount!==1?'s':'')+' included</span>':''}</div>`;
+
+  // ── SKU mismatch warning banner ────────────────────────────────────
+  if(unknownSkus.length){
+    const skuItems = unknownSkus.map(s=>{
+      const lines    = lyRows.filter(r=>r.sku===s);
+      const itemName = lines[0]?.item || '—';
+      const netQty   = lines.reduce((sum,r)=>sum+r.qty,0);
+      return `<div class="ly-sku-warn-item"><strong>${s}</strong> — ${itemName} <span class="ly-sku-warn-qty">(net qty: ${netQty})</span></div>`;
+    }).join('');
+    html+=`<div class="ly-sku-warn-wrap">
+      <div class="ly-sku-warn-title">⚠ ${unknownSkus.length} SKU${unknownSkus.length!==1?'s':''} not found in Retail SKU Master</div>
+      <div class="ly-sku-warn-sub">These Loyverse SKU codes don't match any item in your app's Retail SKU Master. Sales will still be logged, but stock won't be deducted for these items. Update the SKU Master first if needed.</div>
+      <div class="ly-sku-warn-list">${skuItems}</div>
+    </div>`;
+  }
+
+  html+=`<div class="si-table-wrap">
       <table class="si-table">
         <thead><tr><th>Receipt</th><th>Date</th><th>Time</th><th>SKU</th><th>Item</th><th>Variant</th><th>Qty</th><th>Net Sales</th><th>Profit</th><th>Cashier</th></tr></thead>
         <tbody>`;
@@ -499,7 +522,8 @@ async function confirmLyImport(){
   try{
     const r = await api({action:'importLoyverseSales', rows:lyRows, importedBy:currentUser.username});
     if(r.status==='ok'){
-      setLyStatus(`✅ Done — ${r.imported} new rows added, ${r.skipped} duplicate${r.skipped!==1?'s':''} skipped.`,'ok');
+      const stockNote = r.stockUpdated > 0 ? ` Stock updated for ${r.stockUpdated} SKU${r.stockUpdated!==1?'s':''}.` : '';
+      setLyStatus(`✅ Done — ${r.imported} new rows added, ${r.skipped} duplicate${r.skipped!==1?'s':''} skipped.${stockNote}`,'ok');
       btn.style.display='none'; lyRows=[];
       document.getElementById('ly-file-input').value='';
       document.getElementById('ly-preview-area').innerHTML='';

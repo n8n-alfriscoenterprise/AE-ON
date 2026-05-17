@@ -1057,6 +1057,7 @@ function doPost(e) {
 
       const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       let imported = 0, skipped = 0;
+      const importedRows = [];
 
       (data.rows || []).forEach(r => {
         const key = String(r.receiptNumber).trim()+'|'+String(r.sku).trim()+'|'+String(r.variant||'').trim();
@@ -1071,9 +1072,58 @@ function doPost(e) {
         ]);
         existing.add(key);
         imported++;
+        importedRows.push(r);
       });
 
-      return ok({ imported, skipped });
+      // ── Auto-deduct from Stock Counts - Retail ────────────────────
+      // Build net qty map per SKU from newly imported rows only
+      // r.qty is already signed (sales = positive, refunds = negative from parseLyCSV)
+      const deductMap = {}; // sku → { netQty, item, category }
+      importedRows.forEach(function(r) {
+        const sku = String(r.sku).trim();
+        if (!deductMap[sku]) deductMap[sku] = { netQty: 0, item: String(r.item||''), category: String(r.category||'') };
+        deductMap[sku].netQty += Number(r.qty) || 0;
+      });
+
+      // Read current stock from Stock Counts - Retail
+      // Cols: Timestamp(0) SubmittedBy(1) Location(2) SKUCode(3) ItemName(4) QtyOnHand(5) Unit(6) Type(7) Category(8)
+      const cntSheet = getOrCreateSheet(ss, 'Stock Counts - Retail', [
+        'Timestamp','Submitted By','Location','SKU Code',
+        'Item Name','Qty On Hand','Unit','Type','Category'
+      ]);
+      const cntRows = cntSheet.getDataRange().getValues().slice(1)
+        .filter(function(r) { return r[0] && r[3]; });
+
+      // Find latest stock entry per SKU (last row wins since sheet is append-only)
+      const latestStock = {};
+      cntRows.forEach(function(r) {
+        const sku = String(r[3]).trim();
+        latestStock[sku] = { qty: Number(r[5]) || 0, unit: String(r[6] || ''), category: String(r[8] || '') };
+      });
+
+      // Append new stock count entries for affected SKUs
+      let stockUpdated = 0;
+      Object.keys(deductMap).forEach(function(sku) {
+        const info = deductMap[sku];
+        if (info.netQty === 0) return;                   // No net movement — skip
+        if (!latestStock.hasOwnProperty(sku)) return;    // SKU not in stock counts — skip (no baseline)
+        const current = latestStock[sku];
+        const newQty  = current.qty - info.netQty;       // netQty positive = sales deduct stock
+        cntSheet.appendRow([
+          now,
+          'Loyverse Import (' + (data.importedBy || 'system') + ')',
+          'Retail Store',
+          sku,
+          info.item,
+          newQty,
+          current.unit,
+          'RETAIL',
+          current.category || info.category
+        ]);
+        stockUpdated++;
+      });
+
+      return ok({ imported, skipped, stockUpdated });
     }
 
     // ── GET LOYVERSE SALES ────────────────────────────────────────────
@@ -2023,6 +2073,91 @@ function doPost(e) {
         if (String(rows[i][0]) === data.trfNumber) s.deleteRow(i + 1);
       }
       return ok({});
+    }
+
+    // ── GET COUNT HISTORY ─────────────────────────────────────────────
+    if (data.action === 'getCountHistory') {
+      const seg = String(data.segment || 'dist').toLowerCase();
+      const sheetName = seg === 'retail' ? 'Stock Counts - Retail' : 'Stock Counts - Distribution';
+      const sheet = ss.getSheetByName(sheetName);
+
+      if (!sheet) return ok({ items: [], summary: { lastCountDate: 'Never', totalSKUs: 0, varianceCount: 0, staleSKUs: 0 } });
+
+      const rows = sheet.getDataRange().getValues().slice(1).filter(function(r){ return r[0] && r[3]; });
+
+      // Build per-SKU record list
+      var skuMap = {};
+      rows.forEach(function(r) {
+        var ts   = r[0] instanceof Date
+          ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+          : String(r[0]);
+        var code = String(r[3]);
+        if (!skuMap[code]) skuMap[code] = { name: String(r[4]||code), unit: String(r[6]||'bag'), category: String(r[8]||''), records: [] };
+        skuMap[code].records.push({ date: ts, qty: Number(r[5])||0, submittedBy: String(r[1]||''), location: String(r[2]||'') });
+      });
+
+      var now = new Date();
+      var lastCountDate = '';
+      var varianceCount = 0;
+
+      var items = Object.keys(skuMap).map(function(code) {
+        var info = skuMap[code];
+        info.records.sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
+        var latest   = info.records[0];
+        var prev     = info.records[1];
+        var variance = prev != null ? latest.qty - prev.qty : null;
+        if (!lastCountDate || latest.date > lastCountDate) lastCountDate = latest.date;
+        if (variance !== null && variance !== 0) varianceCount++;
+        var daysSince = Math.floor((now - new Date(latest.date)) / 86400000);
+        return {
+          skuCode:     code,
+          skuName:     info.name,
+          category:    info.category,
+          unit:        info.unit,
+          lastCounted: latest.date,
+          lastQty:     latest.qty,
+          prevQty:     prev ? prev.qty : null,
+          variance:    variance,
+          submittedBy: latest.submittedBy,
+          location:    latest.location,
+          daysSince:   daysSince
+        };
+      });
+
+      items.sort(function(a,b){ return new Date(b.lastCounted)-new Date(a.lastCounted); });
+
+      var summary = {
+        lastCountDate: lastCountDate ? lastCountDate.slice(0,16) : 'Never',
+        totalSKUs:     items.length,
+        varianceCount: varianceCount,
+        staleSKUs:     items.filter(function(i){ return i.daysSince > 30; }).length
+      };
+
+      return ok({ items: items, summary: summary });
+    }
+
+    // ── GET COUNT ITEM HISTORY ─────────────────────────────────────────
+    if (data.action === 'getCountItemHistory') {
+      var seg2 = String(data.segment || 'dist').toLowerCase();
+      var sName2 = seg2 === 'retail' ? 'Stock Counts - Retail' : 'Stock Counts - Distribution';
+      var sheet2 = ss.getSheetByName(sName2);
+      if (!sheet2) return ok({ records: [] });
+
+      var records = sheet2.getDataRange().getValues().slice(1)
+        .filter(function(r){ return r[0] && String(r[3]) === String(data.skuCode); })
+        .map(function(r){
+          return {
+            date:        r[0] instanceof Date
+              ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+              : String(r[0]),
+            qty:         Number(r[5])||0,
+            submittedBy: String(r[1]||''),
+            location:    String(r[2]||'')
+          };
+        });
+
+      records.sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
+      return ok({ records: records.slice(0,10) });
     }
 
     // ── EDIT TRANSFER ──────────────────────────────────────────────────

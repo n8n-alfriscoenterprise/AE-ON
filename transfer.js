@@ -472,6 +472,8 @@ async function submitAcknowledgment(){
       await loadTransfers();
       showBanner('trf-success-bar',
         `${receipts.length} item(s) acknowledged — inventory updated for ${r.toLocation||'destination'}`);
+      // Refresh product list data in background so low-stock badge stays current
+      if(typeof loadPLData === 'function') loadPLData();
       // Now safe to call showTrfSubtab — currentTrf is null so no form to protect
       showTrfSubtab('pending', document.getElementById('trf-tab-pending'));
     } else {

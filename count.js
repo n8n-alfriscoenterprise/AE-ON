@@ -165,6 +165,8 @@ async function submitCount(){
       LS.set(countSessionKey(loc),{});
       const bar=document.getElementById('count-success-bar');bar.textContent=counted+' counts submitted for '+loc+' by '+currentUser.username+' — session cleared';bar.style.display='block';setTimeout(()=>{bar.style.display='none';},6000);
       buildCountList();updateCountProgress();
+      // Refresh product list data in background so low-stock badge stays current
+      if(typeof loadPLData === 'function') loadPLData();
     }else{alert('Error: '+(r.msg||'Could not submit'));}
   }catch(e){alert('Network error: '+e.message);}
   btn.disabled=false;updateCountProgress();
@@ -311,6 +313,8 @@ function _chRenderList(){
 
       const staleBadge = item.daysSince > 30
         ? '<span class="ch-stale-badge">⏰ '+item.daysSince+'d ago</span>' : '';
+      const shrinkBadge = item.isShrinkage
+        ? '<span class="ch-shrinkage-badge">⚠ Shrinkage</span>' : '';
 
       const dateDisplay = item.lastCounted ? item.lastCounted.slice(0,10) : '—';
       const metaParts   = [dateDisplay];
@@ -319,7 +323,7 @@ function _chRenderList(){
 
       row.innerHTML =
         '<div class="ch-item-main">'
-          + '<div class="ch-item-name">'+item.skuName+staleBadge+'</div>'
+          + '<div class="ch-item-name">'+item.skuName+staleBadge+shrinkBadge+'</div>'
           + '<div class="ch-item-meta">'+metaParts.join(' · ')+'</div>'
         + '</div>'
         + '<div class="ch-item-right">'

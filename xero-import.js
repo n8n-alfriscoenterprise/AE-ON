@@ -118,6 +118,13 @@ function renderXiPreview(){
   const dates    = xiRows.map(r=>r.invoiceDate).filter(Boolean).sort();
   const dr = dates.length ? (dates[0]===dates[dates.length-1] ? dates[0] : dates[0]+' – '+dates[dates.length-1]) : '—';
 
+  // ── Cross-check Xero SKUs against Dist SKU Master ─────────────
+  const xiSkuCodes  = [...new Set(xiRows.map(r=>r.skuCode))];
+  const distKnown   = new Set(
+    (liveSKUs||[]).filter(s=>s.type==='DIST').map(s=>s.code.trim().toLowerCase())
+  );
+  const unknownXiSkus = xiSkuCodes.filter(s=>!distKnown.has(s.trim().toLowerCase()));
+
   // ── Cross-check contacts against dealer directory ──────────────
   const unrecognized = _findUnrecognizedContacts(dealers);
 
@@ -129,6 +136,21 @@ function renderXiPreview(){
       <div class="si-stat"><div class="si-stat-val si-green">₱${revenue.toLocaleString('en-PH',{minimumFractionDigits:2})}</div><div class="si-stat-label">Revenue</div></div>
     </div>
     <div class="si-date-range">📅 &nbsp;${dr}</div>`;
+
+  // ── Xero SKU mismatch warning banner ──────────────────────────
+  if(unknownXiSkus.length){
+    const skuItems = unknownXiSkus.map(s=>{
+      const lines    = xiRows.filter(r=>r.skuCode===s);
+      const itemName = lines[0]?.description || '—';
+      const totalQty = lines.reduce((sum,r)=>sum+r.quantity,0);
+      return `<div class="ly-sku-warn-item"><strong>${s}</strong> — ${itemName} <span class="ly-sku-warn-qty">(total qty: ${totalQty})</span></div>`;
+    }).join('');
+    html+=`<div class="ly-sku-warn-wrap">
+      <div class="ly-sku-warn-title">⚠ ${unknownXiSkus.length} SKU${unknownXiSkus.length!==1?'s':''} not found in Distribution SKU Master</div>
+      <div class="ly-sku-warn-sub">These Xero SKU codes don't match any item in your Distribution SKU Master. Sales will still be logged, but stock won't be deducted for these items. Update the SKU Master first if needed.</div>
+      <div class="ly-sku-warn-list">${skuItems}</div>
+    </div>`;
+  }
 
   // ── Unrecognized contacts banner ───────────────────────────────
   if(unrecognized.length){
@@ -308,10 +330,13 @@ async function confirmXiImport(){
   try{
     const r = await api({action:'importXeroSales', rows:xiRows, importedBy:currentUser.username});
     if(r.status==='ok'){
-      setXiStatus(`✅ Done — ${r.imported} new rows added, ${r.skipped} duplicate${r.skipped!==1?'s':''} skipped.`,'ok');
+      const stockNote = r.stockUpdated > 0 ? ` Stock updated for ${r.stockUpdated} SKU${r.stockUpdated!==1?'s':''}.` : '';
+      setXiStatus(`✅ Done — ${r.imported} new rows added, ${r.skipped} duplicate${r.skipped!==1?'s':''} skipped.${stockNote}`,'ok');
       btn.style.display='none'; xiRows=[];
       document.getElementById('xi-file-input').value='';
       document.getElementById('xi-preview-area').innerHTML='';
+      // Refresh product list data in background so low-stock badge updates
+      if(typeof loadPLData === 'function') loadPLData();
     } else {
       setXiStatus('Import failed: '+(r.msg||'Unknown error'),'error');
       btn.disabled=false; btn.textContent='Confirm & Import';
@@ -527,6 +552,8 @@ async function confirmLyImport(){
       btn.style.display='none'; lyRows=[];
       document.getElementById('ly-file-input').value='';
       document.getElementById('ly-preview-area').innerHTML='';
+      // Refresh product list data in background so low-stock badge updates
+      if(typeof loadPLData === 'function') loadPLData();
     } else {
       setLyStatus('Import failed: '+(r.msg||'Unknown error'),'error');
       btn.disabled=false; btn.textContent='Confirm & Import';

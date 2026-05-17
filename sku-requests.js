@@ -343,11 +343,15 @@ async function confirmApproveSKU(){
       resolvedBy: currentUser.username
     });
     if(r.status === 'ok'){
-      // Update liveSKUs cache immediately
+      // Update liveSKUs cache immediately so supplier dropdowns,
+      // mismatch checks, and transfer SKU lookups see the new item
       liveSKUs.push({
         code, name, category: cat, supplier,
-        type: _skuApproveTarget.segment,
-        cost: cost, order: 9999
+        type:       _skuApproveTarget.segment,
+        cost:       cost,
+        unit:       unit || '',
+        parLevel:   0,
+        order:      9999
       });
       rebuildSKUData();
       buildBoDropdown();

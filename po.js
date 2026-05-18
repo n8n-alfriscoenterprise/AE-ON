@@ -551,6 +551,14 @@ function renderPODetail(){
     body.appendChild(epmDiv);
   }
 
+  // ── EDIT LINE ITEMS (admin only — any active PO) ──
+  if(isAdmin && !['RECEIVED','CANCELLED'].includes(po.status)){
+    const eliDiv = document.createElement('div');
+    eliDiv.className = 'po-action-row';
+    eliDiv.innerHTML = '<button class="po-btn po-btn-primary" onclick="openEditLineItemsModal()" style="background:#4A235A">✏️ Edit Line Items</button>';
+    body.appendChild(eliDiv);
+  }
+
   // ── EDIT DRAFT / REJECTED (creator or admin) ──
   if(['DRAFT','REJECTED'].includes(po.status) && (isAdmin || isCreator)){
     const editDiv = document.createElement('div');
@@ -1240,6 +1248,218 @@ async function savePaymentDetails(){
     errEl.textContent = 'Save failed: ' + e.message;
   }
   btn.disabled = false; btn.textContent = 'Save Changes';
+}
+
+// ── EDIT LINE ITEMS (admin only) ─────────────────────────────────────────────
+let _eliItems = [];
+
+function openEditLineItemsModal(){
+  if(!currentPO || currentUser.role !== 'admin') return;
+  _eliItems = (currentPO.lineItems||[]).map(li=>({
+    skuCode:      String(li.skuCode||''),
+    itemName:     String(li.itemName||li.skuCode||''),
+    qtyOrdered:   Number(li.qtyOrdered)||0,
+    unit:         String(li.unit||'bag'),
+    unitCost:     Number(li.unitCost)||0,
+    discount:     Number(li.discount)||0,
+    discountType: String(li.discountType||'%'),
+    qtyReceived:  Number(li.qtyReceived)||0,
+    removed:      false
+  }));
+  document.getElementById('eli-po-label').textContent =
+    currentPO.poNumber + ' — ' + currentPO.supplier + ' (' + currentPO.status + ')';
+  document.getElementById('eli-err').textContent = '';
+  _eliRender();
+  document.getElementById('edit-lineitems-modal').style.display = 'flex';
+}
+
+function closeEditLineItemsModal(){
+  document.getElementById('edit-lineitems-modal').style.display = 'none';
+}
+
+function _eliCalcNet(item){
+  const gross = item.qtyOrdered * (item.unitCost||0);
+  if(!item.discount) return gross;
+  return item.discountType === '₱'
+    ? Math.max(0, gross - item.discount * item.qtyOrdered)
+    : Math.max(0, gross * (1 - item.discount/100));
+}
+
+function _eliRender(){
+  const body = document.getElementById('eli-body');
+  body.innerHTML = '';
+  _eliItems.forEach((item, idx)=>{
+    if(item.removed) return;
+    const net = _eliCalcNet(item);
+    const rcvNote = item.qtyReceived > 0
+      ? '<span style="font-size:10px;color:#2196F3;margin-left:5px">('+item.qtyReceived+' received)</span>' : '';
+    const delDisabled = item.qtyReceived > 0
+      ? 'disabled title="Cannot remove — items already received" style="opacity:0.3"' : '';
+    const pctActive = item.discountType==='%' ? ' po-disc-type-active' : '';
+    const phpActive = item.discountType==='₱' ? ' po-disc-type-active' : '';
+    const row = document.createElement('div');
+    row.className = 'eli-row';
+    row.id = 'eli-row-'+idx;
+    row.innerHTML =
+      '<div class="eli-row-name">'+item.itemName
+        +'<span style="font-size:10px;color:#aaa;margin-left:5px">'+item.skuCode+'</span>'
+        +rcvNote
+      +'</div>'
+      +'<div class="eli-row-inputs">'
+        +'<div class="eli-field"><span class="eli-lbl">Qty</span>'
+          +'<input class="eli-input" type="number" min="'+item.qtyReceived+'" value="'+item.qtyOrdered+'" oninput="_eliUpdate('+idx+',\'qty\',this.value)"></div>'
+        +'<div class="eli-field"><span class="eli-lbl">Unit Cost ₱</span>'
+          +'<input class="eli-input" type="number" min="0" step="0.01" value="'+item.unitCost+'" oninput="_eliUpdate('+idx+',\'cost\',this.value)"></div>'
+        +'<div class="eli-field"><span class="eli-lbl">Discount</span>'
+          +'<div style="display:flex;gap:0">'
+            +'<button type="button" class="po-disc-type-btn'+pctActive+'" onclick="_eliDiscType('+idx+',\'%\')">%</button>'
+            +'<button type="button" class="po-disc-type-btn'+phpActive+'" onclick="_eliDiscType('+idx+',\'₱\')">₱</button>'
+          +'</div>'
+          +'<input class="eli-input" type="number" min="0" style="width:50px" value="'+(item.discount||'')+'" placeholder="0" oninput="_eliUpdate('+idx+',\'disc\',this.value)"></div>'
+        +'<div class="eli-field"><span class="eli-lbl">Net</span>'
+          +'<div class="eli-net" id="eli-net-'+idx+'">₱'+net.toLocaleString('en-PH',{minimumFractionDigits:2})+'</div></div>'
+      +'</div>'
+      +'<button class="po-line-del" onclick="_eliRemove('+idx+')" '+delDisabled+'>×</button>';
+    body.appendChild(row);
+  });
+  _eliUpdateTotal();
+}
+
+function _eliUpdate(idx, field, val){
+  if(field==='qty')  _eliItems[idx].qtyOrdered = Math.max(_eliItems[idx].qtyReceived||0, parseFloat(val)||0);
+  if(field==='cost') _eliItems[idx].unitCost   = parseFloat(val)||0;
+  if(field==='disc') _eliItems[idx].discount   = parseFloat(val)||0;
+  const netEl = document.getElementById('eli-net-'+idx);
+  if(netEl) netEl.textContent = '₱'+_eliCalcNet(_eliItems[idx]).toLocaleString('en-PH',{minimumFractionDigits:2});
+  _eliUpdateTotal();
+}
+
+function _eliDiscType(idx, type){
+  _eliItems[idx].discountType = type;
+  _eliRender();
+}
+
+function _eliRemove(idx){
+  if(_eliItems[idx].qtyReceived > 0){ alert('Cannot remove this line — '+_eliItems[idx].qtyReceived+' unit(s) have already been received.'); return; }
+  if(!confirm('Remove "'+_eliItems[idx].itemName+'" from this PO?')) return;
+  _eliItems[idx].removed = true;
+  const row = document.getElementById('eli-row-'+idx);
+  if(row) row.remove();
+  _eliUpdateTotal();
+}
+
+function _eliUpdateTotal(){
+  const total = _eliItems.filter(i=>!i.removed).reduce((s,i)=>s+_eliCalcNet(i),0);
+  const el = document.getElementById('eli-grand-total');
+  if(el) el.textContent = '₱'+total.toLocaleString('en-PH',{minimumFractionDigits:2});
+}
+
+function _eliAddLine(){
+  const type     = currentPO.type;
+  const supplier = currentPO.supplier;
+  const filtered  = liveSKUs.filter(s=>s.type===type && s.supplier===supplier);
+  const unassigned= liveSKUs.filter(s=>s.type===type && (!s.supplier||!s.supplier.trim()));
+  const cats = [...new Set(filtered.map(s=>s.category))];
+  let skuOpts = '<option value="">-- Select item --</option>';
+  skuOpts += cats.map(cat=>{
+    const items = filtered.filter(s=>s.category===cat)
+      .map(s=>`<option value="${s.code}|${s.name}|${s.cost||0}|${s.unit||'bag'}">${s.name}${s.cost?' · ₱'+Number(s.cost).toLocaleString('en-PH'):''}</option>`)
+      .join('');
+    return items ? `<optgroup label="📦 ${cat}">${items}</optgroup>` : '';
+  }).join('');
+  if(unassigned.length){
+    skuOpts += '<optgroup label="⚠️ No Supplier">'+unassigned.map(s=>
+      `<option value="${s.code}|${s.name}|${s.cost||0}|${s.unit||'bag'}">${s.name}</option>`).join('')+'</optgroup>';
+  }
+
+  const newIdx = _eliItems.length;
+  _eliItems.push({skuCode:'',itemName:'',qtyOrdered:1,unit:'bag',unitCost:0,discount:0,discountType:'%',qtyReceived:0,removed:false,isNew:true});
+
+  const body = document.getElementById('eli-body');
+  const row  = document.createElement('div');
+  row.className = 'eli-row eli-new-row';
+  row.id = 'eli-row-'+newIdx;
+  row.innerHTML =
+    '<div class="eli-row-name" style="margin-bottom:6px">'
+      +'<select style="width:100%;padding:6px 8px;border:1.5px solid #e0e0e0;border-radius:7px;font-size:11px;outline:none;color:#222;background:white" onchange="_eliNewSelect('+newIdx+',this)">'+skuOpts+'</select>'
+    +'</div>'
+    +'<div class="eli-row-inputs">'
+      +'<div class="eli-field"><span class="eli-lbl">Qty</span>'
+        +'<input class="eli-input" type="number" min="1" value="1" oninput="_eliUpdate('+newIdx+',\'qty\',this.value)"></div>'
+      +'<div class="eli-field"><span class="eli-lbl">Unit Cost ₱</span>'
+        +'<input class="eli-input" type="number" min="0" step="0.01" id="eli-new-cost-'+newIdx+'" placeholder="0.00" oninput="_eliUpdate('+newIdx+',\'cost\',this.value)"></div>'
+      +'<div class="eli-field"><span class="eli-lbl">Net</span>'
+        +'<div class="eli-net" id="eli-net-'+newIdx+'">—</div></div>'
+    +'</div>'
+    +'<button class="po-line-del" onclick="_eliRemove('+newIdx+')">×</button>';
+  body.appendChild(row);
+}
+
+function _eliNewSelect(idx, sel){
+  if(!sel.value) return;
+  const parts = sel.value.split('|');
+  _eliItems[idx].skuCode  = parts[0];
+  _eliItems[idx].itemName = parts[1]||parts[0];
+  _eliItems[idx].unitCost = parseFloat(parts[2])||0;
+  _eliItems[idx].unit     = parts[3]||'bag';
+  const costInput = document.getElementById('eli-new-cost-'+idx);
+  if(costInput) costInput.value = _eliItems[idx].unitCost||'';
+  const netEl = document.getElementById('eli-net-'+idx);
+  if(netEl) netEl.textContent = '₱'+_eliCalcNet(_eliItems[idx]).toLocaleString('en-PH',{minimumFractionDigits:2});
+  _eliUpdateTotal();
+}
+
+async function saveEditedLineItems(){
+  if(!currentPO || currentUser.role !== 'admin') return;
+  const active = _eliItems.filter(i=>!i.removed && i.skuCode);
+  if(!active.length){
+    document.getElementById('eli-err').textContent = 'At least one line item is required.';
+    return;
+  }
+  const incomplete = _eliItems.filter(i=>!i.removed && !i.skuCode);
+  if(incomplete.length){
+    document.getElementById('eli-err').textContent = 'Please select an item for all new lines, or remove them.';
+    return;
+  }
+  const newTotal = active.reduce((s,i)=>s+_eliCalcNet(i),0);
+  if(!confirm(
+    'Update line items for '+currentPO.poNumber+'?\n\n'
+    +active.length+' item(s) — New total: ₱'+newTotal.toLocaleString('en-PH',{minimumFractionDigits:2})+'\n\n'
+    +'This will replace all current line items. Any already-received quantities will be preserved.'
+  )) return;
+
+  const btn = document.getElementById('eli-save-btn');
+  btn.disabled=true; btn.textContent='Saving...';
+  document.getElementById('eli-err').textContent='';
+
+  try{
+    const r = await api({
+      action:    'editPOLineItems',
+      poNumber:  currentPO.poNumber,
+      editedBy:  currentUser.username,
+      lineItems: active.map(i=>({
+        skuCode:      i.skuCode,
+        itemName:     i.itemName,
+        unit:         i.unit||'bag',
+        qtyOrdered:   i.qtyOrdered,
+        unitCost:     i.unitCost,
+        discount:     i.discount||0,
+        discountType: i.discountType||'%',
+        qtyReceived:  i.qtyReceived||0
+      }))
+    });
+    if(r.status==='ok'){
+      closeEditLineItemsModal();
+      showToast('Line items updated for '+currentPO.poNumber+' ✓','success',4000);
+      await openPODetail(currentPO.poNumber);
+      await loadPOs();
+    } else {
+      document.getElementById('eli-err').textContent = 'Error: '+(r.msg||'Could not save');
+    }
+  }catch(e){
+    document.getElementById('eli-err').textContent = 'Network error: '+e.message;
+  }
+  btn.disabled=false; btn.textContent='Save Changes';
 }
 
 // ── PRODUCTION CONVERSION SYSTEM ──

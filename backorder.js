@@ -534,6 +534,12 @@ function renderBoList() {
 
     const promiseLine = item.promisedDate ? ' · Due: ' + item.promisedDate : '';
     const notesLine   = item.notes        ? ' · ' + item.notes             : '';
+    const partialLine = item.status === 'PARTIAL' && item.qtyServed > 0
+      ? '<div class="bo-list-partial">✓ Served: ' + item.qtyServed + ' ' + item.unit
+          + (item.servedDate ? ' on ' + item.servedDate : '')
+          + ' &nbsp;·&nbsp; Remaining: ' + Math.max(0, item.qty - item.qtyServed) + ' ' + item.unit
+        + '</div>'
+      : '';
 
     row.innerHTML = `
       <div class="bo-list-main">
@@ -542,6 +548,7 @@ function renderBoList() {
         </div>
         <div class="bo-list-item">${item.itemName}</div>
         <div class="bo-list-meta">${item.qty} ${item.unit}${promiseLine}${notesLine}</div>
+        ${partialLine}
         <div class="bo-list-by">Logged by ${item.submittedBy}</div>
       </div>
       <div class="bo-list-right">
@@ -654,6 +661,11 @@ function openBoStatusModal(item) {
 
   const opts = document.getElementById('bo-status-options');
   opts.innerHTML = '';
+  // Reset partial form
+  const pf = document.getElementById('bo-partial-form');
+  if(pf){ pf.style.display='none'; pf.innerHTML=''; }
+  opts.style.display = '';
+
   ['OPEN','PARTIAL','FULFILLED','CANCELLED'].forEach(s => {
     if (s === item.status) return;
     const m   = meta[s];
@@ -661,7 +673,8 @@ function openBoStatusModal(item) {
     btn.className = 'bo-status-option-btn';
     btn.style.cssText = `color:${m.color};border-color:${m.color}`;
     btn.textContent   = m.icon + ' ' + s;
-    btn.onclick = () => confirmBoStatus(s, btn);
+    // PARTIAL gets its own form instead of direct confirm
+    btn.onclick = s === 'PARTIAL' ? () => _showBoPartialForm() : () => confirmBoStatus(s, btn);
     opts.appendChild(btn);
   });
 
@@ -671,6 +684,110 @@ function openBoStatusModal(item) {
 function closeBoStatusModal() {
   document.getElementById('bo-status-modal').style.display = 'none';
   _boStatusTarget = null;
+}
+
+function _showBoPartialForm(){
+  const item    = _boStatusTarget;
+  const already = Number(item.qtyServed) || 0;
+  const todayVal = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'});
+
+  // Hide status buttons, show form
+  document.getElementById('bo-status-options').style.display = 'none';
+  const pf = document.getElementById('bo-partial-form');
+  pf.style.display = 'block';
+  pf.innerHTML =
+    '<div class="bo-partial-inner">'
+      +'<div class="bo-partial-hdr">⏳ Partial Fulfillment</div>'
+      +'<div class="bo-partial-ordered">Ordered: <strong>'+item.qty+' '+item.unit+'</strong>'
+        +(already > 0 ? ' &nbsp;·&nbsp; Previously served: <strong>'+already+' '+item.unit+'</strong>' : '')
+      +'</div>'
+      +'<div class="bo-partial-row">'
+        +'<span class="bo-partial-lbl">Qty Served</span>'
+        +'<input type="number" id="bo-pf-qty" class="bo-partial-input" min="1" max="'+item.qty+'"'
+          +' value="'+(already||'')+'" placeholder="0" oninput="_boPartialCalcRemaining()">'
+        +'<span class="bo-partial-unit">'+item.unit+'</span>'
+      +'</div>'
+      +'<div class="bo-partial-row">'
+        +'<span class="bo-partial-lbl">Date Served</span>'
+        +'<input type="date" id="bo-pf-date" class="bo-partial-input" value="'+todayVal+'">'
+      +'</div>'
+      +'<div id="bo-pf-remaining" class="bo-partial-remaining"></div>'
+      +'<div class="bo-partial-actions">'
+        +'<button class="bo-status-option-btn" id="bo-pf-confirm-btn"'
+          +' style="color:#1A6EBD;border-color:#1A6EBD;flex:2;font-size:13px" onclick="_confirmBoPartial()">⏳ Confirm PARTIAL</button>'
+        +'<button class="bo-status-option-btn" style="color:#888;border-color:#ddd;flex:1;font-size:13px" onclick="_boPartialBack()">← Back</button>'
+      +'</div>'
+    +'</div>';
+  _boPartialCalcRemaining();
+}
+
+function _boPartialCalcRemaining(){
+  const item    = _boStatusTarget;
+  const served  = parseFloat(document.getElementById('bo-pf-qty')?.value)||0;
+  const remaining = Math.max(0, item.qty - served);
+  const el = document.getElementById('bo-pf-remaining');
+  if(!el) return;
+  if(served > 0){
+    el.textContent = 'Remaining to serve: ' + remaining + ' ' + item.unit;
+    el.style.background = remaining === 0 ? '#E8F5E9' : '#FFF8E1';
+    el.style.color      = remaining === 0 ? '#0A5C46' : '#7B5800';
+  } else {
+    el.textContent  = '';
+    el.style.background = 'transparent';
+  }
+}
+
+function _boPartialBack(){
+  document.getElementById('bo-status-options').style.display = '';
+  const pf = document.getElementById('bo-partial-form');
+  pf.style.display = 'none';
+  pf.innerHTML     = '';
+}
+
+async function _confirmBoPartial(){
+  const item      = _boStatusTarget;
+  const qtyServed = parseFloat(document.getElementById('bo-pf-qty')?.value)||0;
+  const dateVal   = document.getElementById('bo-pf-date')?.value||'';
+
+  if(!qtyServed || qtyServed <= 0){
+    alert('Please enter the quantity served.'); return;
+  }
+  if(qtyServed > item.qty){
+    alert('Qty served ('+qtyServed+') cannot exceed ordered quantity ('+item.qty+' '+item.unit+').'); return;
+  }
+
+  const btn = document.getElementById('bo-pf-confirm-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+
+  try{
+    const r = await api({
+      action:     'updateBackorderStatus',
+      boType:     item.type,
+      rowIndex:   item.rowIndex,
+      status:     'PARTIAL',
+      qtyServed:  qtyServed,
+      servedDate: dateVal ? phDate(dateVal) : ''
+    });
+    if(r.status === 'ok'){
+      item.status     = 'PARTIAL';
+      item.qtyServed  = qtyServed;
+      item.servedDate = dateVal ? phDate(dateVal) : '';
+      closeBoStatusModal();
+      buildBoStatusChips();
+      renderBoList();
+      const remaining = Math.max(0, item.qty - qtyServed);
+      showToast(
+        'PARTIAL — '+qtyServed+' '+item.unit+' served'+(remaining > 0 ? ', '+remaining+' remaining' : ' (fully served)'),
+        'success', 4000
+      );
+    } else {
+      btn.disabled = false; btn.textContent = '⏳ Confirm PARTIAL';
+      alert('Error: '+(r.msg||'Could not save'));
+    }
+  }catch(e){
+    btn.disabled = false; btn.textContent = '⏳ Confirm PARTIAL';
+    alert('Network error: '+e.message);
+  }
 }
 
 async function confirmBoStatus(newStatus, btn) {

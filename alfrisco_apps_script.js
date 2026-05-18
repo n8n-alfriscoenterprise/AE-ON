@@ -2004,6 +2004,80 @@ function doPost(e) {
       return ok({ poNumber: data.poNumber });
     }
 
+    // ── EDIT PO LINE ITEMS (admin only) ──────────────────────────────
+    if (data.action === 'editPOLineItems') {
+      const poSheet = ss.getSheetByName('Purchase Orders');
+      const liSheet = ss.getSheetByName('PO Line Items');
+      if (!poSheet || !liSheet) return err('Sheets not found');
+
+      const poNumber = String(data.poNumber || '').trim();
+      if (!poNumber) return err('PO number required');
+
+      // Locate PO row and guard against editing closed POs
+      const poRows   = poSheet.getDataRange().getValues();
+      var   poRowIdx = -1;
+      for (var pi = 1; pi < poRows.length; pi++) {
+        if (String(poRows[pi][0]).trim() === poNumber) {
+          const status = String(poRows[pi][3]);
+          if (['RECEIVED','CANCELLED'].includes(status))
+            return err('Cannot edit line items of a ' + status + ' PO');
+          poRowIdx = pi;
+          break;
+        }
+      }
+      if (poRowIdx < 0) return err('PO not found: ' + poNumber);
+
+      // Delete existing line items for this PO (bottom-up to preserve row indices)
+      const liRows    = liSheet.getDataRange().getValues();
+      const toDelete  = [];
+      for (var li = 1; li < liRows.length; li++) {
+        if (String(liRows[li][0]).trim() === poNumber) toDelete.push(li + 1);
+      }
+      for (var td = toDelete.length - 1; td >= 0; td--) liSheet.deleteRow(toDelete[td]);
+
+      // Re-append updated line items, preserving received quantities
+      var newTotal = 0;
+      (data.lineItems || []).forEach(function(item) {
+        var qty      = Number(item.qtyOrdered)  || 0;
+        var cost     = Number(item.unitCost)     || 0;
+        var disc     = Number(item.discount)     || 0;
+        var discType = String(item.discountType  || '%');
+        var qtyRcv   = Number(item.qtyReceived)  || 0;
+        var gross    = qty * cost;
+        var net      = discType === '₱'
+          ? Math.max(0, gross - disc * qty)
+          : Math.max(0, gross * (1 - disc / 100));
+        var outstanding = Math.max(0, qty - qtyRcv);
+        newTotal += net;
+        liSheet.appendRow([
+          poNumber,
+          String(item.skuCode   || ''),
+          String(item.itemName  || item.skuCode || ''),
+          '',                          // Category (kept blank, sourced from SKU Master)
+          qty,
+          String(item.unit      || 'bag'),
+          cost,
+          net,
+          qtyRcv,
+          outstanding,
+          outstanding <= 0 ? 'Received' : 'Open',
+          disc,
+          discType
+        ]);
+      });
+
+      // Update PO header: total value (col 10) and audit note appended to notes (col 11)
+      poSheet.getRange(poRowIdx + 1, 10).setValue(newTotal);
+      var existingNotes = String(poRows[poRowIdx][10] || '');
+      var auditStamp    = '[Line items edited by ' + String(data.editedBy || 'admin')
+        + ' on ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ']';
+      poSheet.getRange(poRowIdx + 1, 11).setValue(
+        existingNotes ? existingNotes + ' ' + auditStamp : auditStamp
+      );
+
+      return ok({ updated: (data.lineItems || []).length, newTotal: newTotal });
+    }
+
     // ── GET BACKORDERS ────────────────────────────────────────────────
     if (data.action === 'getBackorders') {
       function mapBoRow(r, i, type) {
@@ -2020,7 +2094,9 @@ function doPost(e) {
           unit:        String(r[7]),
           promisedDate:String(r[8]),
           status:      String(r[9])  || 'OPEN',
-          notes:       String(r[10]) || ''
+          notes:       String(r[10]) || '',
+          qtyServed:   Number(r[11]) || 0,
+          servedDate:  String(r[12]  || '')
         };
       }
       const boDist   = ss.getSheetByName('Backorders');
@@ -2043,6 +2119,11 @@ function doPost(e) {
       if (sheetRow < 2) return err('Invalid row index');
       const STATUS_COL = 10; // Column J
       boSheet.getRange(sheetRow, STATUS_COL).setValue(data.status);
+      // PARTIAL: also write qty served (col 12) and served date (col 13)
+      if (data.status === 'PARTIAL') {
+        if (data.qtyServed  != null) boSheet.getRange(sheetRow, 12).setValue(Number(data.qtyServed) || 0);
+        if (data.servedDate != null) boSheet.getRange(sheetRow, 13).setValue(String(data.servedDate || ''));
+      }
       return ok({});
     }
 

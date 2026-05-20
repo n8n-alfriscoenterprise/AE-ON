@@ -3398,19 +3398,30 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
       </div>
       <div class="prs-step">
         <div class="prs-num">2</div>
-        <div class="prs-step-body"><strong>Open Android Bluetooth settings</strong><br><span>Go to Settings → Connected Devices → Bluetooth. Find your printer in the list (common names: BT Printer, MTP-II, Goojprt, RPP02, HPRT) and tap Pair.</span></div>
+        <div class="prs-step-body"><strong>Pair via Android Bluetooth settings</strong><br><span>Go to Settings → Connected Devices → Bluetooth. Find your printer (common names: BT Printer, MTP-II, Goojprt, RPP02, HPRT) and tap Pair. If already paired, skip this step.</span></div>
       </div>
-      <div class="prs-step">
-        <div class="prs-num">3</div>
-        <div class="prs-step-body"><strong>Return here and tap Print</strong><br><span>Chrome will open a print dialog — select your paired printer from the list.</span></div>
+      <div class="prs-step" style="border-left:3px solid #E53935">
+        <div class="prs-num" style="background:#E53935">3</div>
+        <div class="prs-step-body"><strong>Install a Bluetooth print service</strong><br><span>Pairing alone is not enough — Chrome needs a print service to see your printer.<br><br>
+          <strong>Option A (recommended):</strong> Install <strong>Mopria Print Service</strong> from the Play Store — free, works with most printers.<br><br>
+          <strong>Option B:</strong> Install <strong>PrintHand Mobile Print</strong> from the Play Store — better support for 58mm thermal printers via Bluetooth.<br><br>
+          After installing, open the app once to activate it, then return here.</span>
+        </div>
       </div>
       <div class="prs-step">
         <div class="prs-num">4</div>
-        <div class="prs-step-body"><strong>Set paper size in the print dialog</strong><br><span>Tap More settings → Paper size → choose 58mm or Custom, then enter 58 mm width. Do this once — Chrome remembers it.</span></div>
+        <div class="prs-step-body"><strong>Select your printer</strong><br><span>Tap Print Test Receipt below. Chrome will open a print dialog — tap the printer name at the top to change it. Your Bluetooth printer should now appear in the list.</span></div>
+      </div>
+      <div class="prs-step">
+        <div class="prs-num">5</div>
+        <div class="prs-step-body"><strong>Set paper size once</strong><br><span>In the print dialog tap More settings → Paper size → choose 58mm or Custom (58mm width). Chrome remembers this setting going forward.</span></div>
       </div>
 
-      <div style="background:#FFF8E1;border-radius:8px;padding:9px 12px;margin-bottom:16px;font-size:11px;color:#5D4037">
-        💡 Pairing only needs to be done once per device. After that, just turn on the printer and tap Print.
+      <div style="background:#FFF8E1;border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:11px;color:#5D4037">
+        💡 <strong>Printer not showing up?</strong> After installing the print service, go to Android Settings → Connected Devices → Connection preferences → Printing, and make sure the service is enabled.
+      </div>
+      <div style="background:#E8F5E9;border-radius:8px;padding:9px 12px;margin-bottom:16px;font-size:11px;color:#1B5E20">
+        ✅ Once set up, just power on the printer and tap Print — no repeat pairing needed.
       </div>
 
       <button onclick="testPrint()" style="width:100%;padding:13px;background:#1565C0;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.3px">🖨️ Print Test Receipt</button>

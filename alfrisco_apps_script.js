@@ -1824,18 +1824,21 @@ function doPost(e) {
       return ok({ vanStock: vanStock });
     }
 
-    // ── DAY TALLY (driver end-of-day summary) ────────────────────────
+    // ── DAY TALLY (driver end-of-day summary / admin full view) ─────────
     if (data.action === 'getDayTally') {
-      const username = String(data.createdBy || '');
-      const today    = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      const username  = String(data.createdBy || '');
+      const adminView = !username || data.adminView === true;
+      const today     = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
       const invSheet3 = ss.getSheetByName('Sales Invoices');
       if (!invSheet3) return ok({ invoices: [], totals: {Cash:0,Check:0,'Terms AR':0}, grandTotal: 0 });
 
       const todayRows = invSheet3.getDataRange().getValues().slice(1).filter(function(r) {
         if (!r[0]) return false;
+        if (String(r[9]) === 'VOID') return false; // exclude voided
         const ca = r[11] instanceof Date
           ? Utilities.formatDate(r[11], Session.getScriptTimeZone(), 'yyyy-MM-dd')
           : String(r[11]).slice(0, 10);
+        if (adminView) return ca === today;
         return ca === today && String(r[10]) === username;
       });
 
@@ -1846,15 +1849,16 @@ function doPost(e) {
         const total = Number(r[8]) || 0;
         grandTotal += total;
         if (totals[pt] !== undefined) totals[pt] += total;
-        else totals[pt] = total;
+        else totals[pt] = (totals[pt]||0) + total;
         return {
           invoiceNumber: String(r[0]),
           contactName:   String(r[1]),
           total:         total,
-          paymentType:   pt
+          paymentType:   pt,
+          createdBy:     String(r[10] || '')
         };
       });
-      return ok({ invoices: invoices, totals: totals, grandTotal: grandTotal });
+      return ok({ invoices: invoices, totals: totals, grandTotal: grandTotal, adminView: adminView });
     }
 
     // ── GET SUPPLIERS ─────────────────────────────────────────────────

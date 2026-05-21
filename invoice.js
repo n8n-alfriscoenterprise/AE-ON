@@ -234,7 +234,11 @@ function renderInvLines(){
         else if(line.qty > avail){ cls = 'inv-van-warn'; icon = '⚠'; }
         vanLabelHtml = '<div id="inv-van-'+idx+'" class="inv-van-label '+cls+'">'+icon+' '+avail+' available on van</div>';
       } else {
-        vanLabelHtml = '<div id="inv-van-'+idx+'" style="display:none"></div>';
+        // SKU not in today's manifest — show a hard warning for drivers
+        const driverMode = currentUser && currentUser.assignedUnit && currentUser.assignedUnit !== 'All';
+        vanLabelHtml = driverMode
+          ? '<div id="inv-van-'+idx+'" class="inv-van-label inv-van-zero">⛔ Not in today\'s manifest</div>'
+          : '<div id="inv-van-'+idx+'" style="display:none"></div>';
       }
     } else {
       vanLabelHtml = '<div id="inv-van-'+idx+'" style="display:none"></div>';
@@ -278,7 +282,17 @@ function _refreshVanLabel(idx){
   const line  = invLines[idx];
   if(!line || !line.sku){ el.style.display='none'; return; }
   const avail = getVanAvailableForLine(line.sku, idx);
-  if(avail === null){ el.style.display='none'; return; }
+  if(avail === null){
+    const driverMode = currentUser && currentUser.assignedUnit && currentUser.assignedUnit !== 'All';
+    if(driverMode){
+      el.className   = 'inv-van-label inv-van-zero';
+      el.textContent = '⛔ Not in today\'s manifest';
+      el.style.display = 'inline-block';
+    } else {
+      el.style.display = 'none';
+    }
+    return;
+  }
   let cls = 'inv-van-ok', icon = '✓';
   if(avail === 0)           { cls = 'inv-van-zero'; icon = '⊘'; }
   else if(line.qty > avail) { cls = 'inv-van-warn'; icon = '⚠'; }
@@ -335,16 +349,32 @@ async function saveInvoice(){
   const validLines = invLines.filter(l=>l.sku && l.qty>0);
   if(!validLines.length){ errEl.textContent='Add at least one product with a quantity.'; return; }
 
-  // Van stock soft-warning
-  if(vanStockLoaded){
-    const overages = [];
+  // Van stock validation — drivers only
+  const isDriver = currentUser && currentUser.assignedUnit && currentUser.assignedUnit !== 'All';
+  if(isDriver && vanStockLoaded){
+    // Hard block: no manifest loaded for today
+    if(Object.keys(vanStockData).length === 0){
+      errEl.textContent = '⛔ No stock loaded for today. Ask warehouse to submit the morning load before creating invoices.';
+      return;
+    }
+    // Hard block: item not in today's manifest
+    const notInManifest = [];
+    const overages      = [];
     validLines.forEach(l=>{
       const avail = getVanAvailableForLine(l.sku, invLines.indexOf(l));
-      if(avail!==null && l.qty>avail){
-        const p = invProducts.find(x=>x.code===l.sku);
-        overages.push((p?p.name:l.sku)+' (want '+l.qty+', avail '+avail+')');
+      const p     = invProducts.find(x=>x.code===l.sku);
+      const label = p ? p.name : l.sku;
+      if(avail === null){
+        notInManifest.push(label);
+      } else if(l.qty > avail){
+        overages.push(label+' (want '+l.qty+', available '+avail+')');
       }
     });
+    if(notInManifest.length){
+      errEl.textContent = '⛔ Not in today\'s manifest: '+notInManifest.join(', ')+'. Only items loaded on the van today can be sold.';
+      return;
+    }
+    // Soft warning: qty exceeds available (allows save with confirmation)
     if(overages.length && !confirm('⚠ Van stock exceeded:\n\n'+overages.join('\n')+'\n\nSave anyway?')){
       return;
     }
@@ -780,19 +810,23 @@ async function showDayTally(){
   overlay.style.display = 'flex';
   const body = document.getElementById('inv-tally-body');
   body.innerHTML = '<div style="text-align:center;color:#888;padding:24px">Loading…</div>';
+  const isAdmin = currentUser && currentUser.role === 'admin';
   try{
-    const r = await api({action:'getDayTally', createdBy: currentUser ? currentUser.username : ''});
-    if(r.status==='ok') _renderDayTally(r);
+    const r = await api({
+      action:    'getDayTally',
+      createdBy: isAdmin ? '' : (currentUser ? currentUser.username : ''),
+      adminView: isAdmin
+    });
+    if(r.status==='ok') _renderDayTally(r, isAdmin);
     else body.innerHTML = '<div style="color:#c00;padding:14px">Could not load tally.</div>';
   }catch(e){
     body.innerHTML = '<div style="color:#c00;padding:14px">Network error.</div>';
   }
 }
 
-function _renderDayTally(data){
+function _renderDayTally(data, isAdmin){
   const body = document.getElementById('inv-tally-body');
   const fmt  = v=>'₱'+(Number(v)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  const fmtD = s=>phDate(s);
 
   let html = '<div class="inv-tally-totals">';
   ['Cash','Check','Terms AR'].forEach(t=>{
@@ -803,16 +837,39 @@ function _renderDayTally(data){
   html += '</div>';
 
   if(data.invoices && data.invoices.length){
-    html += '<div class="inv-tally-label">Invoices Today ('+data.invoices.length+')</div>';
-    data.invoices.forEach(inv=>{
-      const ptCls = 'inv-pt-'+(inv.paymentType||'Cash').replace(/\s+/g,'').toLowerCase();
-      html += '<div class="inv-tally-inv-row">'
-        +'<span class="inv-tally-inv-num">'+inv.invoiceNumber+'</span>'
-        +'<span class="inv-tally-inv-dealer">'+inv.contactName+'</span>'
-        +'<span>'+fmt(inv.total)+'</span>'
-        +'<span class="inv-pt-badge '+ptCls+'">'+(inv.paymentType||'Cash')+'</span>'
-        +'</div>';
-    });
+    if(isAdmin){
+      // Group by driver/createdBy
+      const byDriver = {};
+      data.invoices.forEach(inv=>{
+        const who = inv.createdBy || 'Unknown';
+        if(!byDriver[who]) byDriver[who] = {invoices:[], total:0};
+        byDriver[who].invoices.push(inv);
+        byDriver[who].total += inv.total||0;
+      });
+      Object.entries(byDriver).forEach(([driver, group])=>{
+        html += '<div class="inv-tally-label">'+driver+' ('+group.invoices.length+' invoice'+(group.invoices.length===1?'':'s')+' · '+fmt(group.total)+')</div>';
+        group.invoices.forEach(inv=>{
+          const ptCls = 'inv-pt-'+(inv.paymentType||'Cash').replace(/\s+/g,'').toLowerCase();
+          html += '<div class="inv-tally-inv-row">'
+            +'<span class="inv-tally-inv-num">'+inv.invoiceNumber+'</span>'
+            +'<span class="inv-tally-inv-dealer">'+inv.contactName+'</span>'
+            +'<span>'+fmt(inv.total)+'</span>'
+            +'<span class="inv-pt-badge '+ptCls+'">'+(inv.paymentType||'Cash')+'</span>'
+            +'</div>';
+        });
+      });
+    } else {
+      html += '<div class="inv-tally-label">Invoices Today ('+data.invoices.length+')</div>';
+      data.invoices.forEach(inv=>{
+        const ptCls = 'inv-pt-'+(inv.paymentType||'Cash').replace(/\s+/g,'').toLowerCase();
+        html += '<div class="inv-tally-inv-row">'
+          +'<span class="inv-tally-inv-num">'+inv.invoiceNumber+'</span>'
+          +'<span class="inv-tally-inv-dealer">'+inv.contactName+'</span>'
+          +'<span>'+fmt(inv.total)+'</span>'
+          +'<span class="inv-pt-badge '+ptCls+'">'+(inv.paymentType||'Cash')+'</span>'
+          +'</div>';
+      });
+    }
   } else {
     html += '<div style="text-align:center;color:#888;padding:16px;font-size:13px">No invoices today.</div>';
   }

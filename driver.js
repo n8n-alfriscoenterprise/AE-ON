@@ -16,7 +16,7 @@ async function loadDriverManifest(){
   const listEl=document.getElementById('driver-sku-list');
   listEl.innerHTML='<div class="driver-empty">Loading manifest...</div>';
   try{
-    const r=await api({action:'getTodayLoads',unit});
+    const r=await api({action:'getTodayLoads',unit,createdBy:currentUser.username});
     if(r.status==='ok'){
       driverManifest=r.rows||[];
       buildDriverChips();

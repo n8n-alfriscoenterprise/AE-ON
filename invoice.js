@@ -360,6 +360,7 @@ async function saveInvoice(){
   try{
     const r = await api({
       action:       'saveInvoice',
+      assignedUnit: currentUser ? (currentUser.assignedUnit||'') : '',
       dealerId,
       contactName:  dealer.storeName||'',
       reference,
@@ -484,10 +485,7 @@ function getSignatureBase64(){
 
 
 // ── PRINT ─────────────────────────────────────────────────────
-async function printInvoice(){
-  if(!invSaved) await saveInvoice();
-  if(!invSaved) return;
-
+function _buildReceiptHtml(){
   const dealerId  = document.getElementById('inv-dealer').value;
   const dealer    = dealerList.find(d=>d.dealerId===dealerId)||{};
   const invDate   = document.getElementById('inv-date').value;
@@ -515,57 +513,93 @@ async function printInvoice(){
 
   const dueLabel = terms==='COD' ? 'COD' : fmtD(dueDate)+' ('+terms+')';
   const sigData  = getSignatureBase64();
-
-  const pv = document.getElementById('inv-print-view');
   const _logoSrc = typeof LOGO_SMALL !== 'undefined' ? LOGO_SMALL : '';
   const _logoHtml = _logoSrc ? '<img src="'+_logoSrc+'" style="display:block;margin:0 auto 4px;height:48px;width:48px;object-fit:contain;border-radius:6px">' : '';
 
-  pv.innerHTML =
-    '<div class="rcp-wrap">'
-    // Header
+  return '<div class="rcp-wrap">'
     +_logoHtml
     +'<div class="rcp-biz-name">ALFRISCO ENTERPRISE</div>'
     +'<div class="rcp-biz-sub">Animal Feed Distributor</div>'
     +'<div class="rcp-biz-sub">Province of Pangasinan, Philippines</div>'
     +'<div class="rcp-biz-sub">alfriscoenterprise@gmail.com</div>'
     +'<div class="rcp-div"></div>'
-    // Invoice number
     +'<div class="rcp-inv-label">Sales Invoice</div>'
     +'<div class="rcp-inv-num">'+invNum+'</div>'
     +'<div class="rcp-row"><span>Date</span><span>'+fmtD(invDate)+'</span></div>'
     +'<div class="rcp-row"><span>Due</span><span>'+dueLabel+'</span></div>'
     +(reference?'<div class="rcp-row"><span>Ref</span><span>'+reference+'</span></div>':'')
     +'<div class="rcp-div"></div>'
-    // Bill To
     +'<div class="rcp-section-label">Bill To</div>'
     +'<div class="rcp-dealer-name">'+(dealer.storeName||'')+'</div>'
     +(dealer.ownerName?'<div class="rcp-dealer-sub">'+dealer.ownerName+'</div>':'')
     +(dealer.area?'<div class="rcp-dealer-sub">'+dealer.area+'</div>':'')
     +(dealer.phone1?'<div class="rcp-dealer-sub">Tel: '+dealer.phone1+(dealer.phone2?' / '+dealer.phone2:'')+'</div>':'')
     +'<div class="rcp-div"></div>'
-    // Items
     +'<div class="rcp-section-label">Items</div>'
     +itemsHtml
     +'<div class="rcp-div"></div>'
-    // Totals
     +'<div class="rcp-total-row"><span>Subtotal</span><span>'+fmt(subtotal)+'</span></div>'
     +'<div class="rcp-total-row rcp-grand"><span>TOTAL DUE</span><span>'+fmt(subtotal)+'</span></div>'
     +'<div class="rcp-div"></div>'
-    // Payment
     +'<div class="rcp-payment">Payment: <strong>'+payType+'</strong></div>'
     +(checkRef?'<div class="rcp-payment">Check Ref: <strong>'+checkRef+'</strong></div>':'')
     +'<div class="rcp-div"></div>'
-    // Signature
     +(sigData?'<img class="rcp-sig-img" src="'+sigData+'">'
             :'<div class="rcp-sig-blank"></div>')
     +'<div class="rcp-sig-label">Customer Signature</div>'
     +'<div class="rcp-div"></div>'
-    // Footer
     +'<div class="rcp-footer">Thank you for your business!</div>'
     +'<div class="rcp-footer">— Alfrisco Enterprise —</div>'
     +'</div>';
+}
 
+async function printInvoice(){
+  if(!invSaved) await saveInvoice();
+  if(!invSaved) return;
+  const rcpt = _buildReceiptHtml();
+  const pv   = document.getElementById('inv-print-view');
+  pv.innerHTML =
+    '<div class="rcp-copy-label">&#x2014; CUSTOMER COPY &#x2014;</div>' + rcpt +
+    '<div class="rcp-page-break"></div>' +
+    '<div class="rcp-copy-label">&#x2014; MERCHANT COPY &#x2014;</div>' + rcpt;
   window.print();
+}
+
+async function chargeInvoice(){
+  if(!invSaved) await saveInvoice();
+  if(!invSaved) return;
+  const rcpt = _buildReceiptHtml();
+  const pv   = document.getElementById('inv-print-view');
+  pv.innerHTML =
+    '<div class="rcp-copy-label">&#x2014; CUSTOMER COPY &#x2014;</div>' + rcpt +
+    '<div class="rcp-page-break"></div>' +
+    '<div class="rcp-copy-label">&#x2014; MERCHANT COPY &#x2014;</div>' + rcpt;
+  window.print();
+  setTimeout(()=>{
+    showToast('Sale charged ✓ — ready for next invoice','success');
+    resetInvForm();
+  }, 600);
+}
+
+async function voidInvoice(invNum){
+  if(!currentUser || currentUser.role!=='admin') return;
+  const reason = window.prompt('Void reason for '+invNum+' (required):');
+  if(!reason || !reason.trim()) return;
+  try{
+    const btn = document.querySelector('[data-void-inv="'+invNum+'"]');
+    if(btn){ btn.disabled=true; btn.textContent='Voiding…'; }
+    const r = await api({action:'voidInvoice', invoiceNumber:invNum, reason:reason.trim(), voidedBy:currentUser.username});
+    if(r.status==='ok'){
+      showToast(invNum+' voided','warning');
+      invoiceHistory = invoiceHistory.map(i=>i.invoiceNumber===invNum?{...i,status:'VOID'}:i);
+      renderInvoiceHistory();
+    } else {
+      alert('Error: '+(r.msg||'Could not void'));
+      if(btn){ btn.disabled=false; btn.textContent='Void'; }
+    }
+  }catch(e){
+    alert('Network error: '+e.message);
+  }
 }
 
 // ── PRINTER SETUP ─────────────────────────────────────────────
@@ -704,18 +738,23 @@ function renderInvoiceHistory(){
   const fmtD = s=>phDate(s);
   body.innerHTML = '';
   list.forEach(inv=>{
-    const pt  = inv.paymentType || 'Cash';
-    const ptCls = 'inv-pt-'+pt.replace(/\s+/g,'').toLowerCase();
+    const pt     = inv.paymentType || 'Cash';
+    const ptCls  = 'inv-pt-'+pt.replace(/\s+/g,'').toLowerCase();
+    const isVoid = inv.status === 'VOID';
+    const voidBadge = isVoid ? ' <span class="inv-void-badge">VOID</span>' : '';
+    const voidBtn   = (isAdmin && !isVoid)
+      ? '<button class="inv-void-btn" data-void-inv="'+inv.invoiceNumber+'" onclick="voidInvoice(\''+inv.invoiceNumber+'\')">Void</button>'
+      : '';
     const card = document.createElement('div');
-    card.className = 'inv-hist-card';
+    card.className = 'inv-hist-card' + (isVoid ? ' inv-hist-voided' : '');
     card.innerHTML =
       '<div class="inv-hist-row1">'
         +'<div>'
-          +'<div class="inv-hist-num">'+inv.invoiceNumber+'</div>'
+          +'<div class="inv-hist-num">'+inv.invoiceNumber+voidBadge+'</div>'
           +'<div class="inv-hist-dealer">'+inv.contactName+'</div>'
         +'</div>'
         +'<div style="text-align:right">'
-          +'<div class="inv-hist-total">'+fmt(inv.total)+'</div>'
+          +'<div class="inv-hist-total" style="'+(isVoid?'text-decoration:line-through;color:#bbb':'')+'">'+fmt(inv.total)+'</div>'
           +'<span class="inv-pt-badge '+ptCls+'">'+pt+'</span>'
         +'</div>'
       +'</div>'
@@ -724,6 +763,7 @@ function renderInvoiceHistory(){
         +(inv.reference?'<span>Ref: '+inv.reference+'</span>':'')
         +'<span>'+inv.paymentTerms+'</span>'
         +'<span style="color:#888">by '+inv.createdBy+'</span>'
+        +voidBtn
       +'</div>';
     body.appendChild(card);
   });

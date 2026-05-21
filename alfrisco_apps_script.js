@@ -187,17 +187,49 @@ function doPost(e) {
       const sheet = ss.getSheetByName('Stock Movements');
       if (!sheet) return ok({rows:[]});
       const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-      const rows = sheet.getDataRange().getValues().slice(1)
-        .filter(r=>{
+
+      // Build loaded/returned map from Stock Movements
+      const loadMap = {};
+      sheet.getDataRange().getValues().slice(1)
+        .filter(function(r){
           if(!r[0]) return false;
           const ts = r[0] instanceof Date
             ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd')
             : String(r[0]).slice(0,10);
-          return ts===today;
+          return ts===today && String(r[2])===data.unit && String(r[3])==='LOAD';
         })
-        .filter(r=>String(r[2])===data.unit&&String(r[3])==='LOAD')
-        .map(r=>({code:String(r[4]),name:String(r[5]),cat:String(r[6]),
-          loaded:Number(r[7])||0,returned:Number(r[8])||0,sold:Number(r[9])||0}));
+        .forEach(function(r){
+          const code = String(r[4]);
+          if(!loadMap[code]) loadMap[code]={code,name:String(r[5]),cat:String(r[6]),loaded:0,returned:0};
+          loadMap[code].loaded   += Number(r[7])||0;
+          loadMap[code].returned += Number(r[8])||0;
+        });
+
+      // Calculate sold from today's Sales Invoice Lines for this driver
+      const soldMap = {};
+      const invSheet2     = ss.getSheetByName('Sales Invoices');
+      const invLineSheet2 = ss.getSheetByName('Sales Invoice Lines');
+      if(invSheet2 && invLineSheet2 && data.createdBy){
+        const todayNums = new Set();
+        invSheet2.getDataRange().getValues().slice(1).forEach(function(r){
+          if(!r[0]) return;
+          const invDate2 = r[4] instanceof Date
+            ? Utilities.formatDate(r[4], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+            : String(r[4]||'').slice(0,10);
+          if(invDate2===today && String(r[10]||'')===String(data.createdBy) && String(r[9])!=='VOID')
+            todayNums.add(String(r[0]));
+        });
+        invLineSheet2.getDataRange().getValues().slice(1).forEach(function(r){
+          if(!r[0]||!todayNums.has(String(r[0]))) return;
+          const sku = String(r[2]).trim();
+          soldMap[sku] = (soldMap[sku]||0) + (Number(r[4])||0);
+        });
+      }
+
+      const rows = Object.values(loadMap).map(function(item){
+        return {code:item.code,name:item.name,cat:item.cat,
+                loaded:item.loaded,returned:item.returned,sold:soldMap[item.code]||0};
+      });
       return ok({rows});
     }
 
@@ -1623,6 +1655,34 @@ function doPost(e) {
         ]);
       });
 
+      // ── Admin sale: deduct from distribution stock immediately ──
+      // Only when no van unit is assigned (i.e. not a driver sale)
+      if(!data.assignedUnit || String(data.assignedUnit).trim()===''){
+        const distCntSale = getOrCreateSheet(ss, 'Stock Counts - Distribution', [
+          'Timestamp','Submitted By','Location','SKU Code',
+          'Item Name','Qty On Hand','Unit','Type','Category'
+        ]);
+        // Build latest absolute stock per SKU
+        const stkRows = distCntSale.getDataRange().getValues().slice(1).filter(function(r){return r[0]&&r[3];});
+        const latestStkMap = {};
+        stkRows.forEach(function(r){
+          const sku = String(r[3]).trim();
+          latestStkMap[sku] = {qty:Number(r[5])||0, unit:String(r[6]||'bag'), category:String(r[8]||'')};
+        });
+        const nowSale = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        lines.forEach(function(l){
+          if(!l.sku||!l.qty) return;
+          const sku = String(l.sku).trim();
+          if(!latestStkMap.hasOwnProperty(sku)) return;
+          const info   = latestStkMap[sku];
+          const newQty = Math.max(0, info.qty - (Number(l.qty)||0));
+          distCntSale.appendRow([
+            nowSale, data.createdBy||'', 'Admin Sale - '+invoiceNumber,
+            sku, String(l.desc||''), newQty, info.unit||'bag', 'DIST', info.category||''
+          ]);
+        });
+      }
+
       return ok({ invoiceNumber: invoiceNumber });
     }
 
@@ -1658,6 +1718,27 @@ function doPost(e) {
         };
       });
       return ok({ invoices: invoices });
+    }
+
+    // ── VOID INVOICE (admin only) ─────────────────────────────────────────
+    if (data.action === 'voidInvoice') {
+      const invSheet = ss.getSheetByName('Sales Invoices');
+      if (!invSheet) return err('Sales Invoices sheet not found');
+      const invNum = String(data.invoiceNumber || '').trim();
+      if (!invNum) return err('Invoice number required');
+      const rows = invSheet.getDataRange().getValues();
+      var targetRow = -1;
+      for (var vi = 1; vi < rows.length; vi++) {
+        if (String(rows[vi][0]).trim() === invNum) { targetRow = vi + 1; break; }
+      }
+      if (targetRow < 0) return err('Invoice not found: ' + invNum);
+      if (String(rows[targetRow - 1][9]) === 'VOID') return err('Already voided');
+      const voidNow = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+      invSheet.getRange(targetRow, 10).setValue('VOID');                    // Col J = Status
+      invSheet.getRange(targetRow, 17).setValue(String(data.reason || '')); // Col Q = Void Reason
+      invSheet.getRange(targetRow, 18).setValue(String(data.voidedBy || '')); // Col R = Voided By
+      invSheet.getRange(targetRow, 19).setValue(voidNow);                   // Col S = Voided At
+      return ok({ invoiceNumber: invNum, status: 'VOID' });
     }
 
     // ── DEALER ACTIVITY (lightweight: last invoice date per dealer) ───────

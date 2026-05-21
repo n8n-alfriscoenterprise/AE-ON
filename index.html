@@ -224,7 +224,17 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
   body>*:not(#inv-print-view){display:none!important}
   #inv-print-view{display:block!important}
   @page{size:58mm auto;margin:3mm 2mm}
+  .rcp-page-break{page-break-after:always;break-after:page}
 }
+/* Copy label (Customer / Merchant) */
+.rcp-copy-label{font-family:'Courier New',Courier,monospace;font-size:8px;font-weight:700;text-align:center;letter-spacing:1.5px;padding:4px 0;border-top:2px dashed #000;border-bottom:2px dashed #000;margin:4px 0}
+.rcp-page-break{height:0;margin:0;padding:0}
+/* Void invoice */
+.inv-void-badge{display:inline-block;background:#E53935;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;letter-spacing:.5px;vertical-align:middle;margin-left:4px}
+.inv-void-btn{background:none;border:1px solid #E53935;color:#E53935;font-size:10px;font-weight:600;padding:3px 9px;border-radius:6px;cursor:pointer}
+.inv-hist-voided{opacity:0.6}
+/* Charge button */
+.inv-btn-charge{background:#1A6EBD;color:#fff;font-weight:700;border:none;}
 /* ── 58MM THERMAL RECEIPT ── */
 .rcp-wrap{font-family:'Courier New',Courier,monospace;font-size:9px;color:#000;width:52mm;margin:0 auto;line-height:1.5}
 .rcp-biz-name{font-size:11px;font-weight:700;text-align:center;letter-spacing:.5px}
@@ -3351,6 +3361,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 
     <div class="inv-actions">
       <button class="inv-btn inv-btn-save" id="inv-save-btn" onclick="saveInvoice()">💾 Save</button>
+      <button class="inv-btn inv-btn-charge" onclick="chargeInvoice()">⚡ Charge</button>
       <button class="inv-btn inv-btn-print" onclick="printInvoice()">🖨 Print</button>
       <button class="inv-btn inv-btn-xero" onclick="exportXero()">📤 Xero</button>
     </div>

@@ -244,10 +244,8 @@ function renderInvLines(){
       vanLabelHtml = '<div id="inv-van-'+idx+'" style="display:none"></div>';
     }
 
-    let skuOpts = '<option value="">-- Select product --</option>';
-    invProducts.forEach(p=>{
-      skuOpts += '<option value="'+p.code+'"'+(line.sku===p.code?' selected':'')+'>'+p.code+' — '+p.name+'</option>';
-    });
+    const selProd    = invProducts.find(p=>p.code===line.sku);
+    const displayVal = selProd ? selProd.name+' · '+selProd.code : '';
 
     const div = document.createElement('div');
     div.className = 'inv-line-row';
@@ -257,7 +255,15 @@ function renderInvLines(){
         +'<span class="inv-line-num">Item '+(idx+1)+'</span>'
         +'<button class="inv-line-remove" onclick="removeInvLine('+idx+')">✕ Remove</button>'
       +'</div>'
-      +'<select class="inv-input" onchange="onInvSKUChange('+idx+',this.value)">'+skuOpts+'</select>'
+      +'<div class="inv-sku-wrap">'
+        +'<input class="inv-input inv-sku-input" id="inv-sku-input-'+idx+'" type="text" autocomplete="off" '
+          +'placeholder="🔍 Type to search product..." '
+          +'value="'+displayVal.replace(/"/g,'&quot;')+'" '
+          +'oninput="_invSkuSearch('+idx+',this.value)" '
+          +'onfocus="_invSkuFocus('+idx+')" '
+          +'onblur="_hideInvSkuDd('+idx+')">'
+        +'<div class="inv-sku-dropdown" id="inv-sku-dd-'+idx+'" style="display:none"></div>'
+      +'</div>'
       + vanLabelHtml
       +'<input class="inv-input" type="text" placeholder="Description" id="inv-ldesc-'+idx+'" value="'+(line.desc||'')+'" oninput="invLines['+idx+'].desc=this.value">'
       +'<div class="inv-line-nums">'
@@ -310,7 +316,63 @@ function onInvSKUChange(idx, val){
     const descEl = document.getElementById('inv-ldesc-'+idx);
     if(descEl) descEl.value = p.name;
   }
-  renderInvLines(); // re-render to show van stock label
+  renderInvLines();
+}
+
+// ── SKU SEARCH COMBOBOX ───────────────────────────────────────
+function _invSkuFocus(idx){
+  const input = document.getElementById('inv-sku-input-'+idx);
+  if(input) input.value = '';          // clear so user can type fresh
+  _invSkuSearch(idx, '');
+}
+
+function _invSkuSearch(idx, query){
+  const dd = document.getElementById('inv-sku-dd-'+idx);
+  if(!dd) return;
+  const q = query.toLowerCase().trim();
+  const matches = !q
+    ? invProducts.slice(0, 15)
+    : invProducts.filter(p=>
+        p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q)
+      ).slice(0, 20);
+  dd.innerHTML = matches.length
+    ? matches.map(p=>
+        '<div class="inv-sku-dd-item" onmousedown="_selectInvSku('+idx+',\''+p.code+'\')">'
+          +'<span class="inv-sku-dd-name">'+p.name+'</span>'
+          +'<span class="inv-sku-dd-code">'+p.code+'</span>'
+        +'</div>'
+      ).join('')
+    : '<div class="inv-sku-dd-empty">No products found</div>';
+  dd.style.display = 'block';
+}
+
+function _selectInvSku(idx, code){
+  const p = invProducts.find(x=>x.code===code);
+  invLines[idx].sku   = code;
+  invLines[idx].desc  = p ? p.name  : '';
+  invLines[idx].price = p ? p.price : 0;
+  const input = document.getElementById('inv-sku-input-'+idx);
+  if(input) input.value = p ? p.name+' · '+p.code : code;
+  const dd = document.getElementById('inv-sku-dd-'+idx);
+  if(dd) dd.style.display = 'none';
+  const descEl = document.getElementById('inv-ldesc-'+idx);
+  if(descEl && p) descEl.value = p.name;
+  updateInvTotals();
+  _refreshVanLabel(idx);
+}
+
+function _hideInvSkuDd(idx){
+  setTimeout(()=>{
+    const dd = document.getElementById('inv-sku-dd-'+idx);
+    if(dd) dd.style.display = 'none';
+    // Restore display value if a product is selected
+    const input = document.getElementById('inv-sku-input-'+idx);
+    if(input && invLines[idx] && invLines[idx].sku){
+      const p = invProducts.find(x=>x.code===invLines[idx].sku);
+      if(p) input.value = p.name+' · '+p.code;
+      else if(!input.value) input.value = '';
+    }
+  }, 150);
 }
 
 function updateInvTotals(){

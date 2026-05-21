@@ -753,9 +753,10 @@ async function loadInvoiceHistory(){
 }
 
 function renderInvoiceHistory(){
-  const body   = document.getElementById('inv-history-body');
+  const body    = document.getElementById('inv-history-body');
   if(!body) return;
-  const search = (document.getElementById('inv-history-search')?.value||'').toLowerCase().trim();
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  const search  = (document.getElementById('inv-history-search')?.value||'').toLowerCase().trim();
   let list = invoiceHistory;
   if(search) list = list.filter(inv=>
     inv.invoiceNumber.toLowerCase().includes(search)||

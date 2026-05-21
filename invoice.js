@@ -34,6 +34,9 @@ async function openInvoice(){
   loadVanStock();               // no-op for non-driver
   _fetchInvoiceHistory();       // pre-populate order history cards
   updateOfflineBadge();
+  // Xero button — admin only
+  const xeroBtn = document.getElementById('inv-xero-btn');
+  if(xeroBtn) xeroBtn.style.display = (currentUser && currentUser.role==='admin') ? '' : 'none';
   // Signature canvas — needs a brief tick so the DOM has rendered
   setTimeout(initSignatureCanvas, 80);
 }

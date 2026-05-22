@@ -576,6 +576,7 @@ async function saveDealerForm(){
   };
 
   try{
+    const isNew = !currentDealer;
     let r;
     if(currentDealer){
       r = await api({ action: 'updateDealer', dealerId: currentDealer.dealerId, ...payload });
@@ -584,9 +585,22 @@ async function saveDealerForm(){
     }
 
     if(r.status === 'ok'){
+      const savedDealerId = r.dealerId;
       await loadDealers();
       analyzeDealers(null);
-      showToast(currentDealer ? storeName + ' updated ✓' : storeName + ' added to directory ✓', 'success');
+      showToast(isNew ? storeName + ' added ✓' : storeName + ' updated ✓', 'success');
+
+      // If launched from Sales Invoice, return there and auto-select new dealer
+      if(isNew && window._invReturnAfterDealer){
+        window._invReturnAfterDealer = false;
+        await openInvoice();
+        if(savedDealerId){
+          const sel = document.getElementById('inv-dealer');
+          if(sel){ sel.value = savedDealerId; onInvDealerChange(); }
+        }
+        return;
+      }
+
       showDealerSubtab('list', document.getElementById('dlr-tab-list'));
     } else {
       errEl.textContent = 'Error: ' + (r.msg || 'Could not save');

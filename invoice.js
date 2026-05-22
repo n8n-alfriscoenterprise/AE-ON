@@ -43,6 +43,13 @@ async function openInvoice(){
 
 function closeInvoice(){ showHome(); }
 
+// ── ADD NEW DEALER SHORTCUT ───────────────────────────────────
+function addNewDealerFromInvoice(){
+  window._invReturnAfterDealer = true;
+  openDealer();
+  setTimeout(openNewDealerForm, 80);
+}
+
 function showInvSubtab(tab, el){
   document.querySelectorAll('.inv-subtab').forEach(t=>t.classList.remove('active'));
   if(el) el.classList.add('active');
@@ -131,7 +138,8 @@ function resetInvForm(){
 function buildInvDealerSelect(){
   const sel = document.getElementById('inv-dealer');
   const cur = sel.value;
-  sel.innerHTML = '<option value="">-- Select Dealer --</option>';
+  sel.innerHTML = '<option value="">-- Select Dealer --</option>'
+    + '<option value="__add_new__">＋ Add New Dealer</option>';
   const visible = dealerList
     .filter(d=>d.status==='Active'||d.status==='On Hold')
     .sort((a,b)=>a.storeName.localeCompare(b.storeName));
@@ -146,6 +154,11 @@ function buildInvDealerSelect(){
 
 function onInvDealerChange(){
   const sel  = document.getElementById('inv-dealer');
+  if(sel.value === '__add_new__'){
+    sel.value = '';   // reset so dropdown shows placeholder on return
+    addNewDealerFromInvoice();
+    return;
+  }
   const info = document.getElementById('inv-dealer-info');
   const d    = dealerList.find(x=>x.dealerId===sel.value);
   if(d){

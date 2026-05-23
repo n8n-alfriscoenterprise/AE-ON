@@ -284,7 +284,7 @@ function renderInvLines(){
         +'<div><label class="inv-field-label">Qty</label>'
           +'<input class="inv-input inv-input-num" id="inv-qty-'+idx+'" type="number" min="1" value="'+line.qty+'" oninput="invLines['+idx+'].qty=Number(this.value)||0;updateInvTotals();_refreshVanLabel('+idx+')"></div>'
         +'<div><label class="inv-field-label">Unit Price (₱)</label>'
-          +'<input class="inv-input inv-input-num" type="number" min="0" step="0.01" value="'+(line.price||'')+'" placeholder="0.00" oninput="invLines['+idx+'].price=Number(this.value)||0;updateInvTotals()"></div>'
+          +'<input class="inv-input inv-input-num" id="inv-price-'+idx+'" type="number" min="0" step="0.01" value="'+(line.price||'')+'" placeholder="0.00" oninput="invLines['+idx+'].price=Number(this.value)||0;updateInvTotals()"></div>'
         +'<div><label class="inv-field-label">Disc %</label>'
           +'<input class="inv-input inv-input-num" type="number" min="0" max="100" value="'+(line.disc||0)+'" oninput="invLines['+idx+'].disc=Number(this.value)||0;updateInvTotals()"></div>'
         +'<div><label class="inv-field-label">Line Total</label>'
@@ -372,8 +372,10 @@ function _selectInvSku(idx, code){
   if(dd) dd.style.display = 'none';
   const descEl = document.getElementById('inv-ldesc-'+idx);
   if(descEl && p) descEl.value = p.name;
-  const qtyEl = document.getElementById('inv-qty-'+idx);
+  const qtyEl   = document.getElementById('inv-qty-'+idx);
   if(qtyEl) qtyEl.value = invLines[idx].qty;
+  const priceEl = document.getElementById('inv-price-'+idx);
+  if(priceEl) priceEl.value = invLines[idx].price || '';
   updateInvTotals();
   _refreshVanLabel(idx);
 }

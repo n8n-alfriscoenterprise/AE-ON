@@ -66,10 +66,11 @@ async function loadInvProducts(){
     const r = await api({action:'getProductList'});
     if(r.status==='ok'){
       invProducts = (r.dist||[]).map(i=>({
-        code:  i.sku,
-        name:  i.name,
-        price: Number(i.price)||0,
-        unit:  i.unit||'unit'
+        code:      i.sku,
+        name:      i.name,
+        price:     Number(i.price)||0,
+        unit:      i.unit||'unit',
+        bundleQty: Number(i.bundleQty)||1
       }));
     }
   }catch(e){ console.error('loadInvProducts',e); }
@@ -281,7 +282,7 @@ function renderInvLines(){
       +'<input class="inv-input" type="text" placeholder="Description" id="inv-ldesc-'+idx+'" value="'+(line.desc||'')+'" oninput="invLines['+idx+'].desc=this.value">'
       +'<div class="inv-line-nums">'
         +'<div><label class="inv-field-label">Qty</label>'
-          +'<input class="inv-input inv-input-num" type="number" min="1" value="'+line.qty+'" oninput="invLines['+idx+'].qty=Number(this.value)||0;updateInvTotals();_refreshVanLabel('+idx+')"></div>'
+          +'<input class="inv-input inv-input-num" id="inv-qty-'+idx+'" type="number" min="1" value="'+line.qty+'" oninput="invLines['+idx+'].qty=Number(this.value)||0;updateInvTotals();_refreshVanLabel('+idx+')"></div>'
         +'<div><label class="inv-field-label">Unit Price (₱)</label>'
           +'<input class="inv-input inv-input-num" type="number" min="0" step="0.01" value="'+(line.price||'')+'" placeholder="0.00" oninput="invLines['+idx+'].price=Number(this.value)||0;updateInvTotals()"></div>'
         +'<div><label class="inv-field-label">Disc %</label>'
@@ -362,14 +363,17 @@ function _invSkuSearch(idx, query){
 function _selectInvSku(idx, code){
   const p = invProducts.find(x=>x.code===code);
   invLines[idx].sku   = code;
-  invLines[idx].desc  = p ? p.name  : '';
-  invLines[idx].price = p ? p.price : 0;
+  invLines[idx].desc  = p ? p.name        : '';
+  invLines[idx].price = p ? p.price       : 0;
+  invLines[idx].qty   = p ? (p.bundleQty||1) : 1;
   const input = document.getElementById('inv-sku-input-'+idx);
   if(input) input.value = p ? p.name+' · '+p.code : code;
   const dd = document.getElementById('inv-sku-dd-'+idx);
   if(dd) dd.style.display = 'none';
   const descEl = document.getElementById('inv-ldesc-'+idx);
   if(descEl && p) descEl.value = p.name;
+  const qtyEl = document.getElementById('inv-qty-'+idx);
+  if(qtyEl) qtyEl.value = invLines[idx].qty;
   updateInvTotals();
   _refreshVanLabel(idx);
 }

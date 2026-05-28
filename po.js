@@ -81,10 +81,12 @@ async function loadPendingBadge(){
 function buildPOStatusChips(){
   const bar=document.getElementById('po-status-chips');
   const statuses=['All','DRAFT','PENDING','APPROVED','PARTIAL','RECEIVED','REJECTED','CANCELLED'];
-  const counts={};poList.forEach(p=>{counts[p.status]=(counts[p.status]||0)+1;});
+  // Count only POs matching the active type view
+  const basePOs=poTypeView==='ALL'?poList:poList.filter(p=>p.type===poTypeView);
+  const counts={};basePOs.forEach(p=>{counts[p.status]=(counts[p.status]||0)+1;});
   bar.innerHTML='';
   statuses.forEach(s=>{
-    const cnt=s==='All'?poList.length:(counts[s]||0);
+    const cnt=s==='All'?basePOs.length:(counts[s]||0);
     if(s!=='All'&&cnt===0)return;
     const c=document.createElement('div');c.className='po-chip'+(s===poFilter?' active':'');
     c.textContent=s==='All'?'All ('+cnt+')':s+' ('+cnt+')';
@@ -96,22 +98,30 @@ function buildPOStatusChips(){
 function renderPOList(){
   const body=document.getElementById('po-list-body');
   const _isAdm2=currentUser.role==='admin';
-  const _canDist2=_isAdm2||currentUser.canManagePODist===true||currentUser.role==='staff';
-  const _canRet2=_isAdm2||currentUser.canManagePORetail===true||currentUser.role==='staff-retail';
+  const _canDist2=_isAdm2||currentUser.canManagePODist===true;
+  const _canRet2=_isAdm2||currentUser.canManagePORetail===true;
   const canSee=_isAdm2?poList:poList.filter(p=>{
     if(p.type==='DIST'&&_canDist2)return true;
     if(p.type==='RETAIL'&&_canRet2)return true;
     if(p.createdBy===currentUser.username)return true;
     return false;
   });
-  const visible=poFilter==='All'?canSee:canSee.filter(p=>p.status===poFilter);
+  // Apply type view filter (DIST / RETAIL / ALL)
+  const typeFiltered=poTypeView==='ALL'?canSee:canSee.filter(p=>p.type===poTypeView);
+  const visible=poFilter==='All'?typeFiltered:typeFiltered.filter(p=>p.status===poFilter);
   if(!visible.length){body.innerHTML='<div class="po-list-empty">No purchase orders found.<br>Tap "+ New PO" to create one.</div>';return;}
   body.innerHTML='';
   visible.sort((a,b)=>new Date(b.createdDate)-new Date(a.createdDate));
   visible.forEach(po=>{
     const card=document.createElement('div');card.className='po-card';card.onclick=()=>openPODetail(po.poNumber);
     const statusCls={DRAFT:'s-draft',PENDING:'s-pending',APPROVED:'s-approved',PARTIAL:'s-partial',RECEIVED:'s-received',REJECTED:'s-rejected',CANCELLED:'s-cancelled'}[po.status]||'s-draft';
-    card.innerHTML=`<div class="po-card-row1"><div><div class="po-number">${po.poNumber}</div><div class="po-supplier">${po.supplier} · ${po.type}</div><div class="po-meta">${fmtPODate(po.createdDate)} · ${po.createdBy}</div></div><span class="po-status-badge ${statusCls}">${po.status}</span></div><div class="po-card-row2"><span style="font-size:11px;color:#888">${po.lineCount||0} item(s)</span><span class="po-total">₱${Number(po.totalValue||0).toLocaleString('en-PH',{minimumFractionDigits:2})}</span></div>`;
+    // Show type badge only in the "All" combined view
+    const typeBadge=poTypeView==='ALL'
+      ?(po.type==='DIST'
+        ?'<span class="po-type-dist">DIST</span>'
+        :'<span class="po-type-retail">RETAIL</span>')
+      :'';
+    card.innerHTML=`<div class="po-card-row1"><div><div class="po-number">${po.poNumber}${typeBadge}</div><div class="po-supplier">${po.supplier}</div><div class="po-meta">${fmtPODate(po.createdDate)} · ${po.createdBy}</div></div><span class="po-status-badge ${statusCls}">${po.status}</span></div><div class="po-card-row2"><span style="font-size:11px;color:#888">${po.lineCount||0} item(s)</span><span class="po-total">₱${Number(po.totalValue||0).toLocaleString('en-PH',{minimumFractionDigits:2})}</span></div>`;
     body.appendChild(card);
   });
 }
@@ -127,7 +137,10 @@ function initPOCreate(){
       if(opt.value==='DIST')   opt.hidden=!hasDist;
       if(opt.value==='RETAIL') opt.hidden=!hasRetail;
     });
-    typeEl.value=hasDist?'DIST':'RETAIL';
+    // Pre-select type based on the active tab view; fall back to permission-based default
+    if(poTypeView==='DIST'&&hasDist)          typeEl.value='DIST';
+    else if(poTypeView==='RETAIL'&&hasRetail) typeEl.value='RETAIL';
+    else                                       typeEl.value=hasDist?'DIST':'RETAIL';
   }
   document.getElementById('po-notes').value='';
   document.getElementById('po-delivery-date').value='';
@@ -355,7 +368,7 @@ function editPODraft(){
     // Update button labels + title
     const isRejected = currentPO.status === 'REJECTED';
     const titleEl = document.getElementById('po-create-title');
-    if(titleEl) titleEl.textContent = (isRejected ? 'Edit & Resubmit: ' : 'Editing Draft: ') + currentPO.poNumber;
+    if(titleEl) titleEl.textContent = (isRejected ? 'Edit & Resubmit: ' : 'Editing Draft: ') + currentPO.poNumber + ' · ' + currentUser.username;
     const draftBtn = document.getElementById('po-save-draft-btn');
     if(draftBtn) draftBtn.textContent = isRejected ? 'Save as Draft' : 'Update Draft';
     const subBtn = document.getElementById('po-submit-btn');
@@ -414,6 +427,7 @@ async function savePO(status){
       // ── UPDATE EXISTING DRAFT ──────────────────────────────────────────
       const r=await api({action:'updatePODraft',poNumber:poEditingNumber,type,supplier,
         status, deliveryDate:delivDate,notes,totalValue:total,
+        editedBy:currentUser.username,
         lineItems:active.map(l=>[poEditingNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,calcLineNet(l),0,l.qty,'Open',l.discount||0,l.discountType||'%'])});
       if(r.status==='ok'){
         showBanner('po-success-bar','Draft '+poEditingNumber+(status==='PENDING'?' updated & submitted for approval':' updated'));
@@ -463,11 +477,16 @@ function renderPODetail(){
   const isAdmin = currentUser.role === 'admin';
   const isCreator = po.createdBy === currentUser.username;
   const canReceive = isAdmin
-    || (po.type==='DIST'   && (currentUser.canManagePODist===true   || currentUser.role==='staff'))
-    || (po.type==='RETAIL' && (currentUser.canManagePORetail===true || currentUser.role==='staff-retail'));
+    || (po.type==='DIST'   && currentUser.canManagePODist===true)
+    || (po.type==='RETAIL' && currentUser.canManagePORetail===true);
+  // Edit access: admin, original creator, or staff with matching type permission
+  const canEditDraft = isAdmin || isCreator
+    || (po.type==='DIST'   && currentUser.canManagePODist===true)
+    || (po.type==='RETAIL' && currentUser.canManagePORetail===true);
   const canCancel = isAdmin
     || (isCreator && ['DRAFT','PENDING'].includes(po.status));
-  const canResubmit = isCreator && po.status === 'REJECTED';
+  // Resubmit inherits from canEditDraft — anyone who can edit can resubmit
+  const canResubmit = canEditDraft && po.status === 'REJECTED';
 
   const statusCls = {
     DRAFT:'s-draft', PENDING:'s-pending', APPROVED:'s-approved',
@@ -510,6 +529,7 @@ function renderPODetail(){
     + 'Type: ' + po.type + ' &nbsp;·&nbsp; Created: ' + fmtPODate(po.createdDate) + '<br>'
     + 'Created by: ' + po.createdBy
     + (po.approvedBy ? '<br>Approved by: ' + po.approvedBy : '')
+    + (po.lastEditedBy ? '<br><span style="font-size:11px;color:#B35C00;font-weight:600">✏️ Last edited by: ' + po.lastEditedBy + (po.lastEditedAt ? ' · ' + fmtPODate(po.lastEditedAt) : '') + '</span>' : '')
     + (po.paymentMode ? '<br>Payment: ' + po.paymentMode
         + (po.chequeRef ? ' — Cheque #' + po.chequeRef : '')
         + (po.paymentMode !== 'Split / Installment' && po.amountPaid > 0 ? ' — Amount: <strong>₱' + Number(po.amountPaid).toLocaleString('en-PH',{minimumFractionDigits:2}) + '</strong>' : '')
@@ -563,6 +583,18 @@ function renderPODetail(){
     }
   }
 
+  // ── EDIT HISTORY LOG ──
+  if(po.editHistory){
+    const edits = po.editHistory.split('|||').map(e=>e.trim()).filter(Boolean);
+    if(edits.length){
+      const eHistDiv = document.createElement('div');
+      eHistDiv.className = 'po-edit-history';
+      eHistDiv.innerHTML = '<div class="po-edit-history-title">✏️ Edit History</div>'
+        + edits.map(e => '<div class="po-edit-history-entry">' + e + '</div>').join('');
+      hdr.appendChild(eHistDiv);
+    }
+  }
+
   // ── EDIT PAYMENT DETAILS (admin only — APPROVED or PARTIAL) ──
   if(isAdmin && ['APPROVED','PARTIAL'].includes(po.status)){
     const epmDiv = document.createElement('div');
@@ -579,8 +611,8 @@ function renderPODetail(){
     body.appendChild(eliDiv);
   }
 
-  // ── EDIT DRAFT / REJECTED (creator or admin) ──
-  if(['DRAFT','REJECTED'].includes(po.status) && (isAdmin || isCreator)){
+  // ── EDIT DRAFT / REJECTED (creator, authorized staff, or admin) ──
+  if(['DRAFT','REJECTED'].includes(po.status) && canEditDraft){
     const editDiv = document.createElement('div');
     editDiv.className = 'po-action-row';
     const editLabel = po.status === 'REJECTED' ? '✏️ Edit Before Resubmitting' : '✏️ Edit Draft';
@@ -910,7 +942,18 @@ function toggleRejectSection(){
   conf.style.display = showing ? 'none' : 'inline-flex';
 }
 
-function backToPOList(){currentPO=null;document.getElementById('po-view-detail').style.display='none';showPOSubtab('list',document.getElementById('po-tab-list'));}
+function backToPOList(){
+  currentPO=null;
+  document.getElementById('po-view-detail').style.display='none';
+  document.getElementById('po-view-list').style.display='flex';
+  // Restore the correct tab highlight without resetting poTypeView
+  document.querySelectorAll('.po-subtab').forEach(t=>t.classList.remove('active'));
+  const activeTabId=poTypeView==='DIST'?'po-tab-dist':poTypeView==='RETAIL'?'po-tab-retail':'po-tab-list';
+  const activeTab=document.getElementById(activeTabId);
+  if(activeTab)activeTab.classList.add('active');
+  updatePOTypeBanner();
+  renderPOList();
+}
 async function approvePO(){
   const days       = document.getElementById('po-terms-days')              ? document.getElementById('po-terms-days').value                              : '';
   const mode       = document.getElementById('po-payment-mode')            ? document.getElementById('po-payment-mode').value                            : '';
@@ -1034,6 +1077,7 @@ async function receiveItems(){
       itemName:    li.itemName||li.skuCode,
       qtyReceived: qty,
       unitCost:    cost,
+      unit:        li.unit || 'bag',
       lineIndex:   i
     });
   });

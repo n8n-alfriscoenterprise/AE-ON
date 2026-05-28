@@ -707,6 +707,29 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .count-success-bar.retail{background:#C07000}
 .count-cat-header.retail{border-left:3px solid #C07000}
 
+/* ── BOTTLENECK ALERT BANNER ── */
+.bnk-banner{background:#FFF8E1;border:1.5px solid #F9A825;border-radius:12px;margin-bottom:14px;overflow:hidden}
+.bnk-header{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;user-select:none}
+.bnk-icon{font-size:18px;flex-shrink:0}
+.bnk-title{flex:1;font-size:13px;color:#5C3A00}
+.bnk-sub{color:#8a6000;font-weight:400}
+.bnk-oos-badge{display:inline-block;background:#E53935;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:6px;vertical-align:middle}
+.bnk-chevron{font-size:11px;color:#8a6000;flex-shrink:0}
+.bnk-list{border-top:1px solid #F9A825;padding:0 12px 10px}
+.bnk-item{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #FDE89A}
+.bnk-item:last-of-type{border-bottom:none}
+.bnk-item-zero .bnk-item-name{color:#E53935}
+.bnk-item-info{flex:1;min-width:0}
+.bnk-item-name{font-size:13px;font-weight:600;color:#222;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bnk-item-supplier{font-size:11px;color:#888;margin-top:1px}
+.bnk-item-right{text-align:right;flex-shrink:0;min-width:90px}
+.bnk-stock-label{font-size:12px;font-weight:600;color:#444;margin-bottom:3px}
+.bnk-zero-tag{background:#E53935;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px}
+.bnk-bar-wrap{height:4px;background:#FDE89A;border-radius:2px;width:80px;margin-left:auto;margin-bottom:3px}
+.bnk-bar-fill{height:4px;background:#F9A825;border-radius:2px;transition:width .3s}
+.bnk-shortfall{font-size:10px;color:#888}
+.bnk-po-btn{width:100%;margin-top:10px;padding:10px;background:#0A5C46;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer}
+
 /* ── HOME DASHBOARD ── */
 #home-screen{background:#f0f2f5}
 .home-body{padding:16px;flex:1;overflow-y:auto}
@@ -1321,6 +1344,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
   <div class="home-body">
     <div class="home-greeting" id="home-greeting">Good morning</div>
     <div class="home-sub">What would you like to do today?</div>
+    <div id="bottleneck-banner" class="bnk-banner" style="display:none"></div>
     <div class="tile-grid" id="home-tiles"></div>
   </div>
 </div>

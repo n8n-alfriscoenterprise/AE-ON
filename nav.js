@@ -117,6 +117,7 @@ function buildHomeTiles(){
   if(currentUser.role==='admin') loadPendingBadge();
   if(canPL) loadLowStockBadge();
   loadPendingCounts();
+  loadBottleneckAlerts();
 }
 
 async function loadPendingCounts(){
@@ -130,6 +131,65 @@ async function loadPendingCounts(){
     if(bo){  if(r.boCount>0)      {bo.textContent=r.boCount;      bo.style.display='inline-flex';}else{bo.style.display='none';}  }
     if(mov){ if(r.movCount>0)     {mov.textContent=r.movCount;    mov.style.display='inline-flex';}else{mov.style.display='none';}}
   }catch(e){ console.error('loadPendingCounts failed',e); }
+}
+
+async function loadBottleneckAlerts(){
+  const canAlert = currentUser && (currentUser.role === 'admin' || currentUser.canManagePODist === true);
+  if(!canAlert) return;
+  try{
+    const r = await api({ action: 'getBottleneckAlerts' });
+    if(r.status === 'ok') _renderBottleneckBanner(r.bottlenecks || []);
+  }catch(e){ console.error('loadBottleneckAlerts', e); }
+}
+
+function _renderBottleneckBanner(items){
+  const banner = document.getElementById('bottleneck-banner');
+  if(!banner) return;
+  if(!items.length){ banner.style.display = 'none'; return; }
+
+  const outOfStock = items.filter(i => i.stock === 0).length;
+
+  banner.style.display = 'block';
+  banner.innerHTML =
+    '<div class="bnk-header" onclick="_toggleBottleneckList()">'
+      +'<span class="bnk-icon">⚠</span>'
+      +'<div class="bnk-title">'
+        +'<strong>'+items.length+' item'+(items.length===1?'':'s')+' need reordering</strong>'
+        +'<span class="bnk-sub"> · No open PO</span>'
+        +(outOfStock ? ' <span class="bnk-oos-badge">'+outOfStock+' out of stock</span>' : '')
+      +'</div>'
+      +'<span class="bnk-chevron" id="bnk-chevron">▼</span>'
+    +'</div>'
+    +'<div class="bnk-list" id="bnk-list" style="display:none">'
+      +items.map(function(i){
+        const pct  = i.parLevel > 0 ? Math.round((i.stock / i.parLevel) * 100) : 0;
+        const zero = i.stock === 0;
+        return '<div class="bnk-item'+(zero?' bnk-item-zero':'')+'">'
+          +'<div class="bnk-item-info">'
+            +'<div class="bnk-item-name">'+i.name+'</div>'
+            +'<div class="bnk-item-supplier">'+(i.supplier||'No supplier set')+'</div>'
+          +'</div>'
+          +'<div class="bnk-item-right">'
+            +'<div class="bnk-stock-label">'
+              +(zero ? '<span class="bnk-zero-tag">OUT</span>'
+                     : '<span>'+i.stock+' / '+i.parLevel+'</span>')
+            +'</div>'
+            +'<div class="bnk-bar-wrap"><div class="bnk-bar-fill" style="width:'+Math.min(100,pct)+'%'+(zero?';background:#E53935':'')+'"></div></div>'
+            +'<div class="bnk-shortfall">Need '+i.shortfall+'</div>'
+          +'</div>'
+        +'</div>';
+      }).join('')
+      +'<button class="bnk-po-btn" onclick="openPO()">📋 Go to Purchase Orders →</button>'
+    +'</div>';
+}
+
+function _toggleBottleneckList(){
+  const list    = document.getElementById('bnk-list');
+  const chevron = document.getElementById('bnk-chevron');
+  if(!list) return;
+  const open = list.style.display === 'none';
+  list.style.display    = open ? 'block' : 'none';
+  if(chevron) chevron.textContent = open ? '▲' : '▼';
 }
 
 async function loadLowStockBadge(){

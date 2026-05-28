@@ -889,6 +889,7 @@ function doPost(e) {
               unit:        'bag',
               price:       Number(r[9])  || 0,
               parLevel:    Number(r[10]) || 0,
+              bundleQty:   Number(r[11]) || 1,
               stock:       stk ? stk.stock       : null,
               lastUpdated: stk ? stk.lastUpdated : null
             });
@@ -913,6 +914,7 @@ function doPost(e) {
               unit:        String(r[4]||'pc').trim(),
               price:       Number(r[10]) || 0,
               parLevel:    Number(r[15]) || 0,
+              bundleQty:   Number(r[16]) || 1,
               stock:       stk ? stk.stock       : null,
               lastUpdated: stk ? stk.lastUpdated : null
             });
@@ -1859,6 +1861,74 @@ function doPost(e) {
         };
       });
       return ok({ invoices: invoices, totals: totals, grandTotal: grandTotal, adminView: adminView });
+    }
+
+    // ── BOTTLENECK ALERTS ─────────────────────────────────────────────
+    if (data.action === 'getBottleneckAlerts') {
+      const distSkuSheet = ss.getSheetByName('SKU Master');
+      const distCntSheet = ss.getSheetByName('Stock Counts - Distribution');
+      const poSheet      = ss.getSheetByName('Purchase Orders');
+      const liSheet      = ss.getSheetByName('PO Line Items');
+
+      // Latest stock per SKU
+      const stockMap = {};
+      if (distCntSheet) {
+        distCntSheet.getDataRange().getValues().slice(1)
+          .filter(function(r){ return r[0] && r[3]; })
+          .forEach(function(r){
+            const sku = String(r[3]).trim();
+            const ts  = r[0] instanceof Date ? r[0] : new Date(String(r[0]));
+            if (!stockMap[sku] || ts > stockMap[sku].ts)
+              stockMap[sku] = { qty: Number(r[5]) || 0, ts: ts };
+          });
+      }
+
+      // SKUs already covered by an open PO
+      const coveredSkus = new Set();
+      if (poSheet && liSheet) {
+        const openStatuses = { DRAFT:true, PENDING:true, APPROVED:true, PARTIAL:true };
+        const openPONums   = new Set();
+        poSheet.getDataRange().getValues().slice(1)
+          .filter(function(r){ return r[0] && openStatuses[String(r[3]).trim().toUpperCase()]; })
+          .forEach(function(r){ openPONums.add(String(r[0]).trim()); });
+        liSheet.getDataRange().getValues().slice(1)
+          .filter(function(r){ return r[0] && openPONums.has(String(r[0]).trim()); })
+          .forEach(function(r){ coveredSkus.add(String(r[1]).trim()); });
+      }
+
+      // Build bottleneck list: below par + no open PO
+      const bottlenecks = [];
+      if (distSkuSheet) {
+        distSkuSheet.getDataRange().getValues().slice(4)
+          .filter(function(r){ return r[0] && String(r[5]).toUpperCase() === 'YES'; })
+          .forEach(function(r){
+            const sku      = String(r[0]).trim();
+            const parLevel = Number(r[10]) || 0;
+            if (parLevel <= 0) return;
+            const entry = stockMap[sku];
+            const stock = entry ? Number(entry.qty) : null;
+            if (stock === null || stock >= parLevel) return;
+            if (coveredSkus.has(sku)) return;
+            bottlenecks.push({
+              sku:      sku,
+              name:     String(r[1]).trim(),
+              category: String(r[2]).trim(),
+              supplier: String(r[7] || '').trim(),
+              stock:    stock,
+              parLevel: parLevel,
+              shortfall: parLevel - stock
+            });
+          });
+      }
+
+      // Sort by criticality — fully out of stock first, then lowest stock ratio
+      bottlenecks.sort(function(a, b){
+        if (a.stock === 0 && b.stock > 0) return -1;
+        if (b.stock === 0 && a.stock > 0) return 1;
+        return (a.stock / a.parLevel) - (b.stock / b.parLevel);
+      });
+
+      return ok({ bottlenecks: bottlenecks });
     }
 
     // ── GET SUPPLIERS ─────────────────────────────────────────────────

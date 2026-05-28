@@ -36,11 +36,31 @@ function closePO(){showHome();}
 function showPOSubtab(tab,el){
   document.querySelectorAll('.po-subtab').forEach(t=>t.classList.remove('active'));
   if(el)el.classList.add('active');
+  if(tab==='dist')       { poTypeView='DIST';   tab='list'; }
+  else if(tab==='retail'){ poTypeView='RETAIL'; tab='list'; }
+  else if(tab==='list')  { poTypeView='ALL'; }
   document.getElementById('po-view-list').style.display=tab==='list'?'flex':'none';
   document.getElementById('po-view-create').style.display=tab==='create'?'flex':'none';
   document.getElementById('po-view-detail').style.display=tab==='detail'?'flex':'none';
   if(tab==='create')initPOCreate();
-  if(tab==='list')loadPOs();
+  if(tab==='list'){updatePOTypeBanner();loadPOs();}
+}
+
+function updatePOTypeBanner(){
+  const banner=document.getElementById('po-type-banner');
+  if(!banner)return;
+  if(poTypeView==='DIST'){
+    banner.style.display='block';
+    banner.className='po-type-banner dist';
+    banner.textContent='📦 Distribution POs';
+  }else if(poTypeView==='RETAIL'){
+    banner.style.display='block';
+    banner.className='po-type-banner retail';
+    banner.textContent='🛒 Retail POs';
+  }else{
+    banner.style.display='none';
+    banner.className='po-type-banner';
+  }
 }
 
 async function loadPOs(){

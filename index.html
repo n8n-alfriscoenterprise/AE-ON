@@ -768,6 +768,11 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .po-subtab.active{color:white;border-bottom-color:#5BA3D9}
 .po-status-chips{display:flex;gap:6px;padding:8px 12px;background:white;border-bottom:1px solid #eee;overflow-x:auto;flex-shrink:0;scrollbar-width:none}
 .po-status-chips::-webkit-scrollbar{display:none}
+.po-type-banner{padding:7px 14px;font-size:12px;font-weight:700;color:white;flex-shrink:0;letter-spacing:0.3px}
+.po-type-banner.dist{background:#1A3A5C}
+.po-type-banner.retail{background:#B35C00}
+.po-type-dist{display:inline-block;background:#E3EEF9;color:#1A3A5C;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;margin-left:5px;vertical-align:middle}
+.po-type-retail{display:inline-block;background:#FFF3DC;color:#B35C00;font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;margin-left:5px;vertical-align:middle}
 .po-chip{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;border:1.5px solid #e0e0e0;color:#666;background:white}
 .po-chip.active{background:#1A3A5C;color:white;border-color:#1A3A5C}
 .po-list-body{flex:1;overflow-y:auto;background:#f0f2f5;padding-bottom:14px}
@@ -1497,13 +1502,16 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
     <button class="back-btn" onclick="closePO()">← Back</button>
   </div>
   <div class="po-subtabs">
-    <div class="po-subtab active" id="po-tab-list" onclick="showPOSubtab('list',this)">All POs</div>
+    <div class="po-subtab active" id="po-tab-list" onclick="showPOSubtab('list',this)">All</div>
+    <div class="po-subtab" id="po-tab-dist" onclick="showPOSubtab('dist',this)">Distribution</div>
+    <div class="po-subtab" id="po-tab-retail" onclick="showPOSubtab('retail',this)">Retail</div>
     <div class="po-subtab" id="po-tab-create" onclick="showPOSubtab('create',this)">+ New PO</div>
   </div>
   <div class="po-success-bar" id="po-success-bar"></div>
 
   <!-- PO LIST VIEW -->
   <div id="po-view-list" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+    <div id="po-type-banner" style="display:none"></div>
     <div class="po-status-chips" id="po-status-chips"></div>
     <div class="po-list-body" id="po-list-body">
       <div class="po-list-empty">Loading purchase orders...</div>

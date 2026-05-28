@@ -438,5 +438,5 @@ function exportCountHistory(){
 // ── PURCHASE ORDER SYSTEM ──
 const DIST_SUPPLIERS=['A-Legacy','AAS','CCPI','EMT','PDI','TFI','THB','TOPPERSWARE'];
 const RETAIL_SUPPLIERS=['Alfrisco Distribution','Edzena','JFL','Jake','Magpayo','Zoe'];
-let poList=[],currentPO=null,poFilter='All',poLineItems=[];
+let poList=[],currentPO=null,poFilter='All',poLineItems=[],poTypeView='ALL';
 

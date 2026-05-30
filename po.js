@@ -683,6 +683,10 @@ function renderPODetail(){
         + '<button class="po-btn po-btn-danger" id="po-reject-confirm-btn" onclick="rejectPO()" style="display:none">Confirm Rejection</button>'
       + '</div>';
     body.appendChild(approvalDiv);
+    // Initialise field visibility for whatever mode/terms are pre-selected from supplier defaults.
+    // Without these, onchange never fires on load so cheque field and due date stay at their blank defaults.
+    onPOPaymentModeChange();
+    updatePODueDate();
   }
 
   // ── RESUBMIT (creator on REJECTED) ──
@@ -961,6 +965,9 @@ async function approvePO(){
   const dueDisp    = document.getElementById('po-due-date-display')        ? document.getElementById('po-due-date-display').textContent                   : '';
   const delivInput = document.getElementById('po-approval-delivery-date')  ? document.getElementById('po-approval-delivery-date').value                   : '';
 
+  if(!mode){
+    alert('Please select a payment mode before approving.');return;
+  }
   if(mode==='Cheque' && cheque.length!==10){
     alert('Cheque reference must be exactly 10 characters.');return;
   }

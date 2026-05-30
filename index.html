@@ -1525,7 +1525,8 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
   <div id="po-view-create" style="display:none;flex-direction:column;flex:1;overflow:hidden">
     <div class="po-create-body">
       <div class="po-form-section">
-        <div class="po-form-title">PO Details</div>
+        <div class="po-form-title" id="po-create-title">New Purchase Order</div>
+        <div id="po-create-err" style="font-size:11px;color:#E24B4A;margin-bottom:4px"></div>
         <span class="po-form-label">Inventory Type</span>
         <select class="po-form-select" id="po-type" onchange="onPOTypeChange()">
           <option value="DIST">Distribution</option>
@@ -1571,8 +1572,8 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
       </div>
 
       <div class="po-action-row">
-        <button class="po-btn po-btn-secondary" onclick="savePODraft()">Save Draft</button>
-        <button class="po-btn po-btn-primary" onclick="submitPOForApproval()">Submit for Approval</button>
+        <button class="po-btn po-btn-secondary" id="po-save-draft-btn" onclick="savePODraft()">Save Draft</button>
+        <button class="po-btn po-btn-primary" id="po-submit-btn" onclick="submitPOForApproval()">Submit for Approval</button>
       </div>
     </div>
   </div>

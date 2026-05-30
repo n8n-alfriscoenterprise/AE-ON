@@ -361,7 +361,8 @@ function doPost(e) {
         'Approved By','Approved Date','Delivery Date','Total Value','Notes',
         'Payment Terms Days','Payment Mode','Cheque Ref','Due Date',
         'Rejection Reason','Doc Ref','Date Received','Received By','Payment History',
-        'Amount Paid','Overpayment','Payment Schedule']);
+        'Amount Paid','Overpayment','Payment Schedule',
+        'Last Edited By','Last Edited At','Edit History']);
       const liSheet = getOrCreateSheet(ss,'PO Line Items',[
         'PO Number','SKU Code','Item Name','Category',
         'Qty Ordered','Unit','Unit Cost','Total Cost',
@@ -454,7 +455,10 @@ function doPost(e) {
         paymentHistory:   String(poRow[19]||''),
         amountPaid:       Number(poRow[20]||0),
         overpayment:      Number(poRow[21]||0),
-        paymentSchedule:  (() => { try{ return JSON.parse(String(poRow[22]||'[]')); }catch(e){ return []; } })()
+        paymentSchedule:  (() => { try{ return JSON.parse(String(poRow[22]||'[]')); }catch(e){ return []; } })(),
+        lastEditedBy:     String(poRow[23]||''),
+        lastEditedAt:     String(poRow[24]||''),
+        editHistory:      String(poRow[25]||'')
       };
       let lineItems=[];
       if(liSheet){
@@ -555,20 +559,30 @@ function doPost(e) {
       const liRows=liSheet.getDataRange().getValues();
       const now=Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 
-      // Update line items with received qty and actual cost
-      (data.receipts||[]).forEach(receipt=>{
+      // Update line items with received qty and actual cost.
+      // skuMatchCount handles duplicate SKUs in the same PO — each receipt targets the
+      // Nth occurrence of that SKU in the sheet (same order as the line items list).
+      const skuMatchCount = {};
+      (data.receipts||[]).forEach(function(receipt){
+        const skuKey   = String(receipt.skuCode);
+        const skipCount = skuMatchCount[skuKey] || 0;
+        let matchesFound = 0;
         for(let i=1;i<liRows.length;i++){
-          if(String(liRows[i][0])===data.poNumber&&String(liRows[i][1])===receipt.skuCode){
-            const newRec=Number(liRows[i][8]||0)+Number(receipt.qtyReceived);
-            const newOut=Math.max(0,Number(liRows[i][4]||0)-newRec);
-            liSheet.getRange(i+1,9).setValue(newRec);
-            liSheet.getRange(i+1,10).setValue(newOut);
-            // Update actual unit cost if changed
-            if(receipt.unitCost && receipt.unitCost!==liRows[i][6]){
-              liSheet.getRange(i+1,7).setValue(receipt.unitCost);
+          if(String(liRows[i][0])===data.poNumber && String(liRows[i][1])===skuKey){
+            if(matchesFound === skipCount){
+              // Correct row for this receipt (Nth occurrence)
+              const newRec=Number(liRows[i][8]||0)+Number(receipt.qtyReceived);
+              const newOut=Math.max(0,Number(liRows[i][4]||0)-newRec);
+              liSheet.getRange(i+1,9).setValue(newRec);
+              liSheet.getRange(i+1,10).setValue(newOut);
+              if(receipt.unitCost && receipt.unitCost!==liRows[i][6]){
+                liSheet.getRange(i+1,7).setValue(receipt.unitCost);
+              }
+              if(newOut<=0)liSheet.getRange(i+1,11).setValue('Received');
+              skuMatchCount[skuKey] = skipCount + 1;
+              break;
             }
-            if(newOut<=0)liSheet.getRange(i+1,11).setValue('Closed');
-            break;
+            matchesFound++;
           }
         }
       });
@@ -576,7 +590,9 @@ function doPost(e) {
       // Determine new status
       const updatedLi=liSheet.getDataRange().getValues().slice(1)
         .filter(r=>String(r[0])===data.poNumber);
-      const allFulfilled=updatedLi.every(r=>Number(r[9]||1)<=0);
+      // r[9] is Qty Outstanding — use explicit blank check so 0 (fully received) is not
+      // treated as falsy and accidentally replaced by the fallback 1 (would block RECEIVED status)
+      const allFulfilled=updatedLi.every(r=>(r[9]===''||r[9]==null?1:Number(r[9]))<=0);
       const anyReceived=updatedLi.some(r=>Number(r[8]||0)>0);
       const newStatus=allFulfilled?'RECEIVED':anyReceived?'PARTIAL':'APPROVED';
 
@@ -592,18 +608,31 @@ function doPost(e) {
         }
       }
 
-      // Write STOCK IN entries to Stock Counts sheet
+      // Write STOCK IN entries to Stock Counts sheet — adds to running on-hand balance
       const csName=data.poType==='RETAIL'?'Stock Counts - Retail':'Stock Counts - Distribution';
       const cs=getOrCreateSheet(ss,csName,[
         'Timestamp','Submitted By','Location','SKU Code',
         'Item Name','Qty On Hand','Unit','Type','Category']);
-      (data.receipts||[]).forEach(r=>{
+
+      // Read current latest on-hand balance per SKU (last row per SKU wins)
+      const csRows=cs.getDataRange().getValues().slice(1).filter(function(r){return r[0]&&r[3];});
+      var latestStock={};
+      csRows.forEach(function(r){
+        var sku=String(r[3]).trim();
+        latestStock[sku]={qty:Number(r[5])||0, unit:String(r[6]||'bag'), category:String(r[8]||'')};
+      });
+
+      var stockInLabel='STOCK IN — '+data.poNumber+(data.docRef?' ('+data.docRef+')':'');
+      (data.receipts||[]).forEach(function(r){
+        var current=latestStock[r.skuCode]||{qty:0, unit:r.unit||'bag', category:''};
+        var newQty=current.qty+Number(r.qtyReceived);
         cs.appendRow([
-          now, data.receivedBy,
-          'STOCK IN — ' + data.poNumber + (data.docRef?' ('+data.docRef+')':''),
-          r.skuCode, r.itemName, r.qtyReceived,
-          'bag', data.poType, 'PO Receipt'
+          now, data.receivedBy, stockInLabel,
+          r.skuCode, r.itemName, newQty,
+          r.unit||current.unit||'bag', data.poType, 'PO Receipt'
         ]);
+        // Update local map so multiple receipts in the same batch stack correctly
+        latestStock[r.skuCode]={qty:newQty, unit:r.unit||current.unit||'bag', category:current.category};
       });
 
       // ── GOOGLE CALENDAR PAYMENT REMINDER ─────────────────────────────
@@ -1740,7 +1769,7 @@ function doPost(e) {
       invSheet.getRange(targetRow, 17).setValue(String(data.reason || '')); // Col Q = Void Reason
       invSheet.getRange(targetRow, 18).setValue(String(data.voidedBy || '')); // Col R = Voided By
       invSheet.getRange(targetRow, 19).setValue(voidNow);                   // Col S = Voided At
-      return ok({ invoiceNumber: invNum, status: 'VOID' });
+      return ok({ invoiceNumber: invNum, voided: true });
     }
 
     // ── DEALER ACTIVITY (lightweight: last invoice date per dealer) ───────
@@ -2130,12 +2159,45 @@ function doPost(e) {
         if (String(poRows[i][0]) === data.poNumber) {
           const editableStatuses = ['DRAFT','REJECTED'];
           if (!editableStatuses.includes(String(poRows[i][3]))) return err('Only DRAFT or REJECTED POs can be edited');
-          poSheet.getRange(i+1, 2).setValue(data.type         || poRows[i][1]);
-          poSheet.getRange(i+1, 3).setValue(data.supplier     || poRows[i][2]);
-          poSheet.getRange(i+1, 4).setValue(data.status       || 'DRAFT');
-          poSheet.getRange(i+1, 9).setValue(data.deliveryDate || '');
-          poSheet.getRange(i+1,10).setValue(data.totalValue   || 0);
-          poSheet.getRange(i+1,11).setValue(data.notes        || '');
+
+          // ── Build diff for edit history ────────────────────────────────
+          const oldSupplier = String(poRows[i][2] || '');
+          const oldDelivery = String(poRows[i][8] || '');
+          const oldNotes    = String(poRows[i][10] || '');
+          const oldTotal    = Number(poRows[i][9]  || 0);
+          const oldStatus   = String(poRows[i][3]  || '');
+          const newSupplier = data.supplier     || oldSupplier;
+          const newDelivery = data.deliveryDate || '';
+          const newNotes    = data.notes        || '';
+          const newTotal    = data.totalValue   || 0;
+          const newStatus   = data.status       || 'DRAFT';
+          const diffParts   = [];
+          if (newSupplier !== oldSupplier) diffParts.push('Supplier: ' + oldSupplier + ' → ' + newSupplier);
+          if (newDelivery !== oldDelivery) diffParts.push('Delivery Date: ' + (oldDelivery||'—') + ' → ' + (newDelivery||'—'));
+          if (Math.round(newTotal*100) !== Math.round(oldTotal*100))
+            diffParts.push('Total: ₱' + oldTotal.toLocaleString() + ' → ₱' + newTotal.toLocaleString());
+          if (newStatus !== oldStatus) diffParts.push('Status: ' + oldStatus + ' → ' + newStatus);
+          if (newNotes !== oldNotes)   diffParts.push('Notes updated');
+
+          // Write updated header fields
+          poSheet.getRange(i+1, 2).setValue(data.type      || poRows[i][1]);
+          poSheet.getRange(i+1, 3).setValue(newSupplier);
+          poSheet.getRange(i+1, 4).setValue(newStatus);
+          poSheet.getRange(i+1, 9).setValue(newDelivery);
+          poSheet.getRange(i+1,10).setValue(newTotal);
+          poSheet.getRange(i+1,11).setValue(newNotes);
+
+          // Write audit columns (24=Last Edited By, 25=Last Edited At, 26=Edit History)
+          const editedBy  = String(data.editedBy || 'unknown');
+          const editedAt  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+          const diffText  = diffParts.length ? diffParts.join(' · ') : 'No field changes (line items updated)';
+          const histEntry = '[' + editedAt + ' by ' + editedBy + '] ' + diffText;
+          const prevHist  = String(poRows[i][25] || '');
+          const newHist   = prevHist ? prevHist + '|||' + histEntry : histEntry;
+          poSheet.getRange(i+1,24).setValue(editedBy);
+          poSheet.getRange(i+1,25).setValue(editedAt);
+          poSheet.getRange(i+1,26).setValue(newHist);
+
           found = true;
           break;
         }

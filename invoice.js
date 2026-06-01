@@ -20,6 +20,10 @@ let sigDrawing       = false;
 let sigHasData       = false;
 let _sigListeners    = false;  // guard — add canvas listeners only once
 
+// Charge two-step state
+let _chargeStep      = 0;     // 0 = ready, 1 = customer copy printed, waiting for merchant
+let _cachedReceiptHtml = '';  // built once, reused for merchant copy
+
 
 // ── OPEN / CLOSE ──────────────────────────────────────────────
 async function openInvoice(){
@@ -132,6 +136,15 @@ function resetInvForm(){
   clearSignature();
   updateInvTotals();
   addInvLine();
+
+  // Reset charge two-step state
+  _chargeStep        = 0;
+  _cachedReceiptHtml = '';
+  const chargeBtn = document.getElementById('inv-charge-btn');
+  if(chargeBtn){
+    chargeBtn.textContent  = '⚡ Charge';
+    chargeBtn.style.background = '';
+  }
 }
 
 
@@ -667,7 +680,25 @@ function _buildReceiptHtml(){
     +'</div>';
 }
 
+function _requireSignature(){
+  if(sigHasData) return true;
+  // Flash the signature pad red and scroll it into view
+  const wrap = document.getElementById('inv-sig-wrap');
+  if(wrap){
+    wrap.style.border = '2px solid #E24B4A';
+    wrap.style.boxShadow = '0 0 0 3px rgba(226,75,74,0.25)';
+    wrap.scrollIntoView({behavior:'smooth', block:'center'});
+    setTimeout(()=>{
+      wrap.style.border = '1.5px solid #ddd';
+      wrap.style.boxShadow = '';
+    }, 2500);
+  }
+  showToast('Customer signature required before printing.','warning', 4000);
+  return false;
+}
+
 async function printInvoice(){
+  if(!_requireSignature()) return;
   if(!invSaved) await saveInvoice();
   if(!invSaved) return;
   const rcpt = _buildReceiptHtml();
@@ -680,19 +711,42 @@ async function printInvoice(){
 }
 
 async function chargeInvoice(){
-  if(!invSaved) await saveInvoice();
+  const chargeBtn = document.getElementById('inv-charge-btn');
+
+  // ── STEP 2: Print merchant copy ───────────────────────────────
+  if(_chargeStep === 1){
+    const pv = document.getElementById('inv-print-view');
+    pv.innerHTML = '<div class="rcp-copy-label">&#x2014; MERCHANT COPY &#x2014;</div>' + _cachedReceiptHtml;
+    window.print();
+    setTimeout(()=>{
+      showToast('Merchant copy printed ✓ — ready for next invoice','success');
+      resetInvForm();
+    }, 600);
+    return;
+  }
+
+  // ── STEP 1: Validate, save, print customer copy ───────────────
+  if(!_requireSignature()) return;
+
+  if(!invSaved){
+    if(chargeBtn){ chargeBtn.disabled=true; chargeBtn.textContent='⏳ Saving…'; }
+    await saveInvoice();
+    if(chargeBtn){ chargeBtn.disabled=false; chargeBtn.textContent='⚡ Charge'; }
+  }
   if(!invSaved) return;
-  const rcpt = _buildReceiptHtml();
-  const pv   = document.getElementById('inv-print-view');
-  pv.innerHTML =
-    '<div class="rcp-copy-label">&#x2014; CUSTOMER COPY &#x2014;</div>' + rcpt +
-    '<div class="rcp-page-break"></div>' +
-    '<div class="rcp-copy-label">&#x2014; MERCHANT COPY &#x2014;</div>' + rcpt;
+
+  _cachedReceiptHtml = _buildReceiptHtml();
+  const pv = document.getElementById('inv-print-view');
+  pv.innerHTML = '<div class="rcp-copy-label">&#x2014; CUSTOMER COPY &#x2014;</div>' + _cachedReceiptHtml;
   window.print();
-  setTimeout(()=>{
-    showToast('Sale charged ✓ — ready for next invoice','success');
-    resetInvForm();
-  }, 600);
+
+  // Flip button to merchant copy mode
+  _chargeStep = 1;
+  if(chargeBtn){
+    chargeBtn.textContent = '🖨 Merchant Copy';
+    chargeBtn.style.background = '#1B5E20';
+  }
+  showToast('Customer copy printed — tap Merchant Copy to print yours','info', 5000);
 }
 
 async function voidInvoice(invNum){

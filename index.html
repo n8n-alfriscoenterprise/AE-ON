@@ -3393,10 +3393,10 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 
     <!-- Customer signature -->
     <div class="inv-section">
-      <div class="inv-section-label">Customer Signature</div>
-      <div class="inv-sig-wrap">
+      <div class="inv-section-label">Customer Signature <span style="color:#E24B4A;font-size:10px;font-weight:700;margin-left:4px">* Required</span></div>
+      <div class="inv-sig-wrap" id="inv-sig-wrap">
         <canvas id="inv-sig-canvas" class="inv-sig-canvas"></canvas>
-        <div class="inv-sig-placeholder" id="inv-sig-placeholder">Sign here</div>
+        <div class="inv-sig-placeholder" id="inv-sig-placeholder">✍️ Ask customer to sign here</div>
       </div>
       <div class="inv-sig-btns">
         <button class="inv-btn-clear" onclick="clearSignature()">✕ Clear</button>
@@ -3407,7 +3407,7 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 
     <div class="inv-actions">
       <button class="inv-btn inv-btn-save" id="inv-save-btn" onclick="saveInvoice()">💾 Save</button>
-      <button class="inv-btn inv-btn-charge" onclick="chargeInvoice()">⚡ Charge</button>
+      <button class="inv-btn inv-btn-charge" id="inv-charge-btn" onclick="chargeInvoice()">⚡ Charge</button>
       <button class="inv-btn inv-btn-print" onclick="printInvoice()">🖨 Print</button>
       <button class="inv-btn inv-btn-xero" id="inv-xero-btn" onclick="exportXero()">📤 Xero</button>
     </div>

@@ -37,6 +37,11 @@ async function init(){
     if(found){
       currentUser = found;
       setLoginStatus('','');
+      // These normally start inside showApp() — the restore path routes around it,
+      // so start them explicitly or queued offline invoices never sync and the
+      // 8-hour inactivity logout never arms on a restored session
+      startOfflineSync();
+      _startActivityWatcher();
       // Restore last screen or go to default
       const lastScreen = savedSession.lastScreen || '';
       if(found.role === 'driver'){
@@ -157,8 +162,10 @@ async function doLogin(){
     password:   found.password,
     lastScreen: found.role==='driver' ? 'driver-screen' : 'home-screen'
   });
-  if(currentUser.role==='driver') showDriver();
-  else showApp();
+  // showApp() routes drivers to showDriver() itself AND starts the offline
+  // invoice sync + activity watcher — calling showDriver() directly here
+  // skipped both services for drivers (their offline invoices never synced)
+  showApp();
 }
 
 function doLogout(){

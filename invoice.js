@@ -24,6 +24,9 @@ let _sigListeners    = false;  // guard — add canvas listeners only once
 let _chargeStep      = 0;     // 0 = ready, 1 = customer copy printed, waiting for merchant
 let _cachedReceiptHtml = '';  // built once, reused for merchant copy
 
+// Save double-tap guard
+let _invSaving       = false;
+
 
 // ── OPEN / CLOSE ──────────────────────────────────────────────
 async function openInvoice(){
@@ -426,6 +429,8 @@ function updateInvTotals(){
 
 // ── SAVE ──────────────────────────────────────────────────────
 async function saveInvoice(){
+  // Guard: a Save+Charge double-tap would create two invoices and deduct stock twice
+  if(_invSaving) return;
   const errEl = document.getElementById('inv-err');
   errEl.textContent = '';
 
@@ -442,6 +447,10 @@ async function saveInvoice(){
 
   const validLines = invLines.filter(l=>l.sku && l.qty>0);
   if(!validLines.length){ errEl.textContent='Add at least one product with a quantity.'; return; }
+
+  // Signature is required on every invoice — the saved record must carry it,
+  // not just the printed receipt
+  if(!_requireSignature()) return;
 
   // Van stock validation — drivers only
   const isDriver = currentUser && currentUser.assignedUnit && currentUser.assignedUnit !== 'All';
@@ -480,6 +489,7 @@ async function saveInvoice(){
 
   const btn = document.getElementById('inv-save-btn');
   if(btn){ btn.disabled=true; btn.textContent='Saving...'; }
+  _invSaving = true;
 
   const now       = new Date().toLocaleString('sv-SE',{timeZone:'Asia/Manila'});
   const signature = getSignatureBase64();
@@ -530,6 +540,7 @@ async function saveInvoice(){
   }catch(e){
     errEl.textContent = 'Network error: '+e.message;
   }
+  _invSaving = false;
   if(btn){ btn.disabled=false; btn.textContent='💾 Save Invoice'; }
 }
 
@@ -753,12 +764,12 @@ async function voidInvoice(invNum){
   if(!currentUser || currentUser.role!=='admin') return;
   const reason = window.prompt('Void reason for '+invNum+' (required):');
   if(!reason || !reason.trim()) return;
+  const btn = document.querySelector('[data-void-inv="'+invNum+'"]');
+  if(btn){ btn.disabled=true; btn.textContent='Voiding…'; }
   try{
-    const btn = document.querySelector('[data-void-inv="'+invNum+'"]');
-    if(btn){ btn.disabled=true; btn.textContent='Voiding…'; }
     const r = await api({action:'voidInvoice', invoiceNumber:invNum, reason:reason.trim(), voidedBy:currentUser.username});
     if(r.status==='ok'){
-      showToast(invNum+' voided','warning');
+      showToast(invNum+' voided'+(r.stockRestored?' — stock restored':''),'warning');
       invoiceHistory = invoiceHistory.map(i=>i.invoiceNumber===invNum?{...i,status:'VOID'}:i);
       renderInvoiceHistory();
     } else {
@@ -767,6 +778,7 @@ async function voidInvoice(invNum){
     }
   }catch(e){
     alert('Network error: '+e.message);
+    if(btn){ btn.disabled=false; btn.textContent='Void'; }
   }
 }
 

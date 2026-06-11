@@ -36,9 +36,13 @@ function closePO(){showHome();}
 function showPOSubtab(tab,el){
   document.querySelectorAll('.po-subtab').forEach(t=>t.classList.remove('active'));
   if(el)el.classList.add('active');
+  const _prevTypeView=poTypeView;
   if(tab==='dist')       { poTypeView='DIST';   tab='list'; }
   else if(tab==='retail'){ poTypeView='RETAIL'; tab='list'; }
   else if(tab==='list')  { poTypeView='ALL'; }
+  // Reset status filter when switching type views — a filter like DRAFT carried into a
+  // view with zero drafts shows an empty list with no visible active chip (confusing)
+  if(poTypeView!==_prevTypeView) poFilter='All';
   document.getElementById('po-view-list').style.display=tab==='list'?'flex':'none';
   document.getElementById('po-view-create').style.display=tab==='create'?'flex':'none';
   document.getElementById('po-view-detail').style.display=tab==='detail'?'flex':'none';
@@ -128,6 +132,16 @@ function renderPOList(){
 
 function initPOCreate(){
   poLineItems=[];
+  // Always start in create mode — clears leftover edit state so a user who tapped
+  // "Edit Draft" then switched to "+ New PO" doesn't silently overwrite the old draft.
+  // (editPODraft re-sets these flags AFTER calling showPOSubtab/initPOCreate.)
+  poEditMode=false; poEditingNumber=null;
+  const _titleEl=document.getElementById('po-create-title');
+  if(_titleEl) _titleEl.textContent='New Purchase Order';
+  const _draftBtn=document.getElementById('po-save-draft-btn');
+  if(_draftBtn) _draftBtn.textContent='Save Draft';
+  const _subBtn=document.getElementById('po-submit-btn');
+  if(_subBtn) _subBtn.textContent='Submit for Approval';
   const _isAdm=currentUser.role==='admin';
   const hasDist  =_isAdm||currentUser.canManagePODist===true;
   const hasRetail=_isAdm||currentUser.canManagePORetail===true;
@@ -201,8 +215,26 @@ function onPOSupplierChange(){
 }
 
 function onPOTypeChange(){
-  const type = document.getElementById('po-type').value;
-  const sup  = document.getElementById('po-supplier');
+  const typeEl = document.getElementById('po-type');
+  const type   = typeEl.value;
+  const prevType = typeEl.dataset.prevType || '';
+
+  // Confirm BEFORE touching anything — declining must leave the form exactly as it was
+  // (previously the supplier list was rebuilt for the new type before the confirm,
+  // so declining left DIST type showing RETAIL suppliers)
+  const hasRealLines = poLineItems.some(l=>!l.removed&&l.skuCode);
+  if(hasRealLines && prevType && type!==prevType){
+    if(!confirm('Changing type will clear all current line items. Continue?')){
+      typeEl.value = prevType;
+      return;
+    }
+    poLineItems = [];
+    renderPOLineItems();
+    updatePOTotals();
+  }
+  typeEl.dataset.prevType = type;
+
+  const sup = document.getElementById('po-supplier');
   // Use Suppliers sheet data when available, fall back to SKU Master derived list
   let supNames;
   if(supplierList.length){
@@ -213,17 +245,6 @@ function onPOTypeChange(){
     supNames = assigned.length ? assigned : (type==='DIST' ? DIST_SUPPLIERS : RETAIL_SUPPLIERS);
   }
   sup.innerHTML = supNames.map(s=>`<option value="${s}">${s}</option>`).join('');
-  // Clear all line items when type changes — SKUs are different
-  if(poLineItems.length > 0){
-    if(confirm('Changing type will clear all current line items. Continue?')){
-      poLineItems = [];
-      renderPOLineItems();
-      updatePOTotals();
-    } else {
-      // Revert type selection
-      document.getElementById('po-type').value = type === 'DIST' ? 'RETAIL' : 'DIST';
-    }
-  }
 }
 
 // preData = {skuCode, skuName, qty, unitCost, unit} for edit-draft pre-fill
@@ -327,11 +348,12 @@ function onPOLineDiscountType(idx,type){
 
 function editPODraft(){
   if(!currentPO||!['DRAFT','REJECTED'].includes(currentPO.status)) return;
+
+  // Switch to create tab FIRST — initPOCreate resets edit state, so the
+  // edit flags must be set after it runs, not before
+  showPOSubtab('create', document.getElementById('po-tab-create'));
   poEditMode      = true;
   poEditingNumber = currentPO.poNumber;
-
-  // Switch to create tab and initialise
-  showPOSubtab('create', document.getElementById('po-tab-create'));
 
   // Pre-fill header
   const typeEl = document.getElementById('po-type');
@@ -443,8 +465,10 @@ async function savePO(status){
         deliveryDate:delivDate,notes,totalValue:total,
         lineItems:active.map(l=>[poNumber,l.skuCode,l.skuName,'',l.qty,l.unit||'bag',l.unitCost,calcLineNet(l),0,l.qty,'Open',l.discount||0,l.discountType||'%'])});
       if(r.status==='ok'){
-        showBanner('po-success-bar','PO '+poNumber+' '+(status==='DRAFT'?'saved as draft':'submitted for approval'));
-        showToast(status==='DRAFT'?poNumber+' saved as draft':poNumber+' submitted for approval','info');
+        // Server may have bumped the number if another user created a PO concurrently
+        const savedNum = r.poNumber || poNumber;
+        showBanner('po-success-bar','PO '+savedNum+' '+(status==='DRAFT'?'saved as draft':'submitted for approval'));
+        showToast(status==='DRAFT'?savedNum+' saved as draft':savedNum+' submitted for approval','info');
       } else { alert('Error: '+(r.msg||'Could not save PO')); return; }
     }
 
@@ -528,7 +552,7 @@ function renderPODetail(){
     + 'Supplier: <strong>' + po.supplier + '</strong><br>'
     + 'Type: ' + po.type + ' &nbsp;·&nbsp; Created: ' + fmtPODate(po.createdDate) + '<br>'
     + 'Created by: ' + po.createdBy
-    + (po.approvedBy ? '<br>Approved by: ' + po.approvedBy : '')
+    + (po.approvedBy ? '<br>' + (po.status==='REJECTED' ? 'Rejected by: ' : 'Approved by: ') + po.approvedBy : '')
     + (po.lastEditedBy ? '<br><span style="font-size:11px;color:#B35C00;font-weight:600">✏️ Last edited by: ' + po.lastEditedBy + (po.lastEditedAt ? ' · ' + fmtPODate(po.lastEditedAt) : '') + '</span>' : '')
     + (po.paymentMode ? '<br>Payment: ' + po.paymentMode
         + (po.chequeRef ? ' — Cheque #' + po.chequeRef : '')
@@ -994,7 +1018,7 @@ async function approvePO(){
       paymentTermsDays:mode==='Split / Installment'?'Split':days||'',
       paymentMode:mode||'',
       chequeRef:cheque||'',
-      dueDate:dueDisp&&dueDisp!=='—'&&dueDisp!=='Upon Delivery'?dueDisp:'',
+      dueDate:dueDisp&&dueDisp!=='—'&&dueDisp!=='Upon Delivery'?dueDisp.replace(' (est.)',''):'',
       paymentSchedule: splitSchedule
     });
     if(r.status==='ok'){
@@ -1073,12 +1097,17 @@ async function receiveItems(){
   const receipts = [];
   const docRef = document.getElementById('po-doc-ref') ? document.getElementById('po-doc-ref').value.trim() : '';
 
+  let overReceiptMsg = '';
   lines.forEach((li, i)=>{
     const qtyInput  = document.getElementById('recv-qty-'+i);
     const costInput = document.getElementById('recv-cost-'+i);
     if(!qtyInput) return; // already fully received
     const qty  = parseFloat(qtyInput.value)  || 0;
     const cost = parseFloat(costInput ? costInput.value : li.unitCost) || Number(li.unitCost) || 0;
+    const outstanding = Number(li.qtyOutstanding) || (Number(li.qtyOrdered) - Number(li.qtyReceived||0));
+    if(qty > outstanding){
+      overReceiptMsg += '• ' + (li.itemName||li.skuCode) + ': entered ' + qty + ' but only ' + outstanding + ' outstanding\n';
+    }
     if(qty > 0) receipts.push({
       skuCode:     li.skuCode,
       itemName:    li.itemName||li.skuCode,
@@ -1089,6 +1118,10 @@ async function receiveItems(){
     });
   });
 
+  if(overReceiptMsg){
+    alert('Cannot receive more than the outstanding quantity:\n\n' + overReceiptMsg + '\nPlease correct the quantities. If the supplier delivered extra, edit the PO line items first.');
+    return;
+  }
   if(!receipts.length){ alert('Enter quantities to receive for at least one item.'); return; }
 
   const confirmMsg = receipts.map(r =>

@@ -598,6 +598,7 @@ async function saveBoEdit(){
     action:'editBackorder',
     boType:     _boEditTarget.type,
     rowIndex:   _boEditTarget.rowIndex,
+    expectItem: _boEditTarget.itemName,
     dealer:     document.getElementById('boe-dealer').value.trim(),
     phone:      document.getElementById('boe-phone').value.trim(),
     qty:        parseFloat(document.getElementById('boe-qty').value)||1,
@@ -631,7 +632,7 @@ async function saveBoEdit(){
 async function deleteBoItem(item){
   if(!item) return;
   if(!confirm(`Delete backorder for "${item.dealer}" — ${item.itemName}?\n\nThis cannot be undone.`)) return;
-  const r=await api({action:'deleteBackorder', boType:item.type, rowIndex:item.rowIndex});
+  const r=await api({action:'deleteBackorder', boType:item.type, rowIndex:item.rowIndex, expectItem:item.itemName});
   if(r.status==='ok'){
     boListData[item.type]=boListData[item.type].filter(x=>x.rowIndex!==item.rowIndex);
     buildBoStatusChips();
@@ -764,6 +765,7 @@ async function _confirmBoPartial(){
       action:     'updateBackorderStatus',
       boType:     item.type,
       rowIndex:   item.rowIndex,
+      expectItem: item.itemName,
       status:     'PARTIAL',
       qtyServed:  qtyServed,
       servedDate: dateVal ? phDate(dateVal) : ''
@@ -802,6 +804,7 @@ async function confirmBoStatus(newStatus, btn) {
       action:   'updateBackorderStatus',
       boType:   item.type,
       rowIndex: item.rowIndex,
+      expectItem: item.itemName,
       status:   newStatus
     });
     if (r.status === 'ok') {

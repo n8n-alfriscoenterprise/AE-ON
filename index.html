@@ -6,7 +6,7 @@
 <title>AE-ON | Alfrisco Enterprise Online</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll-behavior:none}
+body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll-behavior:none}
 .screen{display:none;min-height:100vh;flex-direction:column}
 .screen:not(.active){display:none!important}
 .screen.active{display:flex}
@@ -1009,6 +1009,63 @@ body{font-family:Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll
 .ch-hist-row{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f5f5f5}
 .ch-hist-row.ch-hist-latest{background:#F3E5F5}
 .tile.t-count-history{background:linear-gradient(135deg,#6A1B9A,#7B2D8B)}
+
+/* ══════════════════════════════════════════════════════════════
+   POLISH LAYER — motion & visual consistency across all modules
+   Additive only: transitions, animations, shadows, focus states.
+   ══════════════════════════════════════════════════════════════ */
+
+/* Screen transitions — gentle fade so navigation feels continuous */
+@keyframes ae-screen-in{from{opacity:0}to{opacity:1}}
+.screen.active{animation:ae-screen-in .18s ease-out}
+
+/* Modal entrances — overlay fades, card rises */
+@keyframes ae-fade-in{from{opacity:0}to{opacity:1}}
+@keyframes ae-card-in{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+.modal-overlay{animation:ae-fade-in .15s ease-out}
+.modal-overlay .modal-card{animation:ae-card-in .22s cubic-bezier(.2,.8,.3,1.1)}
+
+/* Universal button feedback — every tap responds */
+button{transition:transform .12s ease,opacity .12s ease,box-shadow .12s ease,background-color .15s ease}
+button:active:not(:disabled){transform:scale(.96)}
+button:disabled{opacity:.55;cursor:not-allowed}
+
+/* Chips — smooth color swap when filters change */
+.chip,.po-chip,.count-chip,.dlr-chip,.po-subtab,.dlr-subtab,.tab,.inv-subtab{transition:background-color .15s ease,color .15s ease,border-color .15s ease}
+.chip:active,.po-chip:active,.count-chip:active,.dlr-chip:active{transform:scale(.95)}
+
+/* Inputs — consistent soft focus ring on top of each module's border color */
+input,select,textarea{transition:border-color .15s ease,box-shadow .15s ease}
+input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
+
+/* Cards — one consistent elevation, pressed state on tappable cards */
+.po-card,.inv-hist-card,.dlr-card,.sa-line-card,.po-line-item,.bo-line-row,.driver-sku-row,.count-sku-row{box-shadow:0 1px 4px rgba(0,0,0,.06);transition:box-shadow .15s ease,transform .12s ease}
+.po-card:active,.dlr-card:active,.inv-hist-card:active{transform:scale(.985);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+
+/* Home tiles — lift on hover (desktop), existing press scale stays */
+@media(hover:hover){
+  .tile:hover{box-shadow:0 6px 18px rgba(0,0,0,.18);transform:translateY(-2px)}
+  .chip:hover:not(.active),.po-chip:hover:not(.active),.count-chip:hover:not(.active){border-color:#bbb;color:#444}
+}
+
+/* Success bars & banners — slide in instead of popping */
+@keyframes ae-bar-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.success-bar,.po-success-bar,#driver-success-bar,#count-success-bar,#sa-success-bar,#prod-success-bar{animation:ae-bar-in .2s ease-out}
+
+/* Type banner (PO Dist/Retail strip) — smooth appearance */
+.po-type-banner{animation:ae-bar-in .2s ease-out}
+
+/* Smoother scrolling in all list bodies */
+.main-content,.po-list-body,.po-create-body,.po-detail-body,.dlr-list-body,.home-body{-webkit-overflow-scrolling:touch}
+
+/* Slim, unobtrusive scrollbars on desktop */
+.main-content::-webkit-scrollbar,.po-list-body::-webkit-scrollbar,.po-create-body::-webkit-scrollbar,.po-detail-body::-webkit-scrollbar,.dlr-list-body::-webkit-scrollbar,.home-body::-webkit-scrollbar{width:6px}
+.main-content::-webkit-scrollbar-thumb,.po-list-body::-webkit-scrollbar-thumb,.po-create-body::-webkit-scrollbar-thumb,.po-detail-body::-webkit-scrollbar-thumb,.dlr-list-body::-webkit-scrollbar-thumb,.home-body::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:3px}
+
+/* Accessibility — respect users who turn off motion */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
 
 /* ══ TRANSFER SYSTEM ══════════════════════════════ */
 #transfer-screen{background:#f0f2f5}

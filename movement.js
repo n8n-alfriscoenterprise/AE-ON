@@ -141,6 +141,16 @@ function updateTotals(){
 async function submitForm(){
   const entries=Object.entries(quantities).filter(([k,v])=>v.loaded>0||v.returned>0);
   if(!entries.length){alert('Please enter at least one quantity before submitting.');return;}
+  // RETURN mode: returning more than was loaded would inflate warehouse stock
+  if(isReturnMode){
+    const overs=entries.filter(([k,v])=>v.returned>v.loaded);
+    if(overs.length){
+      alert('Returned quantity exceeds loaded quantity for:\n\n'
+        +overs.map(([k,v])=>'• '+k+': returned '+v.returned+' vs loaded '+v.loaded).join('\n')
+        +'\n\nA van cannot return more than it was loaded with. Please correct these entries.');
+      return;
+    }
+  }
   const btn=document.getElementById('submit-btn');
   btn.disabled=true;btn.textContent='Submitting...';
   const mode=isReturnMode?'RETURN':'LOAD';

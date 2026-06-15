@@ -1067,6 +1067,54 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
 }
 
+/* ══════════════ LOAD LIST ══════════════ */
+#loadlist-modal{z-index:300}
+.ll-sheet{background:#f0f2f5;width:100%;max-width:480px;height:100%;display:flex;flex-direction:column}
+@media(min-width:520px){.ll-sheet{height:92vh;border-radius:16px;margin:auto;overflow:hidden}}
+.ll-header{background:#0A5C46;color:white;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.ll-title{font-size:16px;font-weight:700}
+.ll-sub{font-size:11px;color:rgba(255,255,255,.75);margin-top:2px}
+.ll-close{background:rgba(255,255,255,.15);border:none;color:white;width:30px;height:30px;border-radius:8px;font-size:14px;cursor:pointer;flex-shrink:0}
+.ll-body{flex:1;overflow-y:auto;padding:12px 14px}
+.ll-loading,.ll-empty{text-align:center;color:#888;padding:36px 18px;font-size:13px;line-height:1.6}
+.ll-controls{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.ll-date-label{font-size:12px;font-weight:600;color:#555;white-space:nowrap}
+.ll-date-input{flex:1;padding:8px 10px;border:1.5px solid #d8dce2;border-radius:9px;font-size:13px;background:white;outline:none}
+.ll-date-input:focus{border-color:#0A5C46}
+.ll-date-chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;scrollbar-width:none}
+.ll-date-chips::-webkit-scrollbar{display:none}
+.ll-date-chip{padding:5px 11px;border-radius:18px;font-size:11px;font-weight:600;background:white;border:1.5px solid #d8dce2;color:#555;white-space:nowrap;cursor:pointer;flex-shrink:0}
+.ll-date-chip.active{background:#0A5C46;border-color:#0A5C46;color:white}
+.ll-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.ll-stat{background:white;border-radius:10px;padding:10px 4px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.ll-stat-val{font-size:18px;font-weight:800;color:#0A5C46}
+.ll-stat-lbl{font-size:9px;color:#888;margin-top:2px;text-transform:uppercase;letter-spacing:.3px}
+.ll-list{display:flex;flex-direction:column;gap:8px}
+.ll-item{background:white;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.06);overflow:hidden;border-left:4px solid #0A5C46;transition:opacity .15s ease}
+.ll-item.ll-checked{opacity:.5;border-left-color:#9AA5B1}
+.ll-item-main{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.ll-check{width:28px;height:28px;border-radius:8px;border:2px solid #0A5C46;background:white;color:#0A5C46;font-size:15px;font-weight:800;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1}
+.ll-checked .ll-check{background:#0A5C46;color:white}
+.ll-item-info{flex:1;min-width:0;cursor:pointer}
+.ll-item-name{font-size:13px;font-weight:700;color:#1a1a1a;line-height:1.25}
+.ll-item-code{font-size:10px;color:#999;margin-top:2px}
+.ll-warn-tag{font-size:9px;background:#FFF3DC;color:#C07000;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px;white-space:nowrap}
+.ll-item-qty{font-size:20px;font-weight:800;color:#0A5C46;white-space:nowrap;flex-shrink:0}
+.ll-item-qty-unit{font-size:10px;font-weight:600;color:#aaa;margin-left:3px}
+.ll-breakdown{background:#F7F9FA;border-top:1px solid #eee;padding:6px 12px 8px}
+.ll-bd-row{display:flex;align-items:center;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px dashed #e4e8eb}
+.ll-bd-row:last-child{border-bottom:none}
+.ll-bd-dealer{flex:1;color:#444;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ll-bd-inv{color:#999;font-size:10px;white-space:nowrap}
+.ll-bd-qty{font-weight:700;color:#0A5C46;width:34px;text-align:right}
+.ll-footer{flex-shrink:0;background:white;border-top:1px solid #e6e6e6;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ll-progress{font-size:11px;color:#888;font-weight:600;white-space:nowrap}
+.ll-footer-btns{display:flex;gap:8px}
+.ll-btn{padding:11px 15px;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer}
+.ll-btn:disabled{opacity:.5;cursor:not-allowed}
+.ll-btn-print{background:#eef0f2;color:#445}
+.ll-btn-prefill{background:#0A5C46;color:white}
+
 /* ══ TRANSFER SYSTEM ══════════════════════════════ */
 #transfer-screen{background:#f0f2f5}
 .trf-topbar{background:#3949AB;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
@@ -1445,6 +1493,7 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
     <div style="background:#0A5C46;padding:9px 14px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(255,255,255,0.1)">
       <span style="color:white;font-size:14px;font-weight:700">📦 Stock Movement</span>
       <div style="display:flex;align-items:center;gap:6px">
+        <button id="mov-loadlist-btn" onclick="openLoadList()" style="align-items:center;gap:4px;background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">📋 Load List</button>
         <button id="mov-history-btn" onclick="openMovHistory()" style="display:none;align-items:center;gap:4px;background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">🕘 History</button>
         <button class="mode-btn" id="mode-btn" onclick="toggleMode()">LOAD</button>
         <button class="back-btn" onclick="showHome()">← Home</button>
@@ -3546,6 +3595,27 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 <!-- ══ PRINT VIEW (outside all screens — shown only on @media print) ══ -->
 <div id="inv-print-view"></div>
 
+<!-- LOAD LIST MODAL -->
+<div class="modal-overlay" id="loadlist-modal" style="display:none;align-items:stretch;padding:0">
+  <div class="ll-sheet">
+    <div class="ll-header">
+      <div>
+        <div class="ll-title">📋 Load List</div>
+        <div class="ll-sub">Items to load — consolidated from Xero invoices</div>
+      </div>
+      <button class="ll-close" onclick="closeLoadList()">✕</button>
+    </div>
+    <div class="ll-body" id="ll-body"></div>
+    <div class="ll-footer">
+      <div class="ll-progress" id="ll-progress"></div>
+      <div class="ll-footer-btns">
+        <button class="ll-btn ll-btn-print" id="ll-print-btn" onclick="llPrintLoadList()" disabled>🖨 Print</button>
+        <button class="ll-btn ll-btn-prefill" id="ll-prefill-btn" onclick="llPrefillLoad()" disabled>⬇ Pre-fill LOAD</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="logo-data.js"></script>
 <script src="config.js"></script>
 <script src="toast.js"></script>
@@ -3568,6 +3638,7 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 <script src="production.js"></script>
 <script src="staff-edit.js"></script>
 <script src="xero-import.js"></script>
+<script src="loadlist.js"></script>
 <script src="dealer.js"></script>
 <script src="invoice.js"></script>
 <script src="main.js"></script>

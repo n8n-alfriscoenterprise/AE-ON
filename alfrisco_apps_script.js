@@ -57,7 +57,8 @@ function doPost(e) {
         canStockAdjust:    String(r[13]|| 'NO').toUpperCase()  === 'YES',
         plView:            String(r[14]|| 'both').toLowerCase() || 'both',
         canManageDealers:  String(r[15]|| 'NO').toUpperCase()  === 'YES',
-        canCreateInvoice:  String(r[16]|| 'NO').toUpperCase()  === 'YES'
+        canCreateInvoice:  String(r[16]|| 'NO').toUpperCase()  === 'YES',
+        canViewCountHistory: String(r[17]|| 'NO').toUpperCase() === 'YES'
       }));
       return ok({ staff });
     }
@@ -91,8 +92,11 @@ function doPost(e) {
         data.canStockAdjust     ? 'YES' : 'NO',                    // N: CanStockAdjust
         data.plView || 'both',                                      // O: PLView
         data.canManageDealers   ? 'YES' : 'NO',                    // P: CanManageDealers
-        data.canCreateInvoice   ? 'YES' : 'NO'                     // Q: CanCreateInvoice
+        data.canCreateInvoice   ? 'YES' : 'NO',                    // Q: CanCreateInvoice
+        data.canViewCountHistory ? 'YES' : 'NO'                    // R: CanViewCountHistory
       ]);
+      if (sheet.getRange(1, 18).getValue() === '')
+        sheet.getRange(1, 18).setValue('CanViewCountHistory');
       return ok({});
     }
 
@@ -119,6 +123,9 @@ function doPost(e) {
           sheet.getRange(i+1, 15).setValue(data.plView || 'both');
           sheet.getRange(i+1, 16).setValue(data.canManageDealers   ? 'YES' : 'NO');
           sheet.getRange(i+1, 17).setValue(data.canCreateInvoice   ? 'YES' : 'NO');
+          sheet.getRange(i+1, 18).setValue(data.canViewCountHistory ? 'YES' : 'NO');
+          if (sheet.getRange(1, 18).getValue() === '')
+            sheet.getRange(1, 18).setValue('CanViewCountHistory');
           updated = true;
           break;
         }
@@ -231,6 +238,83 @@ function doPost(e) {
                 loaded:item.loaded,returned:item.returned,sold:soldMap[item.code]||0};
       });
       return ok({rows});
+    }
+
+    // ── GET LOAD LIST ──────────────────────────────────────────────────
+    // Consolidates the day's Xero invoice line items (already imported into
+    // 'Sales Log - Distribution') into one row per SKU — the stockman's
+    // van-load reference. Returns the picked date plus recent dates that
+    // actually have invoices, so the UI can guide date selection.
+    if (data.action === 'getLoadList') {
+      const llSheet = ss.getSheetByName('Sales Log - Distribution');
+      const tz = Session.getScriptTimeZone();
+      function llNormDate(v){
+        if (v instanceof Date) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+        const s = String(v||'').trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? s : Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+      }
+      const today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+      if (!llSheet) {
+        return ok({ date: data.date || today, items: [], invoiceCount: 0,
+                    dealerCount: 0, totalBags: 0, availableDates: [] });
+      }
+      // Sales Log - Distribution cols:
+      // 0 InvoiceNumber 1 InvoiceDate 2 DueDate 3 Dealer 4 SKU 5 Description 6 Qty ...
+      const llRows = llSheet.getDataRange().getValues().slice(1)
+        .filter(function(r){ return r[0] && r[4]; });
+
+      // Distinct invoice dates present (most recent 21) for quick-pick chips
+      const llDateSet = {};
+      llRows.forEach(function(r){ const d = llNormDate(r[1]); if (d) llDateSet[d] = true; });
+      const availableDates = Object.keys(llDateSet).sort().reverse().slice(0, 21);
+
+      // Requested date, else the most recent date with invoices, else today
+      const targetDate = data.date || (availableDates.length ? availableDates[0] : today);
+
+      // Known DIST SKU codes — flag codes that won't map to the load form
+      const knownSku = {};
+      const skuSheet = ss.getSheetByName('SKU Master');
+      if (skuSheet) {
+        skuSheet.getDataRange().getValues().slice(4).forEach(function(r){
+          if (r[0]) knownSku[String(r[0]).trim().toLowerCase()] = true;
+        });
+      }
+
+      const bySku = {}, invoiceSet = {}, dealerSet = {};
+      llRows.forEach(function(r){
+        if (llNormDate(r[1]) !== targetDate) return;
+        const qty = Number(r[6]) || 0;
+        if (qty === 0) return;
+        const sku    = String(r[4]).trim();
+        const inv    = String(r[0]).trim();
+        const dealer = String(r[3]).trim();
+        invoiceSet[inv] = true;
+        if (dealer) dealerSet[dealer] = true;
+        if (!bySku[sku]) bySku[sku] = {
+          skuCode:  sku,
+          itemName: String(r[5] || sku),
+          totalQty: 0,
+          known:    knownSku.hasOwnProperty(sku.toLowerCase()),
+          lines:    []
+        };
+        bySku[sku].totalQty += qty;
+        bySku[sku].lines.push({ dealer: dealer, invoiceNumber: inv, qty: qty });
+      });
+
+      const items = Object.keys(bySku).map(function(k){ return bySku[k]; })
+        .sort(function(a,b){ return a.itemName.localeCompare(b.itemName); });
+      const totalBags = items.reduce(function(s,i){ return s + i.totalQty; }, 0);
+
+      return ok({
+        date:          targetDate,
+        items:         items,
+        invoiceCount:  Object.keys(invoiceSet).length,
+        dealerCount:   Object.keys(dealerSet).length,
+        totalBags:     totalBags,
+        availableDates: availableDates
+      });
     }
 
 
@@ -347,10 +431,23 @@ function doPost(e) {
       const cs = getOrCreateSheet(ss,'Stock Counts - Retail',[
         'Timestamp','Submitted By','Location','SKU Code',
         'Item Name','Qty On Hand','Unit','Type','Category']);
+      // Read latest absolute balance per SKU — "Qty On Hand" must always be the new
+      // absolute total, never a signed delta (every reader takes last row as the balance)
+      const prodLatest = {};
+      cs.getDataRange().getValues().slice(1).forEach(function(r){
+        if(!r[0]||!r[3]) return;
+        prodLatest[String(r[3]).trim()] = Number(r[5])||0;
+      });
+      const srcKey = String(data.sourceSku).trim();
+      const outKey = String(data.outputSku).trim();
+      const srcNew = (prodLatest[srcKey]||0) - Number(data.bagsConsumed||0);
       cs.appendRow([data.timestamp,data.submittedBy,'Production',
-        data.sourceSku,data.sourceName,-data.bagsConsumed,data.sourceUnit||'','RETAIL','Production']);
+        data.sourceSku,data.sourceName,srcNew,data.sourceUnit||'','RETAIL','Production']);
+      prodLatest[srcKey] = srcNew;
+      const outNew = (prodLatest[outKey]||0) + Number(data.unitsProduced||0);
       cs.appendRow([data.timestamp,data.submittedBy,'Production',
-        data.outputSku,data.outputName,data.unitsProduced,data.outputUnit||'','RETAIL','Production']);
+        data.outputSku,data.outputName,outNew,data.outputUnit||'','RETAIL','Production']);
+      prodLatest[outKey] = outNew;
       return ok({});
     }
 
@@ -372,11 +469,40 @@ function doPost(e) {
       const createdDate = Utilities.formatDate(
         new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'
       );
-      poSheet.appendRow([data.poNumber,data.type,data.supplier,data.status,
-        data.createdBy, createdDate,'','',
-        data.deliveryDate||'',data.totalValue||0,data.notes||'']);
-      (data.lineItems||[]).forEach(li=>liSheet.appendRow(li));
-      return ok({poNumber:data.poNumber});
+      // Enforce unique PO number server-side. The client generates numbers from its
+      // locally cached list, so two users creating POs concurrently can collide —
+      // and getPOs dedupes by number, which would silently hide the second PO.
+      // Lock prevents two simultaneous createPO calls from racing past each other.
+      const lock = LockService.getScriptLock();
+      lock.waitLock(10000);
+      let finalPONumber = String(data.poNumber);
+      try {
+        const existingNums = {};
+        poSheet.getDataRange().getValues().slice(1).forEach(function(r){
+          if(r[0]) existingNums[String(r[0]).trim()] = true;
+        });
+        if (existingNums[finalPONumber]) {
+          // Collision — bump the trailing sequence until free: PO-YYYYMMDD-NNN
+          const m = finalPONumber.match(/^(PO-\d{8}-)(\d+)$/);
+          if (m) {
+            let seq = parseInt(m[2], 10);
+            while (existingNums[m[1] + String(++seq).padStart(3,'0')]) {}
+            finalPONumber = m[1] + String(seq).padStart(3,'0');
+          } else {
+            finalPONumber = finalPONumber + '-' + Date.now().toString().slice(-5);
+          }
+        }
+        poSheet.appendRow([finalPONumber,data.type,data.supplier,data.status,
+          data.createdBy, createdDate,'','',
+          data.deliveryDate||'',data.totalValue||0,data.notes||'']);
+        (data.lineItems||[]).forEach(function(li){
+          li[0] = finalPONumber; // keep line items pointed at the actual saved number
+          liSheet.appendRow(li);
+        });
+      } finally {
+        lock.releaseLock();
+      }
+      return ok({poNumber: finalPONumber});
     }
 
     // ── GET POs ───────────────────────────────────────────────────────
@@ -560,38 +686,56 @@ function doPost(e) {
       const now=Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 
       // Update line items with received qty and actual cost.
-      // skuMatchCount handles duplicate SKUs in the same PO — each receipt targets the
-      // Nth occurrence of that SKU in the sheet (same order as the line items list).
-      const skuMatchCount = {};
+      // Primary match: receipt.lineIndex — the position of the line within this PO's
+      // rows (getPODetail returns them in sheet order, so indices line up exactly).
+      // This is the only fully reliable way to handle duplicate SKUs in one PO.
+      // Fallback for old cached clients without lineIndex: first not-yet-fully-received
+      // row with a matching SKU.
+      const poLineRowNums = [];   // 1-based sheet row numbers for this PO, in order
+      for(let i=1;i<liRows.length;i++){
+        if(String(liRows[i][0])===data.poNumber) poLineRowNums.push(i+1);
+      }
+      function applyReceipt(rowNum, receipt){
+        const rIdx=rowNum-1; // back to liRows index
+        const newRec=Number(liRows[rIdx][8]||0)+Number(receipt.qtyReceived);
+        const newOut=Math.max(0,Number(liRows[rIdx][4]||0)-newRec);
+        liSheet.getRange(rowNum,9).setValue(newRec);
+        liSheet.getRange(rowNum,10).setValue(newOut);
+        if(receipt.unitCost && receipt.unitCost!==liRows[rIdx][6]){
+          liSheet.getRange(rowNum,7).setValue(receipt.unitCost);
+        }
+        if(newOut<=0)liSheet.getRange(rowNum,11).setValue('Received');
+      }
+      const usedRows = {};
       (data.receipts||[]).forEach(function(receipt){
-        const skuKey   = String(receipt.skuCode);
-        const skipCount = skuMatchCount[skuKey] || 0;
-        let matchesFound = 0;
-        for(let i=1;i<liRows.length;i++){
-          if(String(liRows[i][0])===data.poNumber && String(liRows[i][1])===skuKey){
-            if(matchesFound === skipCount){
-              // Correct row for this receipt (Nth occurrence)
-              const newRec=Number(liRows[i][8]||0)+Number(receipt.qtyReceived);
-              const newOut=Math.max(0,Number(liRows[i][4]||0)-newRec);
-              liSheet.getRange(i+1,9).setValue(newRec);
-              liSheet.getRange(i+1,10).setValue(newOut);
-              if(receipt.unitCost && receipt.unitCost!==liRows[i][6]){
-                liSheet.getRange(i+1,7).setValue(receipt.unitCost);
-              }
-              if(newOut<=0)liSheet.getRange(i+1,11).setValue('Received');
-              skuMatchCount[skuKey] = skipCount + 1;
-              break;
-            }
-            matchesFound++;
+        let rowNum = null;
+        const li = Number(receipt.lineIndex);
+        if(!isNaN(li) && poLineRowNums[li] !== undefined
+           && String(liRows[poLineRowNums[li]-1][1])===String(receipt.skuCode)){
+          rowNum = poLineRowNums[li];
+        } else {
+          // Fallback: first unused, not-fully-received row with this SKU
+          for(let k=0;k<poLineRowNums.length;k++){
+            const rn=poLineRowNums[k];
+            if(usedRows[rn]) continue;
+            if(String(liRows[rn-1][1])!==String(receipt.skuCode)) continue;
+            const outstanding=Number(liRows[rn-1][9]||0);
+            if(outstanding>0){ rowNum=rn; break; }
           }
         }
+        if(rowNum){ usedRows[rowNum]=true; applyReceipt(rowNum, receipt); }
       });
+
+      // Force all pending setValue writes to commit before re-reading.
+      // Without this, getDataRange().getValues() may return stale pre-update data,
+      // causing allFulfilled to evaluate against old outstanding quantities.
+      SpreadsheetApp.flush();
 
       // Determine new status
       const updatedLi=liSheet.getDataRange().getValues().slice(1)
         .filter(r=>String(r[0])===data.poNumber);
-      // r[9] is Qty Outstanding — use explicit blank check so 0 (fully received) is not
-      // treated as falsy and accidentally replaced by the fallback 1 (would block RECEIVED status)
+      // r[9] is Qty Outstanding — explicit blank check so 0 (fully received) is NOT
+      // treated as falsy (0||1 → 1 → 1<=0 is false, which would wrongly block RECEIVED)
       const allFulfilled=updatedLi.every(r=>(r[9]===''||r[9]==null?1:Number(r[9]))<=0);
       const anyReceived=updatedLi.some(r=>Number(r[8]||0)>0);
       const newStatus=allFulfilled?'RECEIVED':anyReceived?'PARTIAL':'APPROVED';
@@ -843,15 +987,38 @@ function doPost(e) {
         'Timestamp','Submitted By','Location','SKU Code',
         'Item Name','Qty On Hand','Unit','Type','Category']);
 
+      // "Qty On Hand" is an absolute balance (last row per SKU wins everywhere),
+      // so read the latest balance per sheet and write new absolute totals —
+      // never signed deltas. One shared map per sheet so chained writes stack,
+      // including same-sheet transfers (e.g. WH → Bajaj1, both on Distribution).
+      function buildLatestMap(sheet){
+        const m = {};
+        sheet.getDataRange().getValues().slice(1).forEach(function(r){
+          if(!r[0]||!r[3]) return;
+          m[String(r[3]).trim()] = Number(r[5])||0;
+        });
+        return m;
+      }
+      const latestBySheet = {};
+      latestBySheet[fromSheetName] = buildLatestMap(fromSheet);
+      if(toSheetName !== fromSheetName) latestBySheet[toSheetName] = buildLatestMap(toSheet);
+
       (data.receipts||[]).forEach(r => {
+        const sku = String(r.skuCode).trim();
         // Deduct from source
+        const fromMap = latestBySheet[fromSheetName];
+        const fromNew = (fromMap[sku]||0) - Number(r.qtyReceived);
         fromSheet.appendRow([now, data.receivedBy, fromLoc,
-          r.skuCode, r.itemName, -r.qtyReceived,
+          r.skuCode, r.itemName, fromNew,
           r.unit||'bag', 'TRANSFER', 'Transfer Out']);
+        fromMap[sku] = fromNew;
         // Add to destination
+        const toMap = latestBySheet[toSheetName];
+        const toNew = (toMap[sku]||0) + Number(r.qtyReceived);
         toSheet.appendRow([now, data.receivedBy, toLoc,
-          r.skuCode, r.itemName, r.qtyReceived,
+          r.skuCode, r.itemName, toNew,
           r.unit||'bag', 'TRANSFER', 'Transfer In']);
+        toMap[sku] = toNew;
       });
 
       return ok({ newStatus, toLocation: toLoc });
@@ -1048,25 +1215,47 @@ function doPost(e) {
         'Item Name','Qty On Hand','Unit','Type','Category'
       ]);
 
+      // Read the CURRENT balance per SKU server-side (last row per SKU = absolute
+      // on-hand). The client's view may be stale, and the previous code wrote the
+      // signed delta into "Qty On Hand" — which every reader treats as an absolute
+      // balance, silently corrupting stock (e.g. 100 + receive 5 became "5 on hand").
+      const adjLatest = {};
+      csSheet.getDataRange().getValues().slice(1).forEach(function(r){
+        if(!r[0] || !r[3]) return;
+        const sku = String(r[3]).trim();
+        adjLatest[sku] = {qty:Number(r[5])||0, unit:String(r[6]||'unit'), category:String(r[8]||'')};
+      });
+
       (data.entries||[]).forEach(e => {
-        // Log entry
+        const sku  = String(e.skuCode).trim();
+        const cur  = adjLatest[sku] ? adjLatest[sku].qty : 0;
+        const qty  = Number(e.qtyInput) || 0;
+        let newQty;
+        if (adjType === 'receive')      newQty = cur + qty;
+        else if (adjType === 'count')   newQty = qty;            // counted = new absolute
+        else                            newQty = Math.max(0, cur - qty); // remove / damage
+
+        // Log entry — server-computed before/after so the audit trail is accurate
         logSheet.appendRow([
           batchRef, now, user,
           segment.toUpperCase(), adjType.toUpperCase(),
           e.skuCode, e.skuName,
-          e.currentStock, e.qtyInput,
-          e.adjQty, e.stockAfter,
+          cur, qty,
+          newQty - cur, newQty,
           e.cost || 0, notes
         ]);
 
-        // Stock count adjustment entry
+        // Stock count entry — absolute new balance (last row per SKU wins)
         const location = adjType.toUpperCase() + ' ADJUSTMENT';
+        const unit = adjLatest[sku] ? adjLatest[sku].unit : 'unit';
         csSheet.appendRow([
           now, user, location,
           e.skuCode, e.skuName,
-          e.adjQty,     // signed value (+/-)
-          'unit', csType, adjType.toUpperCase()
+          newQty,
+          unit, csType, adjType.toUpperCase()
         ]);
+        // Chain within the batch so two lines for the same SKU stack correctly
+        adjLatest[sku] = {qty:newQty, unit:unit, category:adjLatest[sku]?adjLatest[sku].category:''};
       });
 
       return ok({ adjusted: (data.entries||[]).length });
@@ -1641,36 +1830,45 @@ function doPost(e) {
       ]);
 
       // Generate invoice number: INV-YYYYMMDD-NNN
-      const today  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
-      const prefix = 'INV-' + today + '-';
-      const allRows = invSheet.getDataRange().getValues();
-      let maxSeq = 0;
-      allRows.slice(1).forEach(function(r){
-        if (String(r[0]).startsWith(prefix)){
-          const seq = parseInt(String(r[0]).slice(prefix.length)) || 0;
-          if (seq > maxSeq) maxSeq = seq;
-        }
-      });
-      const invoiceNumber = prefix + String(maxSeq + 1).padStart(3, '0');
+      // Lock so two simultaneous saves (e.g. two drivers in the field) can't read
+      // the same max sequence and produce duplicate invoice numbers
+      const invLock = LockService.getScriptLock();
+      invLock.waitLock(10000);
+      let invoiceNumber;
+      try {
+        const today  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
+        const prefix = 'INV-' + today + '-';
+        const allRows = invSheet.getDataRange().getValues();
+        let maxSeq = 0;
+        allRows.slice(1).forEach(function(r){
+          if (String(r[0]).startsWith(prefix)){
+            const seq = parseInt(String(r[0]).slice(prefix.length)) || 0;
+            if (seq > maxSeq) maxSeq = seq;
+          }
+        });
+        invoiceNumber = prefix + String(maxSeq + 1).padStart(3, '0');
 
-      invSheet.appendRow([
-        invoiceNumber,
-        data.contactName  || '',
-        data.dealerId     || '',
-        data.reference    || '',
-        data.invoiceDate  || '',
-        data.dueDate      || '',
-        data.paymentTerms || '',
-        Number(data.subtotal) || 0,
-        Number(data.total)    || 0,
-        'Saved',
-        data.createdBy    || '',
-        data.createdAt    || '',
-        data.paymentType  || 'Cash',
-        data.checkRef     || '',
-        data.receivedBy   || '',
-        data.signature    || ''
-      ]);
+        invSheet.appendRow([
+          invoiceNumber,
+          data.contactName  || '',
+          data.dealerId     || '',
+          data.reference    || '',
+          data.invoiceDate  || '',
+          data.dueDate      || '',
+          data.paymentTerms || '',
+          Number(data.subtotal) || 0,
+          Number(data.total)    || 0,
+          'Saved',
+          data.createdBy    || '',
+          data.createdAt    || '',
+          data.paymentType  || 'Cash',
+          data.checkRef     || '',
+          data.receivedBy   || '',
+          data.signature    || ''
+        ]);
+      } finally {
+        invLock.releaseLock();
+      }
 
       const lines = data.lines || [];
       lines.forEach(function(l, i){
@@ -1686,9 +1884,12 @@ function doPost(e) {
         ]);
       });
 
-      // ── Admin sale: deduct from distribution stock immediately ──
-      // Only when no van unit is assigned (i.e. not a driver sale)
-      if(!data.assignedUnit || String(data.assignedUnit).trim()===''){
+      // ── Desk sale (admin/warehouse staff): deduct from distribution stock ──
+      // Drivers have a real van unit (Bajaj1/Bajaj2); admin and warehouse staff
+      // have 'All' or blank — those sales come straight out of warehouse stock.
+      // (Previously only checked for blank, so admin sales never deducted: dead code.)
+      const _saleUnit = String(data.assignedUnit||'').trim();
+      if(_saleUnit==='' || _saleUnit==='All'){
         const distCntSale = getOrCreateSheet(ss, 'Stock Counts - Distribution', [
           'Timestamp','Submitted By','Location','SKU Code',
           'Item Name','Qty On Hand','Unit','Type','Category'
@@ -1769,7 +1970,50 @@ function doPost(e) {
       invSheet.getRange(targetRow, 17).setValue(String(data.reason || '')); // Col Q = Void Reason
       invSheet.getRange(targetRow, 18).setValue(String(data.voidedBy || '')); // Col R = Voided By
       invSheet.getRange(targetRow, 19).setValue(voidNow);                   // Col S = Voided At
-      return ok({ invoiceNumber: invNum, voided: true });
+
+      // ── Restore desk-sale stock deduction ──────────────────────────────
+      // Desk sales (admin/warehouse) write 'Admin Sale - INV-x' deduction rows to
+      // Stock Counts - Distribution at save time. Voiding must put that stock back,
+      // otherwise inventory stays understated forever.
+      var stockRestored = false;
+      const voidCntSheet = ss.getSheetByName('Stock Counts - Distribution');
+      if (voidCntSheet) {
+        const cntRows = voidCntSheet.getDataRange().getValues().slice(1);
+        const saleLabel = 'Admin Sale - ' + invNum;
+        // qty sold per SKU according to the deduction rows of THIS invoice
+        const soldBySku = {};
+        const lineSheetV = ss.getSheetByName('Sales Invoice Lines');
+        if (lineSheetV) {
+          lineSheetV.getDataRange().getValues().slice(1).forEach(function(r){
+            if (String(r[0]) !== invNum) return;
+            const sku = String(r[2]).trim();
+            soldBySku[sku] = (soldBySku[sku]||0) + (Number(r[4])||0);
+          });
+        }
+        // Only restore if this invoice actually deducted desk stock
+        const wasDeskSale = cntRows.some(function(r){ return String(r[2]) === saleLabel; });
+        if (wasDeskSale && Object.keys(soldBySku).length) {
+          // Latest balance per SKU (last row wins)
+          const latestV = {};
+          cntRows.forEach(function(r){
+            if (!r[0] || !r[3]) return;
+            const sku = String(r[3]).trim();
+            latestV[sku] = {qty:Number(r[5])||0, unit:String(r[6]||'bag'), name:String(r[4]||''), category:String(r[8]||'')};
+          });
+          Object.keys(soldBySku).forEach(function(sku){
+            if (!latestV[sku]) return;
+            const restoredQty = latestV[sku].qty + soldBySku[sku];
+            voidCntSheet.appendRow([
+              voidNow, String(data.voidedBy||''), 'Void Reversal - ' + invNum,
+              sku, latestV[sku].name, restoredQty,
+              latestV[sku].unit, 'DIST', latestV[sku].category
+            ]);
+            latestV[sku].qty = restoredQty;
+          });
+          stockRestored = true;
+        }
+      }
+      return ok({ invoiceNumber: invNum, voided: true, stockRestored: stockRestored });
     }
 
     // ── DEALER ACTIVITY (lightweight: last invoice date per dealer) ───────
@@ -1830,6 +2074,7 @@ function doPost(e) {
           const ca = r[11] instanceof Date
             ? Utilities.formatDate(r[11], Session.getScriptTimeZone(), 'yyyy-MM-dd')
             : String(r[11]).slice(0, 10);
+          if (String(r[9]) === 'VOID') return; // voided sales must release van stock
           if (ca === today && String(r[10]) === username) todayInvNums.add(String(r[0]));
         });
         invLineSheet.getDataRange().getValues().slice(1).forEach(function(r) {
@@ -2334,6 +2579,13 @@ function doPost(e) {
       if (!boSheet) return err('Backorders sheet not found');
       const sheetRow = Number(data.rowIndex) + 1; // +1 for header row
       if (sheetRow < 2) return err('Invalid row index');
+      // Stale-index guard: the client captured this row position when its list
+      // loaded; verify the row still holds the expected backorder before writing
+      if (data.expectItem) {
+        const liveRow = boSheet.getRange(sheetRow, 1, 1, 11).getValues()[0];
+        if (String(liveRow[5]).trim() !== String(data.expectItem).trim())
+          return err('This backorder list is out of date — please refresh and try again.');
+      }
       const STATUS_COL = 10; // Column J
       boSheet.getRange(sheetRow, STATUS_COL).setValue(data.status);
       // PARTIAL: also write qty served (col 12) and served date (col 13)
@@ -2394,6 +2646,12 @@ function doPost(e) {
       if (!s) return err('Sheet not found');
       const sheetRow = Number(data.rowIndex) + 1;
       if (sheetRow < 2) return err('Invalid row');
+      // Stale-index guard — deleting the wrong row is unrecoverable
+      if (data.expectItem) {
+        const liveRow = s.getRange(sheetRow, 1, 1, 11).getValues()[0];
+        if (String(liveRow[5]).trim() !== String(data.expectItem).trim())
+          return err('This backorder list is out of date — please refresh and try again.');
+      }
       s.deleteRow(sheetRow);
       return ok({});
     }
@@ -2405,6 +2663,12 @@ function doPost(e) {
       if (!s) return err('Sheet not found');
       const row = Number(data.rowIndex) + 1;
       if (row < 2) return err('Invalid row');
+      // Stale-index guard
+      if (data.expectItem) {
+        const liveRow = s.getRange(row, 1, 1, 11).getValues()[0];
+        if (String(liveRow[5]).trim() !== String(data.expectItem).trim())
+          return err('This backorder list is out of date — please refresh and try again.');
+      }
       // Columns: 1=Timestamp 2=SubmittedBy 3=Dealer 4=Phone 5=SKU 6=Item
       //          7=Qty 8=Unit 9=PromisedDate 10=Status 11=Notes
       if (data.dealer       != null) s.getRange(row, 3).setValue(data.dealer);

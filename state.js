@@ -124,21 +124,22 @@ function _phParse(val) {
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
 }
+// Month names keep dates unambiguous — "05-04-2026" could be read as either
+// May 4 or April 5, so every displayed date spells the month out: "May 4, 2026".
+const _PH_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function phDate(val) {
   const d = _phParse(val);
   if (!d) return val ? String(val) : '—';
   const ph = new Date(d.toLocaleString('en-US',{timeZone:'Asia/Manila'}));
-  return String(ph.getMonth()+1).padStart(2,'0')+'-'+String(ph.getDate()).padStart(2,'0')+'-'+ph.getFullYear();
+  return _PH_MON[ph.getMonth()]+' '+ph.getDate()+', '+ph.getFullYear();
 }
 function phDateTime(val) {
   const d = _phParse(val);
   if (!d) return val ? String(val) : '—';
   const ph  = new Date(d.toLocaleString('en-US',{timeZone:'Asia/Manila'}));
-  const mon = String(ph.getMonth()+1).padStart(2,'0');
-  const day = String(ph.getDate()).padStart(2,'0');
   const h   = ph.getHours(), ampm = h>=12?'PM':'AM', h12 = h%12||12;
   const mi  = String(ph.getMinutes()).padStart(2,'0');
-  return mon+'-'+day+'-'+ph.getFullYear()+' · '+h12+':'+mi+' '+ampm;
+  return _PH_MON[ph.getMonth()]+' '+ph.getDate()+', '+ph.getFullYear()+' · '+h12+':'+mi+' '+ampm;
 }
 function phToday(){ return new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'}); }
 function phNow()  { return new Date().toLocaleString('sv-SE',{timeZone:'Asia/Manila'}); }

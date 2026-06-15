@@ -246,6 +246,12 @@ function showMovement(){
   const ft=document.querySelector('#movement-area .tab');
   if(ft)ft.classList.add('active');
   buildTab();
+  // Pull in any vehicles added to the Delivery Vehicles sheet, then init tracking
+  loadVehicles().then(function(){
+    injectUnitVehicles();
+    const s = document.getElementById('unit-select');
+    if(s) s.dataset.lastUnit = s.value;
+  });
   // Initialize unit tracking
   const sel = document.getElementById('unit-select');
   if(sel) sel.dataset.lastUnit = sel.value;

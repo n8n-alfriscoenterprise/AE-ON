@@ -86,6 +86,7 @@ async function openDealer(){
   showScreen('dealer-screen');
   updateFabVisibility();
   showDealerSubtab('list', document.getElementById('dlr-tab-list'));
+  loadVehicles().then(function(){ populateVehicleSelect('dlr-vehicle', currentDealer ? currentDealer.assignedVehicle : ''); });
   await loadDealers();
 
   // Activity data for auto-inactive badge
@@ -446,6 +447,7 @@ function resetDealerForm(){
     .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   document.getElementById('dlr-type').value   = 'Feed Store';
   document.getElementById('dlr-status').value = 'Prospect';
+  populateVehicleSelect('dlr-vehicle', '');
   const preview = document.getElementById('dlr-loc-preview');
   if(preview){ preview.style.display = 'none'; preview.innerHTML = ''; }
   const btn = document.getElementById('dealer-pin-btn');
@@ -483,6 +485,7 @@ function openEditDealer(d){
   document.getElementById('dlr-lat').value     = d.lat        || '';
   document.getElementById('dlr-lng').value     = d.lng        || '';
   document.getElementById('dlr-acc').value     = d.accuracy   || '';
+  populateVehicleSelect('dlr-vehicle', d.assignedVehicle || '');
 
   const preview = document.getElementById('dlr-loc-preview');
   const btn     = document.getElementById('dealer-pin-btn');
@@ -559,6 +562,7 @@ async function saveDealerForm(){
   const lat        = document.getElementById('dlr-lat').value.trim();
   const lng        = document.getElementById('dlr-lng').value.trim();
   const accuracy   = document.getElementById('dlr-acc').value.trim();
+  const assignedVehicle = document.getElementById('dlr-vehicle') ? document.getElementById('dlr-vehicle').value : '';
 
   if(!storeName){ errEl.textContent = 'Store/Business name is required.'; return; }
   if(!ownerName){ errEl.textContent = 'Owner/Contact name is required.';  return; }
@@ -571,7 +575,7 @@ async function saveDealerForm(){
   const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Manila' });
   const payload = {
     storeName, ownerName, phone1, phone2, area, address,
-    dealerType, status, notes, lat, lng, accuracy,
+    dealerType, status, notes, lat, lng, accuracy, assignedVehicle,
     updatedBy: currentUser.username, updatedAt: now
   };
 

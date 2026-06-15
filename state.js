@@ -144,4 +144,48 @@ function phDateTime(val) {
 function phToday(){ return new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'}); }
 function phNow()  { return new Date().toLocaleString('sv-SE',{timeZone:'Asia/Manila'}); }
 
+// ── DELIVERY VEHICLES (expandable — backed by the 'Delivery Vehicles' sheet) ──
+let vehicleList = [];
+async function loadVehicles(){
+  // Show cached vehicles instantly, then refresh from the sheet
+  const cached = LS.get('alf_vehicles');
+  if(cached && cached.length && !vehicleList.length) vehicleList = cached;
+  try{
+    const r = await api({action:'getVehicles'});
+    if(r.status==='ok' && Array.isArray(r.vehicles) && r.vehicles.length){
+      vehicleList = r.vehicles;
+      LS.set('alf_vehicles', vehicleList);
+    }
+  }catch(e){ /* keep cache */ }
+  if(!vehicleList.length) vehicleList = [{id:'Bajaj1',label:'Bajaj 1'},{id:'Bajaj2',label:'Bajaj 2'}];
+  return vehicleList;
+}
+// Fill a <select> with the vehicle list (plus an Unassigned option)
+function populateVehicleSelect(selectId, selected){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  const cur = selected!==undefined ? selected : sel.value;
+  sel.innerHTML = '<option value="">— Unassigned —</option>'
+    + vehicleList.map(function(v){ return '<option value="'+v.id+'"'+(v.id===cur?' selected':'')+'>'+v.label+'</option>'; }).join('');
+}
+// Ensure every active vehicle appears in the movement unit selector (so a newly
+// added van is selectable without editing the HTML). Vans group before the
+// fixed locations (Retail Store / Distribution WH).
+function injectUnitVehicles(){
+  const sel = document.getElementById('unit-select');
+  if(!sel || !vehicleList.length) return;
+  const have = {};
+  Array.prototype.forEach.call(sel.options, function(o){ have[o.value]=true; });
+  let anchor = null;
+  Array.prototype.forEach.call(sel.options, function(o){
+    if(!anchor && (o.value==='Retail Store' || o.value==='Distribution WH')) anchor=o;
+  });
+  vehicleList.forEach(function(v){
+    if(have[v.id]) return;
+    const opt = document.createElement('option');
+    opt.value = v.id; opt.textContent = v.label;
+    if(anchor) sel.insertBefore(opt, anchor); else sel.appendChild(opt);
+  });
+}
+
 // ── STAFF LOADING ──

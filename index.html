@@ -1114,6 +1114,18 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 .ll-btn:disabled{opacity:.5;cursor:not-allowed}
 .ll-btn-print{background:#eef0f2;color:#445}
 .ll-btn-prefill{background:#0A5C46;color:white}
+/* vehicle tabs */
+.ll-veh-tabs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px;margin-bottom:4px;scrollbar-width:none}
+.ll-veh-tabs::-webkit-scrollbar{display:none}
+.ll-veh-tab{display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:10px;font-size:12px;font-weight:700;background:white;border:1.5px solid #d8dce2;color:#555;white-space:nowrap;cursor:pointer;flex-shrink:0}
+.ll-veh-tab.active{background:#0A5C46;border-color:#0A5C46;color:white}
+.ll-veh-tab-count{font-size:10px;font-weight:700;background:rgba(0,0,0,.12);color:inherit;border-radius:10px;padding:1px 7px;min-width:18px;text-align:center}
+.ll-veh-tab.active .ll-veh-tab-count{background:rgba(255,255,255,.28)}
+.ll-veh-tab-unassigned{border-style:dashed;border-color:#C07000;color:#C07000}
+.ll-veh-tab-unassigned.active{background:#C07000;border-color:#C07000;color:white}
+.ll-unassigned-note{background:#FFF3DC;border:1px solid #f0d29a;color:#8a5a12;font-size:11px;line-height:1.5;padding:8px 11px;border-radius:9px;margin-bottom:10px}
+.ll-bd-veh{margin-left:6px;font-size:10px;padding:3px 5px;border:1.5px solid #d8dce2;border-radius:6px;background:white;color:#444;max-width:96px;outline:none}
+.ll-bd-veh:focus{border-color:#0A5C46}
 
 /* ══ TRANSFER SYSTEM ══════════════════════════════ */
 #transfer-screen{background:#f0f2f5}
@@ -3381,6 +3393,12 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
           </select>
         </div>
       </div>
+
+      <label class="dlr-field-label" style="margin-top:14px">Assigned Delivery Vehicle</label>
+      <select class="dlr-input dlr-select" id="dlr-vehicle">
+        <option value="">— Unassigned —</option>
+      </select>
+      <div style="font-size:10px;color:#999;margin-top:3px">Fallback van for the Load List when a Xero invoice has no Division (unit) tag.</div>
 
       <label class="dlr-field-label" style="margin-top:14px">Notes / Remarks</label>
       <textarea class="dlr-input dlr-textarea" id="dlr-notes"

@@ -69,7 +69,8 @@ function parseXiCSV(text){
     dueDate:'DueDate', total:'Total', amountPaid:'InvoiceAmountPaid',
     amountDue:'InvoiceAmountDue', skuCode:'InventoryItemCode', description:'Description',
     quantity:'Quantity', unitAmount:'UnitAmount', lineAmount:'LineAmount',
-    status:'Status', type:'Type'
+    status:'Status', type:'Type',
+    division:'TrackingOption2'   // selling unit, e.g. "Wholesale-Bajaj1" → routes the Load List
   };
   Object.entries(needed).forEach(([k,v])=>{ col[k]=headers.indexOf(v); });
 
@@ -101,7 +102,8 @@ function parseXiCSV(text){
       invoiceTotal:  parseFloat(r[col.total])      ||0,
       amountPaid:    parseFloat(r[col.amountPaid]) ||0,
       amountDue:     parseFloat(r[col.amountDue])  ||0,
-      status:        String(r[col.status]||'').trim()
+      status:        String(r[col.status]||'').trim(),
+      division:      col.division>=0 ? String(r[col.division]||'').trim() : ''
     });
   });
 

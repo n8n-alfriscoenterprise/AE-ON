@@ -332,8 +332,9 @@ async function confirmXiImport(){
   try{
     const r = await api({action:'importXeroSales', rows:xiRows, importedBy:currentUser.username});
     if(r.status==='ok'){
-      const stockNote = r.stockUpdated > 0 ? ` Stock updated for ${r.stockUpdated} SKU${r.stockUpdated!==1?'s':''}.` : '';
-      setXiStatus(`✅ Done — ${r.imported} new rows added, ${r.skipped} duplicate${r.skipped!==1?'s':''} skipped.${stockNote}`,'ok');
+      const stockNote = r.stockUpdated > 0 ? ` Stock adjusted for ${r.stockUpdated} SKU${r.stockUpdated!==1?'s':''}.` : '';
+      const replNote  = r.replaced > 0 ? ` ${r.replaced} existing invoice${r.replaced!==1?'s':''} updated.` : '';
+      setXiStatus(`✅ Done — ${r.imported} line${r.imported!==1?'s':''} imported.${replNote}${stockNote}`,'ok');
       btn.style.display='none'; xiRows=[];
       document.getElementById('xi-file-input').value='';
       document.getElementById('xi-preview-area').innerHTML='';

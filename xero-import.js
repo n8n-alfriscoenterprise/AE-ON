@@ -161,8 +161,12 @@ function renderXiPreview(){
       <div class="xi-new-contacts-sub">These names appear in Xero but have no matching dealer record. You can add them now or import the data as-is.</div>
       <div id="xi-new-contacts-list">`;
     unrecognized.forEach(c=>{
-      const invCount = [...new Set(xiRows.filter(r=>r.contactName===c.name).map(r=>r.invoiceNumber))].length;
-      const total    = xiRows.filter(r=>r.contactName===c.name).reduce((s,r)=>s+r.invoiceTotal,0);
+      const contactRows = xiRows.filter(r=>r.contactName===c.name);
+      const invCount = [...new Set(contactRows.map(r=>r.invoiceNumber))].length;
+      // Xero repeats the invoice Total on every line — count each invoice's total
+      // ONCE (otherwise a 2-line invoice shows 2× its real amount, etc.)
+      const seenInv = {}; let total = 0;
+      contactRows.forEach(r=>{ if(!seenInv[r.invoiceNumber]){ seenInv[r.invoiceNumber]=true; total += r.invoiceTotal; } });
       const uid      = 'xnc-'+c.name.replace(/[^a-zA-Z0-9]/g,'_');
       html += `<div class="xi-new-contact-card" id="${uid}">
         <div class="xi-nc-info">

@@ -1003,8 +1003,10 @@ async function approvePO(){
   if(!mode){
     alert('Please select a payment mode before approving.');return;
   }
-  if(mode==='Cheque' && cheque.length!==10){
-    alert('Cheque reference must be exactly 10 characters.');return;
+  // Cheque ref is optional at approval — a supervisor can request a cheque without the
+  // number yet (Admin issues it and records the ref later). If entered, it must be valid.
+  if(mode==='Cheque' && cheque.length>0 && cheque.length!==10){
+    alert('Cheque reference must be exactly 10 characters (or leave it blank to request a cheque from Admin).');return;
   }
 
   // Collect and validate split schedule
@@ -1025,6 +1027,7 @@ async function approvePO(){
       action:'approvePO',
       poNumber:currentPO.poNumber,
       approvedBy:currentUser.username,
+      approverRole:currentUser.role,
       deliveryDate:delivInput||'',
       paymentTermsDays:mode==='Split / Installment'?'Split':days||'',
       paymentMode:mode||'',
@@ -1034,7 +1037,14 @@ async function approvePO(){
     });
     if(r.status==='ok'){
       showBanner('po-success-bar','PO '+currentPO.poNumber+' approved'+(mode?' — '+mode+' payment':'')+' ✓');
-      showToast(currentPO.poNumber+' approved'+(mode?' — '+mode:''),'success');
+      if(mode==='Cheque' && currentUser.role!=='admin'){
+        showToast(r.chequeNotified
+          ? currentPO.poNumber+' approved — Admin notified to prepare the cheque ✓'
+          : currentPO.poNumber+' approved — please inform Admin to prepare the cheque',
+          'info', 5000);
+      } else {
+        showToast(currentPO.poNumber+' approved'+(mode?' — '+mode:''),'success');
+      }
       await openPODetail(currentPO.poNumber);
       await loadPOs();
     }else alert('Error: '+r.msg);

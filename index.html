@@ -2808,7 +2808,7 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
           <div class="edit-perm-row">
             <div>
               <div class="edit-perm-label">📦 Manage Distribution POs</div>
-              <div class="edit-perm-sub">Can create, approve & receive DIST purchase orders</div>
+              <div class="edit-perm-sub">Can create & receive DIST purchase orders</div>
             </div>
             <label class="edit-toggle">
               <input type="checkbox" id="edit-can-po-dist">
@@ -2818,10 +2818,30 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
           <div class="edit-perm-row">
             <div>
               <div class="edit-perm-label">🛒 Manage Retail POs</div>
-              <div class="edit-perm-sub">Can create, approve & receive RETAIL purchase orders</div>
+              <div class="edit-perm-sub">Can create & receive RETAIL purchase orders</div>
             </div>
             <label class="edit-toggle">
               <input type="checkbox" id="edit-can-po-retail">
+              <span class="edit-toggle-slider"></span>
+            </label>
+          </div>
+          <div class="edit-perm-row">
+            <div>
+              <div class="edit-perm-label">✅ Approve Distribution POs</div>
+              <div class="edit-perm-sub">Can approve / reject pending DIST purchase orders</div>
+            </div>
+            <label class="edit-toggle">
+              <input type="checkbox" id="edit-can-approve-po-dist">
+              <span class="edit-toggle-slider"></span>
+            </label>
+          </div>
+          <div class="edit-perm-row">
+            <div>
+              <div class="edit-perm-label">✅ Approve Retail POs</div>
+              <div class="edit-perm-sub">Can approve / reject pending RETAIL purchase orders</div>
+            </div>
+            <label class="edit-toggle">
+              <input type="checkbox" id="edit-can-approve-po-retail">
               <span class="edit-toggle-slider"></span>
             </label>
           </div>

@@ -58,7 +58,9 @@ function doPost(e) {
         plView:            String(r[14]|| 'both').toLowerCase() || 'both',
         canManageDealers:  String(r[15]|| 'NO').toUpperCase()  === 'YES',
         canCreateInvoice:  String(r[16]|| 'NO').toUpperCase()  === 'YES',
-        canViewCountHistory: String(r[17]|| 'NO').toUpperCase() === 'YES'
+        canViewCountHistory: String(r[17]|| 'NO').toUpperCase() === 'YES',
+        canApprovePODist:    String(r[18]|| 'NO').toUpperCase() === 'YES',
+        canApprovePORetail:  String(r[19]|| 'NO').toUpperCase() === 'YES'
       }));
       return ok({ staff });
     }
@@ -93,10 +95,13 @@ function doPost(e) {
         data.plView || 'both',                                      // O: PLView
         data.canManageDealers   ? 'YES' : 'NO',                    // P: CanManageDealers
         data.canCreateInvoice   ? 'YES' : 'NO',                    // Q: CanCreateInvoice
-        data.canViewCountHistory ? 'YES' : 'NO'                    // R: CanViewCountHistory
+        data.canViewCountHistory ? 'YES' : 'NO',                   // R: CanViewCountHistory
+        data.canApprovePODist   ? 'YES' : 'NO',                    // S: CanApprovePODist
+        data.canApprovePORetail ? 'YES' : 'NO'                     // T: CanApprovePORetail
       ]);
-      if (sheet.getRange(1, 18).getValue() === '')
-        sheet.getRange(1, 18).setValue('CanViewCountHistory');
+      if (sheet.getRange(1, 18).getValue() === '') sheet.getRange(1, 18).setValue('CanViewCountHistory');
+      if (sheet.getRange(1, 19).getValue() === '') sheet.getRange(1, 19).setValue('CanApprovePODist');
+      if (sheet.getRange(1, 20).getValue() === '') sheet.getRange(1, 20).setValue('CanApprovePORetail');
       return ok({});
     }
 
@@ -124,8 +129,11 @@ function doPost(e) {
           sheet.getRange(i+1, 16).setValue(data.canManageDealers   ? 'YES' : 'NO');
           sheet.getRange(i+1, 17).setValue(data.canCreateInvoice   ? 'YES' : 'NO');
           sheet.getRange(i+1, 18).setValue(data.canViewCountHistory ? 'YES' : 'NO');
-          if (sheet.getRange(1, 18).getValue() === '')
-            sheet.getRange(1, 18).setValue('CanViewCountHistory');
+          sheet.getRange(i+1, 19).setValue(data.canApprovePODist   ? 'YES' : 'NO');
+          sheet.getRange(i+1, 20).setValue(data.canApprovePORetail ? 'YES' : 'NO');
+          if (sheet.getRange(1, 18).getValue() === '') sheet.getRange(1, 18).setValue('CanViewCountHistory');
+          if (sheet.getRange(1, 19).getValue() === '') sheet.getRange(1, 19).setValue('CanApprovePODist');
+          if (sheet.getRange(1, 20).getValue() === '') sheet.getRange(1, 20).setValue('CanApprovePORetail');
           updated = true;
           break;
         }
@@ -146,6 +154,28 @@ function doPost(e) {
         }
       }
       return ok({});
+    }
+
+    // ── GET DELIVERY VEHICLES ──────────────────────────────────────────
+    // Single expandable source of truth for delivery units. To add a vehicle,
+    // append a row to the 'Delivery Vehicles' sheet (or set Active = NO to retire
+    // one). The dealer dropdown, Load List tabs, and movement unit selector all
+    // read from here — no code change needed to add a van.
+    if (data.action === 'getVehicles') {
+      const vSheet = getOrCreateSheet(ss, 'Delivery Vehicles', ['Vehicle ID','Label','Active','Xero Division']);
+      // Seed defaults the first time the sheet is created. The Xero Division maps the
+      // van to its Xero TrackingOption2 value so sales auto-route to the right unit.
+      if (vSheet.getLastRow() < 2) {
+        vSheet.appendRow(['Bajaj1', 'Bajaj 1', 'YES', 'Wholesale-Bajaj1']);
+        vSheet.appendRow(['Bajaj2', 'Bajaj 2', 'YES', 'Wholesale-Bajaj2']);
+      }
+      if (vSheet.getRange(1,4).getValue() === '') vSheet.getRange(1,4).setValue('Xero Division');
+      const vehicles = vSheet.getDataRange().getValues().slice(1)
+        .filter(function(r){ return r[0] && String(r[2]||'YES').toUpperCase() !== 'NO'; })
+        .map(function(r){
+          return { id: String(r[0]).trim(), label: String(r[1] || r[0]).trim(), xeroDivision: String(r[3]||'').trim() };
+        });
+      return ok({ vehicles: vehicles });
     }
 
     // ── GET ALL SKUs ───────────────────────────────────────────────────
@@ -252,6 +282,9 @@ function doPost(e) {
         if (v instanceof Date) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
         const s = String(v||'').trim();
         if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+        // Xero (PH) exports DD/MM/YYYY — convert to ISO so dates match & display right
+        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (m) return m[3] + '-' + ('0'+m[2]).slice(-2) + '-' + ('0'+m[1]).slice(-2);
         const d = new Date(s);
         return isNaN(d.getTime()) ? s : Utilities.formatDate(d, tz, 'yyyy-MM-dd');
       }
@@ -282,6 +315,41 @@ function doPost(e) {
         });
       }
 
+      // Dealer name → assigned vehicle (case-insensitive). This is how each invoice
+      // line gets routed to a van. No match / no tag → '' (Unassigned bucket).
+      const dealerVehicle = {};
+      const dirSheet = ss.getSheetByName('Dealer Directory');
+      if (dirSheet) {
+        dirSheet.getDataRange().getValues().slice(1).forEach(function(r){
+          const name = String(r[1]||'').trim().toLowerCase();
+          if (name) dealerVehicle[name] = String(r[17]||'').trim();
+        });
+      }
+
+      // Active vehicle list (so the UI can build tabs even for days with no orders)
+      const vSheet = getOrCreateSheet(ss, 'Delivery Vehicles', ['Vehicle ID','Label','Active','Xero Division']);
+      if (vSheet.getLastRow() < 2) {
+        vSheet.appendRow(['Bajaj1','Bajaj 1','YES','Wholesale-Bajaj1']);
+        vSheet.appendRow(['Bajaj2','Bajaj 2','YES','Wholesale-Bajaj2']);
+      }
+      const vehicles = vSheet.getDataRange().getValues().slice(1)
+        .filter(function(r){ return r[0] && String(r[2]||'YES').toUpperCase() !== 'NO'; })
+        .map(function(r){ return { id: String(r[0]).trim(), label: String(r[1]||r[0]).trim(), xeroDivision: String(r[3]||'').trim() }; });
+
+      // Resolve a Xero Division value (e.g. "Wholesale-Bajaj1") to a vehicle id.
+      // Prefer the explicit Xero Division mapping; fall back to a contains-match on the id.
+      function divisionToVehicle(div){
+        const dl = String(div||'').trim().toLowerCase();
+        if(!dl) return '';
+        for(var i=0;i<vehicles.length;i++){
+          if(vehicles[i].xeroDivision && vehicles[i].xeroDivision.toLowerCase()===dl) return vehicles[i].id;
+        }
+        for(var j=0;j<vehicles.length;j++){
+          if(dl.indexOf(vehicles[j].id.toLowerCase())>=0) return vehicles[j].id;
+        }
+        return '';
+      }
+
       const bySku = {}, invoiceSet = {}, dealerSet = {};
       llRows.forEach(function(r){
         if (llNormDate(r[1]) !== targetDate) return;
@@ -290,6 +358,10 @@ function doPost(e) {
         const sku    = String(r[4]).trim();
         const inv    = String(r[0]).trim();
         const dealer = String(r[3]).trim();
+        // Routing precedence: Xero Division (the unit recorded on the invoice) →
+        // the dealer's Assigned Vehicle → Unassigned.
+        const division = String(r[15]||'').trim();
+        const vehicle = divisionToVehicle(division) || dealerVehicle[dealer.toLowerCase()] || '';
         invoiceSet[inv] = true;
         if (dealer) dealerSet[dealer] = true;
         if (!bySku[sku]) bySku[sku] = {
@@ -300,7 +372,7 @@ function doPost(e) {
           lines:    []
         };
         bySku[sku].totalQty += qty;
-        bySku[sku].lines.push({ dealer: dealer, invoiceNumber: inv, qty: qty });
+        bySku[sku].lines.push({ dealer: dealer, invoiceNumber: inv, qty: qty, vehicle: vehicle });
       });
 
       const items = Object.keys(bySku).map(function(k){ return bySku[k]; })
@@ -310,6 +382,7 @@ function doPost(e) {
       return ok({
         date:          targetDate,
         items:         items,
+        vehicles:      vehicles,
         invoiceCount:  Object.keys(invoiceSet).length,
         dealerCount:   Object.keys(dealerSet).length,
         totalBags:     totalBags,
@@ -779,6 +852,31 @@ function doPost(e) {
         latestStock[r.skuCode]={qty:newQty, unit:r.unit||current.unit||'bag', category:current.category};
       });
 
+      // ── AUTO-UPDATE COST ON FILE (price list reference) ──────────────
+      // When goods arrive at a different unit cost, push the new cost into the SKU
+      // Master so the Product List, future PO auto-fill and margin maths stay current.
+      var costUpdates = [];
+      var smName  = data.poType === 'RETAIL' ? 'SKU Master - Retail' : 'SKU Master';
+      var costCol = data.poType === 'RETAIL' ? 10 : 9;  // J = retail cost, I = dist cost (1-indexed)
+      var smSheet = ss.getSheetByName(smName);
+      if (smSheet) {
+        var smRows = smSheet.getDataRange().getValues();
+        (data.receipts||[]).forEach(function(r){
+          var newCost = Number(r.unitCost);
+          if (!newCost || newCost <= 0) return;
+          for (var si = 1; si < smRows.length; si++) {
+            if (String(smRows[si][0]).trim() === String(r.skuCode).trim()) {
+              var oldCost = Number(smRows[si][costCol-1]) || 0;
+              if (Math.abs(newCost - oldCost) >= 0.005) {
+                smSheet.getRange(si+1, costCol).setValue(newCost);
+                costUpdates.push({ skuCode: r.skuCode, itemName: r.itemName, oldCost: oldCost, newCost: newCost });
+              }
+              break;
+            }
+          }
+        });
+      }
+
       // ── GOOGLE CALENDAR PAYMENT REMINDER ─────────────────────────────
       // Due date is always based on actual receipt date so the reminder is accurate.
       //   COD / Cash / E-Wallet / Bank Transfer / Cheque "Upon Delivery" → due = receipt date
@@ -811,8 +909,8 @@ function doPost(e) {
             'Amount: ₱' + amount.toLocaleString('en-PH',{minimumFractionDigits:2}),
             'Payment Mode: ' + (paymentMode || 'N/A'),
             'Terms: '        + (termsDays > 0 ? termsDays+' days from receipt' : 'Upon Delivery'),
-            'Receipt Date: ' + receiptDate.toLocaleDateString('en-PH'),
-            'Due Date: '     + dueDate.toLocaleDateString('en-PH'),
+            'Receipt Date: ' + Utilities.formatDate(receiptDate, Session.getScriptTimeZone(), 'MMM d, yyyy'),
+            'Due Date: '     + Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'MMM d, yyyy'),
             chequeRef ? 'Cheque Ref: ' + chequeRef : '',
             docRef    ? 'Doc Ref: '    + docRef    : '',
             'Received By: '  + (data.receivedBy || '')
@@ -827,7 +925,7 @@ function doPost(e) {
           if(msLeft > 3*24*60*60000) event.addPopupReminder(3*24*60);
           if(msLeft > 1*24*60*60000) event.addPopupReminder(1*24*60);
 
-          calendarNote = 'Event created for ' + dueDate.toLocaleDateString('en-PH');
+          calendarNote = 'Event created for ' + Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'MMM d, yyyy');
         } else {
           calendarNote = 'PO row not found in poRows — no event created';
         }
@@ -837,7 +935,7 @@ function doPost(e) {
       }
       // ─────────────────────────────────────────────────────────────────
 
-      return ok({newStatus, calendarNote});
+      return ok({newStatus, calendarNote, costUpdates: costUpdates});
     }
 
 
@@ -1262,87 +1360,105 @@ function doPost(e) {
     }
 
     // ── IMPORT XERO SALES ─────────────────────────────────────────────
+    // Upsert by invoice: re-uploading a corrected/completed export REPLACES the
+    // existing rows of any invoice it contains (it does not stack on top of the
+    // old upload). Inventory is adjusted by the NET difference only, so a re-upload
+    // never double-deducts stock — edited quantities flow through as a delta.
     if (data.action === 'importXeroSales') {
-      const sheet = getOrCreateSheet(ss, 'Sales Log - Distribution', [
-        'Invoice Number','Invoice Date','Due Date','Dealer',
-        'SKU Code','Description','Qty','Unit Price (₱)','Line Amount (₱)',
-        'Invoice Total (₱)','Amount Paid (₱)','Amount Due (₱)',
-        'Status','Imported At','Imported By'
-      ]);
-
-      // Build set of existing invoice+sku combos to deduplicate
-      const existing = new Set();
-      const existingRows = sheet.getDataRange().getValues().slice(1);
-      existingRows.forEach(r => {
-        if (r[0] && r[4]) existing.add(String(r[0]).trim() + '|' + String(r[4]).trim());
-      });
-
-      const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-      let imported = 0, skipped = 0;
-      const importedXeroRows = [];
-
-      (data.rows || []).forEach(r => {
-        const key = String(r.invoiceNumber).trim() + '|' + String(r.skuCode).trim();
-        if (existing.has(key)) { skipped++; return; }
-        sheet.appendRow([
-          r.invoiceNumber, r.invoiceDate, r.dueDate, r.contactName,
-          r.skuCode, r.description, r.quantity, r.unitAmount, r.lineAmount,
-          r.invoiceTotal, r.amountPaid, r.amountDue,
-          r.status, now, data.importedBy || ''
+      const xlock = LockService.getScriptLock();
+      xlock.waitLock(20000);
+      try {
+        const sheet = getOrCreateSheet(ss, 'Sales Log - Distribution', [
+          'Invoice Number','Invoice Date','Due Date','Dealer',
+          'SKU Code','Description','Qty','Unit Price (₱)','Line Amount (₱)',
+          'Invoice Total (₱)','Amount Paid (₱)','Amount Due (₱)',
+          'Status','Imported At','Imported By','Division'
         ]);
-        existing.add(key);
-        imported++;
-        importedXeroRows.push(r);
-      });
+        if (sheet.getRange(1,16).getValue() === '') sheet.getRange(1,16).setValue('Division');
 
-      // ── Auto-deduct from Stock Counts - Distribution ──────────────
-      // Build net qty map per SKU from newly imported rows only
-      const xeroDeductMap = {}; // skuCode → { netQty, item }
-      importedXeroRows.forEach(function(r) {
-        const sku = String(r.skuCode).trim();
-        if (!xeroDeductMap[sku]) xeroDeductMap[sku] = { netQty: 0, item: String(r.description||'') };
-        xeroDeductMap[sku].netQty += Number(r.quantity) || 0;
-      });
+        const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 
-      // Read current stock from Stock Counts - Distribution
-      // Cols: Timestamp(0) SubmittedBy(1) Location(2) SKUCode(3) ItemName(4) QtyOnHand(5) Unit(6) Type(7) Category(8)
-      const distCntSheet = getOrCreateSheet(ss, 'Stock Counts - Distribution', [
-        'Timestamp','Submitted By','Location','SKU Code',
-        'Item Name','Qty On Hand','Unit','Type','Category'
-      ]);
-      const distCntRows = distCntSheet.getDataRange().getValues().slice(1)
-        .filter(function(r) { return r[0] && r[3]; });
+        // Invoices present in THIS upload — their old rows get replaced.
+        const uploadInvoices = {};
+        (data.rows || []).forEach(function(r){
+          const inv = String(r.invoiceNumber||'').trim();
+          if (inv) uploadInvoices[inv] = true;
+        });
 
-      // Find latest stock entry per SKU
-      const distLatestStock = {};
-      distCntRows.forEach(function(r) {
-        const sku = String(r[3]).trim();
-        distLatestStock[sku] = { qty: Number(r[5]) || 0, unit: String(r[6] || 'bag'), category: String(r[8] || '') };
-      });
+        // Read existing rows. Keep the ones NOT being replaced; tally the OLD
+        // quantities of the replaced invoices for the inventory net-delta.
+        const all = sheet.getDataRange().getValues();
+        const width = Math.max(16, (all[0]||[]).length);
+        const kept = [];
+        const oldQtyBySku = {};
+        const replacedInv = {};
+        for (let i = 1; i < all.length; i++) {
+          const inv = String(all[i][0]||'').trim();
+          if (!inv) continue;
+          if (uploadInvoices[inv]) {
+            replacedInv[inv] = true;
+            const sku = String(all[i][4]||'').trim();
+            if (sku) oldQtyBySku[sku] = (oldQtyBySku[sku]||0) + (Number(all[i][6])||0);
+          } else {
+            const row = all[i].slice(0, width);
+            while (row.length < width) row.push('');
+            kept.push(row);
+          }
+        }
 
-      // Append new stock count entries for affected SKUs
-      let stockUpdated = 0;
-      Object.keys(xeroDeductMap).forEach(function(sku) {
-        const info = xeroDeductMap[sku];
-        if (info.netQty === 0) return;
-        if (!distLatestStock.hasOwnProperty(sku)) return; // No baseline — skip
-        const current = distLatestStock[sku];
-        const newQty  = current.qty - info.netQty;
-        distCntSheet.appendRow([
-          now,
-          'Xero Import (' + (data.importedBy || 'system') + ')',
-          'Warehouse',
-          sku,
-          info.item,
-          newQty,
-          current.unit,
-          'DIST',
-          current.category
+        // Build the upload's new rows + tally new quantities per SKU.
+        const newQtyBySku = {}, itemBySku = {};
+        const newRows = (data.rows || []).map(function(r){
+          const sku = String(r.skuCode||'').trim();
+          if (sku) {
+            newQtyBySku[sku] = (newQtyBySku[sku]||0) + (Number(r.quantity)||0);
+            if (!itemBySku[sku]) itemBySku[sku] = String(r.description||'');
+          }
+          const row = [r.invoiceNumber, r.invoiceDate, r.dueDate, r.contactName,
+            r.skuCode, r.description, r.quantity, r.unitAmount, r.lineAmount,
+            r.invoiceTotal, r.amountPaid, r.amountDue,
+            r.status, now, data.importedBy||'', r.division||''];
+          while (row.length < width) row.push('');
+          return row;
+        });
+
+        // Rewrite the data area in one shot (fast + atomic): clear, then write
+        // the kept rows followed by the upload's rows.
+        const finalRows = kept.concat(newRows);
+        const lastRow = sheet.getLastRow();
+        if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, width).clearContent();
+        if (finalRows.length) sheet.getRange(2, 1, finalRows.length, width).setValues(finalRows);
+
+        // ── Inventory net delta per SKU: (new − old) = extra units sold ──
+        const distCntSheet = getOrCreateSheet(ss, 'Stock Counts - Distribution', [
+          'Timestamp','Submitted By','Location','SKU Code',
+          'Item Name','Qty On Hand','Unit','Type','Category'
         ]);
-        stockUpdated++;
-      });
+        const distLatest = {};
+        distCntSheet.getDataRange().getValues().slice(1)
+          .filter(function(r){ return r[0] && r[3]; })
+          .forEach(function(r){ distLatest[String(r[3]).trim()] = { qty:Number(r[5])||0, unit:String(r[6]||'bag'), category:String(r[8]||'') }; });
 
-      return ok({ imported, skipped, stockUpdated });
+        const touched = {};
+        Object.keys(newQtyBySku).forEach(function(s){ touched[s]=true; });
+        Object.keys(oldQtyBySku).forEach(function(s){ touched[s]=true; });
+        let stockUpdated = 0;
+        Object.keys(touched).forEach(function(sku){
+          const delta = (newQtyBySku[sku]||0) - (oldQtyBySku[sku]||0); // + = more sold, − = sold less
+          if (delta === 0) return;
+          if (!distLatest.hasOwnProperty(sku)) return; // no baseline — skip
+          const cur = distLatest[sku];
+          distCntSheet.appendRow([
+            now, 'Xero Import (' + (data.importedBy||'system') + ')', 'Warehouse',
+            sku, itemBySku[sku] || '', cur.qty - delta, cur.unit, 'DIST', cur.category
+          ]);
+          stockUpdated++;
+        });
+
+        return ok({ imported: newRows.length, replaced: Object.keys(replacedInv).length, stockUpdated: stockUpdated });
+      } finally {
+        xlock.releaseLock();
+      }
     }
 
     // ── IMPORT LOYVERSE SALES ─────────────────────────────────────────
@@ -1498,7 +1614,8 @@ function doPost(e) {
         'Dealer ID','Store Name','Owner Name','Phone 1','Phone 2',
         'Area','Address','Dealer Type','Status',
         'Latitude','Longitude','GPS Accuracy (m)',
-        'Notes','Added By','Date Added','Updated By','Last Updated'
+        'Notes','Added By','Date Added','Updated By','Last Updated',
+        'Assigned Vehicle'
       ]);
       const rows = sheet.getDataRange().getValues().slice(1)
         .filter(r => r[0])
@@ -1523,7 +1640,8 @@ function doPost(e) {
           updatedBy:  String(r[15]||''),
           updatedAt:  r[16] instanceof Date
             ? Utilities.formatDate(r[16], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
-            : String(r[16]||'')
+            : String(r[16]||''),
+          assignedVehicle: String(r[17]||'')
         }));
       return ok({ dealers: rows });
     }
@@ -1533,7 +1651,8 @@ function doPost(e) {
         'Dealer ID','Store Name','Owner Name','Phone 1','Phone 2',
         'Area','Address','Dealer Type','Status',
         'Latitude','Longitude','GPS Accuracy (m)',
-        'Notes','Added By','Date Added','Updated By','Last Updated'
+        'Notes','Added By','Date Added','Updated By','Last Updated',
+        'Assigned Vehicle'
       ]);
       const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
       // Generate Dealer ID: DLR-YYYYMMDD-NNN
@@ -1549,7 +1668,8 @@ function doPost(e) {
         data.lat || '',       data.lng || '',  data.accuracy || '',
         data.notes || '',
         data.addedBy || '', now,
-        '', ''
+        '', '',
+        data.assignedVehicle || ''
       ]);
       return ok({ dealerId });
     }
@@ -1575,6 +1695,11 @@ function doPost(e) {
         sheet.getRange(i+1,13).setValue(data.notes      || '');
         sheet.getRange(i+1,16).setValue(data.updatedBy  || '');
         sheet.getRange(i+1,17).setValue(now);
+        if (data.assignedVehicle !== undefined)
+          sheet.getRange(i+1,18).setValue(data.assignedVehicle || '');
+        // Backfill the header if this sheet predates the Assigned Vehicle column
+        if (sheet.getRange(1,18).getValue() === '')
+          sheet.getRange(1,18).setValue('Assigned Vehicle');
         return ok({ dealerId: data.dealerId, updatedAt: now });
       }
       return err('Dealer not found: ' + data.dealerId);
@@ -2702,7 +2827,27 @@ function doPost(e) {
 
       const rows = sheet.getDataRange().getValues().slice(1).filter(function(r){ return r[0] && r[3]; });
 
-      // Build per-SKU record list
+      // The Stock Counts sheet is a shared ledger — physical counts AND automated
+      // movements (sales imports, PO receipts, transfers, production, invoice
+      // stock-outs, non-count adjustments) all append here. Count History must show
+      // only PHYSICAL COUNTS, otherwise a recent import masks your latest count.
+      // (Van load/return rows live under Bajaj locations and are indistinguishable
+      // from van counts by columns, so they are left in for Bajaj count history.)
+      function isAutoSource(submittedBy, location, typeCol, catCol){
+        var sb = String(submittedBy||'').toLowerCase();
+        var loc = String(location||'').toLowerCase();
+        var tp = String(typeCol||'').toLowerCase();
+        var ct = String(catCol||'').toLowerCase();
+        if (/import|xero|loyverse|system/.test(sb)) return true;            // sales imports
+        if (/transfer/.test(tp) || /transfer/.test(ct)) return true;        // transfers
+        if (/po.?receipt/.test(ct) || /^stock in/.test(loc)) return true;   // PO receipts
+        if (/production/.test(loc) || /production/.test(ct)) return true;   // production conversions
+        if (/admin sale|void reversal/.test(loc)) return true;             // invoice stock-out / void
+        if (/(receive|remove|damage) adjustment/.test(loc)) return true;    // non-count adjustments
+        return false;
+      }
+
+      // Build per-SKU record list, flagging the source of each row
       var skuMap = {};
       rows.forEach(function(r) {
         // Normalise timestamp — handles Date objects AND legacy "M/D/YYYY, H:MM:" strings
@@ -2716,8 +2861,11 @@ function doPost(e) {
             : Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
         }
         var code = String(r[3]);
-        if (!skuMap[code]) skuMap[code] = { name: String(r[4]||code), unit: String(r[6]||'bag'), category: String(r[8]||''), records: [] };
-        skuMap[code].records.push({ date: ts, qty: Number(r[5])||0, submittedBy: String(r[1]||''), location: String(r[2]||'') });
+        if (!skuMap[code]) skuMap[code] = { name: String(r[4]||code), unit: String(r[6]||'bag'), category: '', records: [] };
+        var auto = isAutoSource(r[1], r[2], r[7], r[8]);
+        // Category comes from a real count row (import/movement rows pollute col 8)
+        if (!auto && !skuMap[code].category) skuMap[code].category = String(r[8]||'');
+        skuMap[code].records.push({ date: ts, qty: Number(r[5])||0, submittedBy: String(r[1]||''), location: String(r[2]||''), auto: auto });
       });
 
       var now = new Date();
@@ -2725,24 +2873,23 @@ function doPost(e) {
       var lastCountDateMs = 0; // track as epoch ms to avoid mixed-format string comparison bugs
       var varianceCount = 0;
 
-      var items = Object.keys(skuMap).map(function(code) {
+      var items = [];
+      Object.keys(skuMap).forEach(function(code) {
         var info = skuMap[code];
         info.records.sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
-        var latest   = info.records[0];
-        var prev     = info.records[1];
+        // Physical counts only — automated movements never count as a "count"
+        var counts = info.records.filter(function(rec){ return !rec.auto; });
+        if (!counts.length) return;   // never physically counted — not part of count history
+        var latest   = counts[0];
+        var prev     = counts[1] || null;
         var variance = prev != null ? latest.qty - prev.qty : null;
         var latestMs = new Date(latest.date).getTime();
         if (!isNaN(latestMs) && latestMs > lastCountDateMs) { lastCountDateMs = latestMs; lastCountDate = latest.date; }
         if (variance !== null && variance !== 0) varianceCount++;
         var daysSince = Math.floor((now - new Date(latest.date)) / 86400000);
+        var isShrinkage = variance !== null && variance < -3;
 
-        // Shrinkage flag: negative variance on a manual count that's unexpectedly large
-        // Auto-generated entries (Loyverse/Xero imports, PO receipts, transfers) are excluded
-        var isManualEntry = !/(loyverse|xero|import|stock.?in|po.?receipt|transfer|production)/i
-          .test(String(latest.submittedBy || ''));
-        var isShrinkage = isManualEntry && variance !== null && variance < -3;
-
-        return {
+        items.push({
           skuCode:     code,
           skuName:     info.name,
           category:    info.category,
@@ -2755,7 +2902,7 @@ function doPost(e) {
           location:    latest.location,
           daysSince:   daysSince,
           isShrinkage: isShrinkage
-        };
+        });
       });
 
       items.sort(function(a,b){ return new Date(b.lastCounted)-new Date(a.lastCounted); });

@@ -511,6 +511,10 @@ function renderPODetail(){
     || (isCreator && ['DRAFT','PENDING'].includes(po.status));
   // Resubmit inherits from canEditDraft — anyone who can edit can resubmit
   const canResubmit = canEditDraft && po.status === 'REJECTED';
+  // Approval authority: admin, or a supervisor with delegated approval for this PO type
+  const canApprovePO = isAdmin
+    || (po.type==='DIST'   && currentUser.canApprovePODist===true)
+    || (po.type==='RETAIL' && currentUser.canApprovePORetail===true);
 
   const statusCls = {
     DRAFT:'s-draft', PENDING:'s-pending', APPROVED:'s-approved',
@@ -644,8 +648,8 @@ function renderPODetail(){
     body.appendChild(editDiv);
   }
 
-  // ── APPROVAL SECTION (admin only, PENDING status) ──
-  if(isAdmin && po.status === 'PENDING'){
+  // ── APPROVAL SECTION (admin or delegated approver, PENDING status) ──
+  if(canApprovePO && po.status === 'PENDING'){
     // Auto-fill supplier defaults if available
     const supDef = supplierList.find(s=>s.name===po.supplier)||{};
     const defMode  = supDef.defPayMode || '';
@@ -1167,7 +1171,22 @@ async function receiveItems(){
     r.qtyReceived + ' x ' + r.itemName + ' @ ₱' + Number(r.unitCost).toLocaleString('en-PH',{minimumFractionDigits:2})
   ).join('\n');
 
-  if(!confirm('Confirm receipt of:\n\n' + confirmMsg + '\n\nThis will update inventory stock counts as STOCK IN.')) return;
+  // Detect cost changes vs the price list (cost on file) to show before confirming
+  const _cfmt = v => '₱'+Number(v).toLocaleString('en-PH',{minimumFractionDigits:2});
+  const priceChanges = [];
+  receipts.forEach(r => {
+    const sku = (typeof liveSKUs!=='undefined') ? liveSKUs.find(s=>s.code===r.skuCode) : null;
+    const onFile = (sku && sku.cost) ? Number(sku.cost) : null;
+    if(onFile != null && Math.abs(Number(r.unitCost) - onFile) >= 0.005){
+      priceChanges.push('• ' + r.itemName + ': ' + _cfmt(onFile) + ' → ' + _cfmt(r.unitCost));
+    }
+  });
+
+  let confirmText = 'Confirm receipt of:\n\n' + confirmMsg + '\n\nThis will update inventory stock counts as STOCK IN.';
+  if(priceChanges.length){
+    confirmText += '\n\n💲 Your price list (cost on file) will update:\n' + priceChanges.join('\n');
+  }
+  if(!confirm(confirmText)) return;
 
   try{
     const r = await api({
@@ -1183,6 +1202,15 @@ async function receiveItems(){
         + (docRef ? ' — Doc Ref: ' + docRef : '')
         + ' — inventory updated as STOCK IN ✓';
       showBanner('po-success-bar', summary);
+      // Reflect price-list updates: refresh local cost cache + notify
+      if(r.costUpdates && r.costUpdates.length){
+        r.costUpdates.forEach(c => {
+          const sku = (typeof liveSKUs!=='undefined') ? liveSKUs.find(s=>s.code===c.skuCode) : null;
+          if(sku) sku.cost = Number(c.newCost);
+        });
+        showToast('Price list updated — new cost on file for ' + r.costUpdates.length + ' item' + (r.costUpdates.length!==1?'s':''), 'success', 4500);
+        if(typeof loadPLData === 'function') loadPLData(); // refresh Product List data in background
+      }
       if(r.calendarNote){
         const isErr = r.calendarNote.startsWith('ERROR:') || r.calendarNote.includes('not found');
         showToast(

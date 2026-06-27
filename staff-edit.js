@@ -60,6 +60,8 @@ function openEditStaff(idx){
     ['edit-can-count-history', isAdmin || s.canViewCountHistory === true],
     ['edit-can-po-dist',     isAdmin || s.canManagePODist===true],
     ['edit-can-po-retail',   isAdmin || s.canManagePORetail===true],
+    ['edit-can-approve-po-dist',   isAdmin || s.canApprovePODist===true],
+    ['edit-can-approve-po-retail', isAdmin || s.canApprovePORetail===true],
     ['edit-can-transfer',    isAdmin || s.canTransfer === true],
     ['edit-can-production',  isAdmin || s.canProduction === true ||
                              s.role === 'staff-retail'],
@@ -102,6 +104,7 @@ function onEditRoleChange(){
   ['edit-can-pl','edit-can-sa','edit-can-count-dist','edit-can-count-retail',
    'edit-can-count-history',
    'edit-can-po-dist','edit-can-po-retail',
+   'edit-can-approve-po-dist','edit-can-approve-po-retail',
    'edit-can-transfer','edit-can-production',
    'edit-can-bo-dist','edit-can-bo-retail',
    'edit-can-dealers','edit-can-invoice'].forEach(id => {
@@ -152,6 +155,8 @@ async function saveStaffEdit(){
     { key:'canViewCountHistory', id:'edit-can-count-history' },
     { key:'canManagePODist',   id:'edit-can-po-dist'      },
     { key:'canManagePORetail', id:'edit-can-po-retail'    },
+    { key:'canApprovePODist',  id:'edit-can-approve-po-dist'   },
+    { key:'canApprovePORetail',id:'edit-can-approve-po-retail' },
     { key:'canTransfer',       id:'edit-can-transfer'     },
     { key:'canProduction',     id:'edit-can-production'   },
     { key:'canBackorderDist',  id:'edit-can-bo-dist'      },

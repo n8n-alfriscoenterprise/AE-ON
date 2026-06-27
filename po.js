@@ -779,14 +779,21 @@ function renderPODetail(){
       lineHTML += '<input class="po-recv-qty" type="number" min="0" max="' + outstanding + '"'
           + ' placeholder="' + outstanding + '" id="recv-qty-' + i + '" value="' + outstanding + '">'
         + '<input class="po-recv-cost" type="number" min="0" step="0.01"'
-          + ' placeholder="cost" id="recv-cost-' + i + '" value="' + defaultCost + '">';
+          + ' placeholder="cost" id="recv-cost-' + i + '" value="' + defaultCost + '"'
+          + ' oninput="updateRecvPriceBadge(' + i + ')">';
     }
 
     lineHTML += '</div>';
+    // Price-change insight (editable lines only) — filled in by updateRecvPriceBadge
+    if(canEdit && !isFull){
+      lineHTML += '<div class="recv-price-badge" id="recv-badge-' + i + '"></div>';
+    }
   });
 
   itemsSection.innerHTML = lineHTML;
   body.appendChild(itemsSection);
+  // Initialise the price-change badges now that the inputs exist in the DOM
+  (po.lineItems||[]).forEach((li, i) => { if(document.getElementById('recv-cost-'+i)) updateRecvPriceBadge(i); });
 
   // ── RECEIVE BUTTON ──
   if(canReceive && ['APPROVED','PARTIAL'].includes(po.status)){
@@ -1090,6 +1097,38 @@ async function deletePO(){
       await loadPOs();
     } else alert('Error: '+r.msg);
   }catch(e){ alert('Network error: '+e.message); }
+}
+
+// Live price-change insight on the receive screen — compares the cost being entered
+// against what was ordered (and the cost on file), so supplier increases are visible.
+function updateRecvPriceBadge(i){
+  if(!currentPO || !currentPO.lineItems) return;
+  const li    = currentPO.lineItems[i];
+  const input = document.getElementById('recv-cost-'+i);
+  const badge = document.getElementById('recv-badge-'+i);
+  if(!li || !input || !badge) return;
+  const ordered  = Number(li.unitCost) || 0;
+  const received = parseFloat(input.value);
+  if(isNaN(received) || received <= 0 || ordered <= 0){ badge.innerHTML = ''; return; }
+  const fmt  = v => '₱'+Math.abs(Number(v)).toLocaleString('en-PH',{minimumFractionDigits:2});
+  const diff = received - ordered;
+  const pct  = ordered > 0 ? (diff/ordered*100) : 0;
+
+  let html;
+  if(Math.abs(diff) < 0.005){
+    html = '<span class="recv-price-same">✓ same as ordered ('+fmt(ordered)+')</span>';
+  } else if(diff > 0){
+    html = '<span class="recv-price-up">🔺 +'+fmt(diff)+' vs ordered (+'+pct.toFixed(1)+'%)</span>';
+  } else {
+    html = '<span class="recv-price-down">🔻 −'+fmt(diff)+' vs ordered ('+pct.toFixed(1)+'%)</span>';
+  }
+  // Context: current cost on file (SKU Master), when it differs from the ordered cost
+  const sku    = (typeof liveSKUs !== 'undefined') ? liveSKUs.find(s => s.code === li.skuCode) : null;
+  const onFile = (sku && sku.cost) ? Number(sku.cost) : null;
+  if(onFile != null && Math.abs(onFile - ordered) >= 0.005){
+    html += ' <span class="recv-price-note">· on file '+fmt(onFile)+'</span>';
+  }
+  badge.innerHTML = html;
 }
 
 async function receiveItems(){

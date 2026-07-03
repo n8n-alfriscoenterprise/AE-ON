@@ -51,6 +51,8 @@ function buildHomeTiles(){
   if(!grid)return;
   grid.innerHTML='';
   const tiles=[];
+  // 0. Time Clock — every employee, first thing they see (attendance in/out)
+  tiles.push({icon:'⏰',name:'Time Clock',desc:'Time in / out with photo & location',cls:'t-clock',fn:'openClock()'});
   // 0. Product List — always visible if canViewProductList
   const canPL = currentUser.role==='admin' || currentUser.canViewProductList===true;
   if(canPL) tiles.push({icon:'📋',name:'Product List',desc:'Item prices & current stock levels',cls:'t-product',fn:'openPL()',badge:'ls-alert-badge'});

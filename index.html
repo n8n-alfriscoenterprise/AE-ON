@@ -776,6 +776,9 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Aria
 .po-edit-history{margin:10px 14px 4px;padding:10px 12px;background:#fffbf4;border:1px solid #f5d9a0;border-radius:8px}
 .po-edit-history-title{font-size:11px;font-weight:700;color:#B35C00;margin-bottom:6px;letter-spacing:0.2px}
 .po-edit-history-entry{font-size:11px;color:#555;padding:3px 0;border-top:1px dashed #f0d9b0;line-height:1.5}
+.po-receipt-history{margin:10px 14px 4px;padding:10px 12px;background:#f1f9f3;border:1px solid #b9e0c4;border-radius:8px}
+.po-receipt-history-title{font-size:11px;font-weight:700;color:#1B5E20;margin-bottom:6px;letter-spacing:0.2px}
+.po-receipt-history-entry{font-size:11px;color:#555;padding:3px 0;border-top:1px dashed #c9e8d1;line-height:1.5}
 .po-chip{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;border:1.5px solid #e0e0e0;color:#666;background:white}
 .po-chip.active{background:#1A3A5C;color:white;border-color:#1A3A5C}
 .po-list-body{flex:1;overflow-y:auto;background:#f0f2f5;padding-bottom:14px}
@@ -1126,6 +1129,43 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 .ll-unassigned-note{background:#FFF3DC;border:1px solid #f0d29a;color:#8a5a12;font-size:11px;line-height:1.5;padding:8px 11px;border-radius:9px;margin-bottom:10px}
 .ll-bd-veh{margin-left:6px;font-size:10px;padding:3px 5px;border:1.5px solid #d8dce2;border-radius:6px;background:white;color:#444;max-width:96px;outline:none}
 .ll-bd-veh:focus{border-color:#0A5C46}
+
+/* ══════════════ TIME CLOCK ══════════════ */
+.clk-body{flex:1;overflow-y:auto;padding:16px 14px;background:#f0f2f5;display:flex;flex-direction:column;gap:12px}
+.clk-status-card{background:white;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);border-left:5px solid #9AA5B1}
+.clk-status-card.clk-in{border-left-color:#2E7D32;background:#F4FBF5}
+.clk-status-card.clk-out{border-left-color:#9AA5B1}
+.clk-status-main{font-size:17px;font-weight:800;color:#263238}
+.clk-status-sub{font-size:12px;color:#78909C;margin-top:4px;line-height:1.5}
+.clk-forgot-warn{margin-top:8px;background:#FFF3DC;border:1px solid #f0d29a;color:#8a5a12;font-size:11px;line-height:1.5;padding:8px 10px;border-radius:8px}
+.clk-photo-box{background:white;border:2px dashed #B0BEC5;border-radius:12px;padding:18px 14px;text-align:center;cursor:pointer;transition:border-color .15s ease}
+.clk-photo-box:active{border-color:#37474F}
+.clk-photo-box.clk-photo-req{border-color:#E24B4A;background:#FFF5F5}
+.clk-photo-box img{max-width:160px;max-height:160px;border-radius:10px;margin:0 auto 8px;display:block;object-fit:cover}
+.clk-photo-label{font-size:14px;font-weight:700;color:#37474F}
+.clk-photo-req-note{font-size:10px;color:#aaa;margin-top:4px}
+.clk-gps-note{font-size:11px;color:#78909C;text-align:center;font-weight:600}
+.clk-btn-row{display:flex;gap:10px}
+.clk-btn{flex:1;padding:20px 10px;border:none;border-radius:14px;font-size:16px;font-weight:800;cursor:pointer;color:white;letter-spacing:.3px}
+.clk-btn-in{background:linear-gradient(135deg,#2E7D32,#43A047);box-shadow:0 3px 10px rgba(46,125,50,.3)}
+.clk-btn-out{background:linear-gradient(135deg,#B35C00,#D97706);box-shadow:0 3px 10px rgba(179,92,0,.3)}
+.clk-btn-dim{opacity:.45}
+.clk-btn:disabled{opacity:.55}
+.clk-note{font-size:10px;color:#aaa;text-align:center;line-height:1.5;padding:0 10px}
+.tile.t-clock{background:linear-gradient(135deg,#37474F,#546E7A)}
+/* My Attendance list */
+.clk-att-section{background:white;border-radius:12px;padding:12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.clk-att-title{font-size:12px;font-weight:800;color:#37474F;margin-bottom:8px;letter-spacing:.3px}
+.clk-att-empty{font-size:12px;color:#9AA5B1;text-align:center;padding:16px 8px}
+.clk-att-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #eef1f3}
+.clk-att-row:first-child{border-top:none}
+.clk-att-date{font-size:12px;font-weight:700;color:#37474F;width:88px;flex-shrink:0}
+.clk-att-times{flex:1;display:flex;flex-direction:column;gap:1px;font-size:11px;color:#607D8B}
+.clk-att-flagwrap{flex-shrink:0}
+.clk-att-flag{font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
+.clk-att-ok{background:#E8F5E9;color:#2E7D32}
+.clk-att-late{background:#FFF3DC;color:#B35C00}
+.clk-att-hd{background:#FDE7E7;color:#C0392B}
 
 /* ══ TRANSFER SYSTEM ══════════════════════════════ */
 #transfer-screen{background:#f0f2f5}
@@ -1556,6 +1596,37 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
         <button class="modal-cancel" onclick="closeAdminModal()">Cancel</button>
         <button class="modal-ok blue" onclick="verifyAdmin()">Enter</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- TIME CLOCK SCREEN -->
+<div id="clock-screen" class="screen" style="flex-direction:column">
+  <div style="background:#37474F;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <span style="color:white;font-size:15px;font-weight:700">⏰ Time Clock</span>
+    <button class="back-btn" onclick="closeClock()">← Back</button>
+  </div>
+  <div class="clk-body">
+    <div class="clk-status-card" id="clk-status-card"></div>
+
+    <div class="clk-photo-box" id="clk-photo-box" onclick="document.getElementById('clk-photo-input').click()">
+      <input type="file" id="clk-photo-input" accept="image/*" capture="user" style="display:none" onchange="onClkPhoto(this)">
+      <img id="clk-photo-preview" alt="" style="display:none">
+      <div class="clk-photo-label" id="clk-photo-label">📷 Tap to take your photo</div>
+      <div class="clk-photo-req-note">Photo is required for every time in / out</div>
+    </div>
+
+    <div class="clk-gps-note" id="clk-gps-note">📍 Getting location…</div>
+
+    <div class="clk-btn-row">
+      <button class="clk-btn clk-btn-in"  id="clk-in-btn"  onclick="clockNow('IN')">🕗 TIME IN</button>
+      <button class="clk-btn clk-btn-out" id="clk-out-btn" onclick="clockNow('OUT')">🕔 TIME OUT</button>
+    </div>
+    <div class="clk-note">Time is recorded by the server (Manila time) when you tap — not by your phone's clock.</div>
+
+    <div class="clk-att-section">
+      <div class="clk-att-title">📅 My Attendance</div>
+      <div class="clk-att-body" id="clk-att-body"></div>
     </div>
   </div>
 </div>
@@ -3683,6 +3754,7 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 <script src="staff-edit.js"></script>
 <script src="xero-import.js"></script>
 <script src="loadlist.js"></script>
+<script src="clock.js"></script>
 <script src="dealer.js"></script>
 <script src="invoice.js"></script>
 <script src="main.js"></script>

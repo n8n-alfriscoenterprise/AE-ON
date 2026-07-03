@@ -178,6 +178,118 @@ function doPost(e) {
       return ok({ vehicles: vehicles });
     }
 
+    // ── ATTENDANCE: CLOCK IN / OUT ─────────────────────────────────────
+    // Server-side timestamp (Manila) so lateness penalties can't be gamed by
+    // changing the phone clock. Photo saved to Drive; GPS recorded if provided.
+    // Staff rule (Employee Time Monitoring basis): hard cutoff 07:46:00 counting
+    // SECONDS (no grace), and clocking in at/after 12:00:00 = HALF DAY. Cutoffs
+    // live in 'Attendance Settings' (editable). Applies to role 'staff' only.
+    if (data.action === 'clockAttendance') {
+      const aSheet = getOrCreateSheet(ss, 'Attendance', [
+        'Timestamp','Username','Action','Late','Photo','Latitude','Longitude','Accuracy (m)','Role'
+      ]);
+      const setSheet = getOrCreateSheet(ss, 'Attendance Settings', ['Setting','Value']);
+      if (setSheet.getLastRow() < 2) {
+        setSheet.appendRow(['Staff Cutoff','07:46:00']);
+        setSheet.appendRow(['Half Day After','12:00:00']);
+      }
+      var staffCutoff = '07:46:00', halfDayAfter = '12:00:00';
+      setSheet.getDataRange().getValues().slice(1).forEach(function(r){
+        var key = String(r[0]).toLowerCase();
+        if (key.indexOf('staff cutoff') >= 0 && r[1])   staffCutoff  = String(r[1]);
+        if (key.indexOf('half day') >= 0 && r[1])       halfDayAfter = String(r[1]);
+      });
+      function _hmsToSec(s, def){
+        var m = String(s).match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (!m) return def;
+        return parseInt(m[1],10)*3600 + parseInt(m[2],10)*60 + (m[3] ? parseInt(m[3],10) : 0);
+      }
+
+      const tz   = Session.getScriptTimeZone();
+      const nowD = new Date();
+      const now  = Utilities.formatDate(nowD, tz, 'yyyy-MM-dd HH:mm:ss');
+      const act  = String(data.clockAction||'').toUpperCase() === 'OUT' ? 'OUT' : 'IN';
+
+      // Late / half-day flag — staff only, on IN, second-accurate
+      var late = '';
+      if (act === 'IN' && String(data.role||'').toLowerCase() === 'staff') {
+        var inSec = Number(Utilities.formatDate(nowD, tz, 'H'))*3600
+                  + Number(Utilities.formatDate(nowD, tz, 'm'))*60
+                  + Number(Utilities.formatDate(nowD, tz, 's'));
+        var hdSec  = _hmsToSec(halfDayAfter, 12*3600);
+        var cutSec = _hmsToSec(staffCutoff, 7*3600 + 46*60);
+        if (inSec >= hdSec) {
+          late = 'HALF DAY';
+        } else if (inSec > cutSec) {
+          var over = inSec - cutSec;
+          var mm = Math.floor(over/60), sspart = over % 60;
+          late = 'LATE +' + mm + 'm' + (sspart ? ' ' + sspart + 's' : '');
+        }
+      }
+
+      // Photo → Drive folder (link stored in the sheet, like the Google Form did)
+      var photoUrl = '';
+      if (data.photo) {
+        try {
+          var pm   = String(data.photo).match(/^data:(image\/\w+);base64,(.+)$/);
+          var b64  = pm ? pm[2] : String(data.photo);
+          var mime = pm ? pm[1] : 'image/jpeg';
+          var blob = Utilities.newBlob(Utilities.base64Decode(b64), mime,
+            'ATT_' + (data.username||'user') + '_' + Utilities.formatDate(nowD, tz, 'yyyyMMdd_HHmmss') + '_' + act + '.jpg');
+          var fIt    = DriveApp.getFoldersByName('AE-ON Attendance Photos');
+          var folder = fIt.hasNext() ? fIt.next() : DriveApp.createFolder('AE-ON Attendance Photos');
+          photoUrl   = folder.createFile(blob).getUrl();
+        } catch(phErr) { photoUrl = '(photo save failed)'; }
+      }
+
+      aSheet.appendRow([now, data.username||'', act, late, photoUrl,
+        data.lat||'', data.lng||'', data.accuracy||'', data.role||'']);
+      return ok({ timestamp: now, clockAction: act, late: late });
+    }
+
+    // ── ATTENDANCE: CURRENT STATUS ─────────────────────────────────────
+    if (data.action === 'getAttendanceStatus') {
+      const atSheet = ss.getSheetByName('Attendance');
+      if (!atSheet) return ok({ last: null });
+      const uname = String(data.username||'').toLowerCase();
+      const atRows = atSheet.getDataRange().getValues().slice(1)
+        .filter(function(r){ return r[0] && String(r[1]).toLowerCase() === uname; });
+      if (!atRows.length) return ok({ last: null });
+      const lastR = atRows[atRows.length - 1];
+      const lastTs = lastR[0] instanceof Date
+        ? Utilities.formatDate(lastR[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+        : String(lastR[0]);
+      return ok({ last: { timestamp: lastTs, action: String(lastR[2]), late: String(lastR[3]||'') } });
+    }
+
+    // ── ATTENDANCE: MY HISTORY (employee's own record) ─────────────────
+    // Groups the employee's punches by day: first IN → Time In (+ late flag),
+    // last OUT → Time Out. Returns the most recent 30 days.
+    if (data.action === 'getMyAttendance') {
+      const atSheet = ss.getSheetByName('Attendance');
+      if (!atSheet) return ok({ days: [] });
+      const tz    = Session.getScriptTimeZone();
+      const uname = String(data.username||'').toLowerCase();
+      const rows  = atSheet.getDataRange().getValues().slice(1)
+        .filter(function(r){ return r[0] && String(r[1]).toLowerCase() === uname; });
+      const byDay = {};
+      rows.forEach(function(r){
+        var ts = r[0] instanceof Date
+          ? Utilities.formatDate(r[0], tz, 'yyyy-MM-dd HH:mm:ss')
+          : String(r[0]);
+        var date = ts.slice(0,10), time = ts.slice(11,19);
+        var act  = String(r[2]).toUpperCase();
+        if (!byDay[date]) byDay[date] = { date: date, timeIn:'', timeOut:'', late:'' };
+        if (act === 'IN') {
+          if (!byDay[date].timeIn) { byDay[date].timeIn = time; byDay[date].late = String(r[3]||''); }
+        } else if (act === 'OUT') {
+          byDay[date].timeOut = time; // last OUT of the day wins
+        }
+      });
+      const days = Object.keys(byDay).sort().reverse().slice(0, 30).map(function(k){ return byDay[k]; });
+      return ok({ days: days });
+    }
+
     // ── GET ALL SKUs ───────────────────────────────────────────────────
     if (data.action === 'getAllSKUs') {
       const skus = [];
@@ -532,7 +644,7 @@ function doPost(e) {
         'Payment Terms Days','Payment Mode','Cheque Ref','Due Date',
         'Rejection Reason','Doc Ref','Date Received','Received By','Payment History',
         'Amount Paid','Overpayment','Payment Schedule',
-        'Last Edited By','Last Edited At','Edit History']);
+        'Last Edited By','Last Edited At','Edit History','Receipt History']);
       const liSheet = getOrCreateSheet(ss,'PO Line Items',[
         'PO Number','SKU Code','Item Name','Category',
         'Qty Ordered','Unit','Unit Cost','Total Cost',
@@ -657,7 +769,8 @@ function doPost(e) {
         paymentSchedule:  (() => { try{ return JSON.parse(String(poRow[22]||'[]')); }catch(e){ return []; } })(),
         lastEditedBy:     String(poRow[23]||''),
         lastEditedAt:     String(poRow[24]||''),
-        editHistory:      String(poRow[25]||'')
+        editHistory:      String(poRow[25]||''),
+        receiptHistory:   String(poRow[26]||'')
       };
       let lineItems=[];
       if(liSheet){
@@ -680,9 +793,12 @@ function doPost(e) {
       if(!sheet)return err('Sheet not found');
       const rows=sheet.getDataRange().getValues();
       const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+      var poSupplier = '', poTotal = 0;
       // No break — update ALL rows matching this PO number so duplicates stay in sync
       for(let i=1;i<rows.length;i++){
         if(String(rows[i][0])===data.poNumber){
+          poSupplier = String(rows[i][2]||'');
+          poTotal    = Number(rows[i][9]||0);
           sheet.getRange(i+1, 4).setValue('APPROVED');
           sheet.getRange(i+1, 7).setValue(data.approvedBy);
           sheet.getRange(i+1, 8).setValue(now);
@@ -694,7 +810,40 @@ function doPost(e) {
           if(data.paymentSchedule) sheet.getRange(i+1,23).setValue(JSON.stringify(data.paymentSchedule));
         }
       }
-      return ok({});
+
+      // ── CHEQUE PAYMENT REQUEST → NOTIFY OWNER ────────────────────────
+      // When a non-admin (supervisor) approves a PO to be paid by cheque, email the
+      // owner so the cheque can be prepared/signed. Admin approvals are self-evident.
+      var chequeNotified = false;
+      if (data.paymentMode === 'Cheque' && String(data.approverRole||'').toLowerCase() !== 'admin') {
+        try {
+          var adminEmail = Session.getEffectiveUser().getEmail();
+          if (adminEmail) {
+            var amtStr  = '₱' + poTotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            var subject = 'Cheque Payment Request — ' + data.poNumber + ' · ' + poSupplier;
+            var bodyArr = [
+              'A cheque payment needs to be prepared.',
+              '',
+              'PO: ' + data.poNumber,
+              'Supplier: ' + poSupplier,
+              'Amount: ' + amtStr,
+              'Cheque Ref: ' + (data.chequeRef ? data.chequeRef : '(to be issued)'),
+              'Terms: ' + (data.paymentTermsDays === '0' ? 'Upon Delivery'
+                          : (data.paymentTermsDays ? data.paymentTermsDays + ' days' : 'N/A')),
+              (data.dueDate ? 'Due: ' + data.dueDate : ''),
+              'Requested by: ' + (data.approvedBy || '') + ' (supervisor)',
+              'When: ' + now,
+              '',
+              'Open AE-ON → Purchase Orders → ' + data.poNumber + ' to record the cheque number when issued.'
+            ].filter(function(x){ return x !== ''; });
+            MailApp.sendEmail(adminEmail, subject, bodyArr.join('\n'));
+            chequeNotified = true;
+          }
+        } catch(mailErr) {
+          chequeNotified = false; // never fail the approval over a notification
+        }
+      }
+      return ok({ chequeNotified: chequeNotified });
     }
 
     // ── REJECT PO ─────────────────────────────────────────────────────
@@ -813,7 +962,15 @@ function doPost(e) {
       const anyReceived=updatedLi.some(r=>Number(r[8]||0)>0);
       const newStatus=allFulfilled?'RECEIVED':anyReceived?'PARTIAL':'APPROVED';
 
-      // Update PO header: status + docRef + received date
+      // Build a Receipt History entry for THIS delivery — who received what, when.
+      // Each partial delivery appends its own line, so split deliveries are fully traceable.
+      var rcptSummary = (data.receipts||[]).map(function(r){
+        return (r.itemName||r.skuCode) + ' ×' + r.qtyReceived;
+      }).join(', ');
+      var rcptEntry = '[' + now.slice(0,16) + ' · ' + (data.receivedBy||'') + ']'
+        + (data.docRef ? ' ' + data.docRef + ' —' : '') + ' ' + rcptSummary;
+
+      // Update PO header: status + docRef + received date + receipt history (col 27)
       const poRows=poSheet.getDataRange().getValues();
       for(let i=1;i<poRows.length;i++){
         if(String(poRows[i][0])===data.poNumber){
@@ -821,9 +978,13 @@ function doPost(e) {
           if(data.docRef) poSheet.getRange(i+1,17).setValue(data.docRef);
           poSheet.getRange(i+1,18).setValue(now);
           poSheet.getRange(i+1,19).setValue(data.receivedBy);
+          var prevRcpt = String(poRows[i][26]||'');
+          poSheet.getRange(i+1,27).setValue(prevRcpt ? prevRcpt + '|||' + rcptEntry : rcptEntry);
           break;
         }
       }
+      // Backfill the Receipt History header on PO sheets created before this column existed
+      if (poSheet.getRange(1,27).getValue() === '') poSheet.getRange(1,27).setValue('Receipt History');
 
       // Write STOCK IN entries to Stock Counts sheet — adds to running on-hand balance
       const csName=data.poType==='RETAIL'?'Stock Counts - Retail':'Stock Counts - Distribution';

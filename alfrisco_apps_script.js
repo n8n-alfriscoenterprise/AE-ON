@@ -190,12 +190,14 @@ function doPost(e) {
       ]);
       const setSheet = getOrCreateSheet(ss, 'Attendance Settings', ['Setting','Value']);
       if (setSheet.getLastRow() < 2) {
+        setSheet.appendRow(['Official Start','07:45:00']);
         setSheet.appendRow(['Staff Cutoff','07:46:00']);
         setSheet.appendRow(['Half Day After','12:00:00']);
       }
-      var staffCutoff = '07:46:00', halfDayAfter = '12:00:00';
+      var officialStart = '07:45:00', staffCutoff = '07:46:00', halfDayAfter = '12:00:00';
       setSheet.getDataRange().getValues().slice(1).forEach(function(r){
         var key = String(r[0]).toLowerCase();
+        if (key.indexOf('official start') >= 0 && r[1]) officialStart = String(r[1]);
         if (key.indexOf('staff cutoff') >= 0 && r[1])   staffCutoff  = String(r[1]);
         if (key.indexOf('half day') >= 0 && r[1])       halfDayAfter = String(r[1]);
       });
@@ -210,18 +212,22 @@ function doPost(e) {
       const now  = Utilities.formatDate(nowD, tz, 'yyyy-MM-dd HH:mm:ss');
       const act  = String(data.clockAction||'').toUpperCase() === 'OUT' ? 'OUT' : 'IN';
 
-      // Late / half-day flag — staff only, on IN, second-accurate
+      // Late / half-day flag — staff roles only (staff + staff-retail; drivers and
+      // admin are not flagged), on IN, second-accurate. HARD cutoff: hitting
+      // 07:46:00 exactly is already LATE. Minutes late are measured from the
+      // official 07:45:00 start so they match the Time Monitoring deduction basis.
       var late = '';
-      if (act === 'IN' && String(data.role||'').toLowerCase() === 'staff') {
+      if (act === 'IN' && String(data.role||'').toLowerCase().indexOf('staff') === 0) {
         var inSec = Number(Utilities.formatDate(nowD, tz, 'H'))*3600
                   + Number(Utilities.formatDate(nowD, tz, 'm'))*60
                   + Number(Utilities.formatDate(nowD, tz, 's'));
-        var hdSec  = _hmsToSec(halfDayAfter, 12*3600);
-        var cutSec = _hmsToSec(staffCutoff, 7*3600 + 46*60);
+        var hdSec    = _hmsToSec(halfDayAfter, 12*3600);
+        var cutSec   = _hmsToSec(staffCutoff, 7*3600 + 46*60);
+        var startSec = _hmsToSec(officialStart, 7*3600 + 45*60);
         if (inSec >= hdSec) {
           late = 'HALF DAY';
-        } else if (inSec > cutSec) {
-          var over = inSec - cutSec;
+        } else if (inSec >= cutSec) {
+          var over = Math.max(0, inSec - startSec);
           var mm = Math.floor(over/60), sspart = over % 60;
           late = 'LATE +' + mm + 'm' + (sspart ? ' ' + sspart + 's' : '');
         }
@@ -264,10 +270,11 @@ function doPost(e) {
 
     // ── ATTENDANCE: MY HISTORY (employee's own record) ─────────────────
     // Groups the employee's punches by day: first IN → Time In (+ late flag),
-    // last OUT → Time Out. Returns the most recent 30 days.
+    // last OUT → Time Out. Returns the most recent 30 days PLUS the latest punch
+    // (`last`), so the clock screen needs one round trip instead of two.
     if (data.action === 'getMyAttendance') {
       const atSheet = ss.getSheetByName('Attendance');
-      if (!atSheet) return ok({ days: [] });
+      if (!atSheet) return ok({ days: [], last: null });
       const tz    = Session.getScriptTimeZone();
       const uname = String(data.username||'').toLowerCase();
       const rows  = atSheet.getDataRange().getValues().slice(1)
@@ -287,7 +294,16 @@ function doPost(e) {
         }
       });
       const days = Object.keys(byDay).sort().reverse().slice(0, 30).map(function(k){ return byDay[k]; });
-      return ok({ days: days });
+      // Latest punch (rows are in sheet/append order) — powers the status card
+      var lastPunch = null;
+      if (rows.length) {
+        var lr = rows[rows.length - 1];
+        var lts = lr[0] instanceof Date
+          ? Utilities.formatDate(lr[0], tz, 'yyyy-MM-dd HH:mm:ss')
+          : String(lr[0]);
+        lastPunch = { timestamp: lts, action: String(lr[2]), late: String(lr[3]||'') };
+      }
+      return ok({ days: days, last: lastPunch });
     }
 
     // ── GET ALL SKUs ───────────────────────────────────────────────────
@@ -723,13 +739,17 @@ function doPost(e) {
       }));
       const liSheet = ss.getSheetByName('PO Line Items');
       if (liSheet) {
+        // O(1) lookup instead of pos.find() per line row — that scan was
+        // O(POs × line rows) and grows quadratically as history accumulates
+        const poByNum = {};
+        pos.forEach(p => { poByNum[p.poNumber] = p; });
         // Deduplicate line items by PO+SKU so duplicate rows don't inflate counts
         const liSeen = new Set();
         liSheet.getDataRange().getValues().slice(1).forEach(li => {
           const key = String(li[0]) + '|' + String(li[1]);
           if (liSeen.has(key)) return;
           liSeen.add(key);
-          const po = pos.find(p => p.poNumber === String(li[0]));
+          const po = poByNum[String(li[0])];
           if (po) po.lineCount = (po.lineCount||0) + 1;
         });
       }
@@ -1295,30 +1315,37 @@ function doPost(e) {
       // ── Build latest stock map per SKU from Stock Counts sheets ──
       // Stock Counts cols: Timestamp(0) SubmittedBy(1) Location(2) SKUCode(3)
       //                    ItemName(4) QtyOnHand(5) Unit(6) Type(7) Category(8)
+      // Last row per SKU wins. The Stock Counts sheets are append-only and every
+      // writer (receipts, transfers, production, adjustments, imports) chains new
+      // ABSOLUTE balances onto the end — the rest of the app already reads them
+      // that way. The old timestamp comparison here was slower (two Date parses
+      // per row across a sheet that grows daily) and subtly wrong for batched
+      // writes sharing one timestamp: `ts > lastUpdated` kept the FIRST row of a
+      // batch while the correct current balance is the LAST.
       function buildStockMap(sheet) {
         const map = {}; // {skuCode: {stock, lastUpdated, unit}}
         if (!sheet) return map;
-        const rows = sheet.getDataRange().getValues();
-        rows.slice(1).filter(r=>r[0]&&r[3]).forEach(r=>{
-          const code = String(r[3]).trim();
-          // Normalise timestamp — handles Date objects AND legacy "M/D/YYYY, H:MM:" strings
-          var tsFormatted;
-          if (r[0] instanceof Date) {
-            tsFormatted = Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        sheet.getDataRange().getValues().slice(1).forEach(function(r){
+          if (!r[0] || !r[3]) return;
+          map[String(r[3]).trim()] = {
+            stock: Number(r[5]) || 0,
+            rawTs: r[0],
+            unit:  String(r[6]||'units')
+          };
+        });
+        // Normalise the timestamp once per SKU (not once per row)
+        Object.keys(map).forEach(function(code){
+          var v = map[code].rawTs, tsF;
+          if (v instanceof Date) {
+            tsF = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
           } else {
-            var d = new Date(String(r[0]));
-            tsFormatted = isNaN(d.getTime())
-              ? String(r[0])
+            var d = new Date(String(v));
+            tsF = isNaN(d.getTime())
+              ? String(v)
               : Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
           }
-          const ts = new Date(tsFormatted);
-          if (!map[code] || (!isNaN(ts.getTime()) && ts > new Date(map[code].lastUpdated))) {
-            map[code] = {
-              stock:       Number(r[5]) || 0,
-              lastUpdated: tsFormatted,
-              unit:        String(r[6]||'units')
-            };
-          }
+          map[code].lastUpdated = tsF;
+          delete map[code].rawTs;
         });
         return map;
       }

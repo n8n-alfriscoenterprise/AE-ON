@@ -22,23 +22,34 @@ function openClock(){
   if(fi) fi.value = '';
   _clkSetGPSNote('Getting location…');
   _clkFetchGPS();
-  _clkLoadStatus();
-  _clkLoadMyAttendance();
+  _clkLoadAll();   // one round trip: status + 30-day history together
 }
 function closeClock(){
   if(currentUser && currentUser.role === 'driver') showDriver();
   else showHome();
 }
 
-// ── STATUS ────────────────────────────────────────────────
-async function _clkLoadStatus(){
+// ── STATUS + HISTORY (single round trip) ──────────────────
+// getMyAttendance returns both the latest punch and the 30-day record, so the
+// screen loads with ONE API call instead of two (each is a 1–2s Apps Script trip).
+async function _clkLoadAll(){
   const card = document.getElementById('clk-status-card');
   if(card) card.innerHTML = '<div class="clk-status-sub">Checking your status…</div>';
+  const body = document.getElementById('clk-att-body');
+  if(body) body.innerHTML = '<div class="clk-att-empty">Loading your attendance…</div>';
+  let days = [];
   try{
-    const r = await api({ action:'getAttendanceStatus', username: currentUser.username });
+    const r = await api({ action:'getMyAttendance', username: currentUser.username });
     _clkLast = (r.status==='ok') ? (r.last || null) : null;
-  }catch(e){ _clkLast = null; }
+    days = (r.status==='ok') ? (r.days || []) : [];
+  }catch(e){
+    _clkLast = null;
+    if(body) body.innerHTML = '<div class="clk-att-empty">Could not load attendance.</div>';
+    _clkRenderStatus();
+    return;
+  }
   _clkRenderStatus();
+  _clkRenderMyAttendance(days);
 }
 
 function _clkRenderStatus(){
@@ -74,15 +85,9 @@ function _clkRenderStatus(){
   if(outBtn) outBtn.className = 'clk-btn clk-btn-out' + (nextIsOut ? '' : ' clk-btn-dim');
 }
 
-// ── MY ATTENDANCE (employee's own record) ─────────────────
-async function _clkLoadMyAttendance(){
+// ── MY ATTENDANCE (render — data comes from _clkLoadAll) ──
+function _clkRenderMyAttendance(days){
   const body = document.getElementById('clk-att-body');
-  if(body) body.innerHTML = '<div class="clk-att-empty">Loading your attendance…</div>';
-  let days = [];
-  try{
-    const r = await api({ action:'getMyAttendance', username: currentUser.username });
-    if(r.status==='ok') days = r.days || [];
-  }catch(e){ if(body) body.innerHTML = '<div class="clk-att-empty">Could not load attendance.</div>'; return; }
   if(!body) return;
   if(!days.length){ body.innerHTML = '<div class="clk-att-empty">No attendance recorded yet.</div>'; return; }
 
@@ -191,7 +196,7 @@ async function clockNow(action){
       const fi = document.getElementById('clk-photo-input');
       if(fi) fi.value = '';
       _clkRenderStatus();
-      _clkLoadMyAttendance();
+      _clkLoadAll();   // refresh history (and confirm status) from server truth
       if(action === 'IN' && r.late){
         showToast('TIME IN recorded — ' + r.late, 'warning', 6000);
       } else {

@@ -47,7 +47,14 @@ function showPOSubtab(tab,el){
   document.getElementById('po-view-create').style.display=tab==='create'?'flex':'none';
   document.getElementById('po-view-detail').style.display=tab==='detail'?'flex':'none';
   if(tab==='create')initPOCreate();
-  if(tab==='list'){updatePOTypeBanner();loadPOs();}
+  if(tab==='list'){
+    updatePOTypeBanner();
+    // Re-render from the cached list — tab switches are instant and don't refetch.
+    // Fresh data is loaded by openPO() on entry and by savePO/receive/approve flows.
+    // (Previously this fired loadPOs() too, duplicating the getPOs call on every
+    // screen open and adding a full network round trip to every tab tap.)
+    if(poList.length){ buildPOStatusChips(); renderPOList(); }
+  }
 }
 
 function updatePOTypeBanner(){
@@ -558,6 +565,7 @@ function renderPODetail(){
     + 'Created by: ' + po.createdBy
     + (po.approvedBy ? '<br>' + (po.status==='REJECTED' ? 'Rejected by: ' : 'Approved by: ') + po.approvedBy : '')
     + (po.lastEditedBy ? '<br><span style="font-size:11px;color:#B35C00;font-weight:600">✏️ Last edited by: ' + po.lastEditedBy + (po.lastEditedAt ? ' · ' + fmtPODate(po.lastEditedAt) : '') + '</span>' : '')
+    + (po.receivedBy ? '<br><span style="color:#1B5E20;font-weight:600">📦 Received by: ' + po.receivedBy + (po.dateReceived ? ' · ' + fmtPODate(po.dateReceived) : '') + '</span>' : '')
     + (po.paymentMode ? '<br>Payment: ' + po.paymentMode
         + (po.chequeRef ? ' — Cheque #' + po.chequeRef : '')
         + (po.paymentMode !== 'Split / Installment' && po.amountPaid > 0 ? ' — Amount: <strong>₱' + Number(po.amountPaid).toLocaleString('en-PH',{minimumFractionDigits:2}) + '</strong>' : '')
@@ -620,6 +628,18 @@ function renderPODetail(){
       eHistDiv.innerHTML = '<div class="po-edit-history-title">✏️ Edit History</div>'
         + edits.map(e => '<div class="po-edit-history-entry">' + e + '</div>').join('');
       hdr.appendChild(eHistDiv);
+    }
+  }
+
+  // ── RECEIPT HISTORY LOG (who received what, per delivery) ──
+  if(po.receiptHistory){
+    const rcpts = po.receiptHistory.split('|||').map(e=>e.trim()).filter(Boolean);
+    if(rcpts.length){
+      const rHistDiv = document.createElement('div');
+      rHistDiv.className = 'po-receipt-history';
+      rHistDiv.innerHTML = '<div class="po-receipt-history-title">📦 Receipt History</div>'
+        + rcpts.map(e => '<div class="po-receipt-history-entry">' + e + '</div>').join('');
+      hdr.appendChild(rHistDiv);
     }
   }
 

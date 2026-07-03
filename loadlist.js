@@ -147,7 +147,7 @@ function renderLoadList(){
 
   if(!viewItems.length){
     html+='<div class="ll-empty">Nothing to load on '+_llVehLabel(active)+' for this date.</div>';
-    body.innerHTML=html; _llUpdateFooter(active); return;
+    body.innerHTML=html; _llUpdateFooter(active, agg); return;
   }
 
   html+='<div class="ll-list">';
@@ -185,17 +185,19 @@ function renderLoadList(){
   html+='</div>';
 
   body.innerHTML=html;
-  _llUpdateFooter(active);
+  _llUpdateFooter(active, agg);
 }
 
 function llToggleCheck(k){ _llChecked[k]=!_llChecked[k]; renderLoadList(); }
 function llToggleExpand(k){ _llExpanded[k]=!_llExpanded[k]; renderLoadList(); }
 function llOverrideLine(lineKey, veh){ _llOverride[lineKey]=veh; renderLoadList(); }
 
-function _llUpdateFooter(active){
+function _llUpdateFooter(active, agg){
   let total=0, checked=0;
   if(active && active!==LL_ALL){
-    const agg=_llAggregate(); const t=agg[active]||{};
+    // Reuse the aggregate renderLoadList just built — recomputing it here doubled
+    // the work on every tick/expand tap
+    const t=(agg||_llAggregate())[active]||{};
     total=Object.keys(t).length;
     Object.keys(t).forEach(function(sku){ if(_llChecked[active+'|'+sku]) checked++; });
   }

@@ -210,8 +210,11 @@ function _llUpdateFooter(active, agg){
   if(pr) pr.disabled = !(active && _llData && _llData.items.length);
 }
 
-// Pre-fill the LOAD movement form for the ACTIVE vehicle tab
-function llPrefillLoad(){
+// Pre-fill the LOAD movement form for the ACTIVE vehicle tab.
+// DELTA-AWARE: LOAD submissions are additive (each one deducts warehouse stock and
+// adds to the manifest), so this checks what's ALREADY been loaded on the van today
+// and fills only the remaining balance — safe to tap any number of times per day.
+async function llPrefillLoad(){
   const d=_llData; if(!d) return;
   const active=_llVehicle;
   if(active===LL_ALL || active===LL_UNASSIGNED){
@@ -222,16 +225,55 @@ function llPrefillLoad(){
   const skus=Object.keys(tab);
   if(!skus.length){ alert('Nothing to load on '+_llVehLabel(active)+' for this date.'); return; }
 
+  // What's already on this van today (summed LOAD movements)
+  const pf=document.getElementById('ll-prefill-btn');
+  const pfOrig=pf?pf.textContent:'';
+  if(pf){ pf.disabled=true; pf.textContent='⏳ Checking van…'; }
+  let loadedToday={}, checkOk=false;
+  try{
+    const lr=await api({action:'getTodayLoads', unit: active});
+    if(lr.status==='ok'){
+      (lr.rows||[]).forEach(function(r){ loadedToday[r.code]=Number(r.loaded)||0; });
+      checkOk=true;
+    }
+  }catch(e){ /* offline — fall through, warn below */ }
+  if(pf){ pf.disabled=false; pf.textContent=pfOrig; }
+
   const distCodes={};
   (typeof liveSKUs!=='undefined'?liveSKUs:[]).filter(function(s){return s.type==='DIST';})
     .forEach(function(s){ distCodes[s.code]=s; });
 
-  const matched=[], skipped=[];
-  skus.forEach(function(sku){ (distCodes[sku]?matched:skipped).push(tab[sku]); });
-  if(!matched.length){ alert('None of these SKUs match your Distribution SKU Master, so the LOAD form can’t be filled.'); return; }
+  // Split: fill only the still-missing balance per SKU
+  const matched=[], skipped=[], alreadyFull=[];
+  let alreadyBags=0;
+  skus.forEach(function(sku){
+    const it=tab[sku];
+    if(!distCodes[sku]){ skipped.push(it); return; }
+    const already=loadedToday[sku]||0;
+    alreadyBags+=Math.min(already, it.qty);
+    const delta=Math.max(0, it.qty-already);
+    if(delta<=0){ alreadyFull.push(it); return; }
+    matched.push({skuCode:sku, qty:delta});
+  });
+
+  if(!matched.length && !alreadyFull.length){
+    alert('None of these SKUs match your Distribution SKU Master, so the LOAD form can’t be filled.');
+    return;
+  }
+  if(!matched.length){
+    alert('Everything on this list is already loaded on '+_llVehLabel(active)+' today — nothing left to fill.\n\nOnly enter additional bags manually if the van is taking extra stock.');
+    return;
+  }
 
   const bags=matched.reduce(function(s,i){return s+i.qty;},0);
   let msg='Fill the LOAD form for '+_llVehLabel(active)+' with '+matched.length+' item(s) totalling '+bags+' bags?';
+  if(!checkOk){
+    msg+='\n\n⚠ Could not check what’s already loaded today — these are the FULL invoice amounts. If you already loaded this van today, cancel and enter only the additional bags manually.';
+  } else if(alreadyBags>0){
+    msg+='\n\nAlready loaded on '+_llVehLabel(active)+' today: '+alreadyBags+' bag(s)'
+      +(alreadyFull.length?' ('+alreadyFull.length+' item(s) fully loaded — skipped)':'')
+      +'.\nFilling only what’s still missing.';
+  }
   if(skipped.length) msg+='\n\n'+skipped.length+' skipped (not in SKU Master): '+skipped.map(function(i){return i.skuCode;}).join(', ');
   msg+='\n\nThis sets the unit to '+_llVehLabel(active)+', clears the form, and fills Loaded quantities — review against the van before submitting.';
   if(!confirm(msg)) return;
@@ -269,7 +311,8 @@ function llPrefillLoad(){
 
   closeLoadList();
   if(typeof showToast==='function')
-    showToast(_llVehLabel(active)+': '+matched.length+' item(s) filled — review & submit','success',4500);
+    showToast(_llVehLabel(active)+': '+matched.length+' item(s) filled'
+      +(alreadyBags>0?' (remaining balance only)':'')+' — review & submit','success',4500);
 }
 
 // Print the ACTIVE vehicle tab's checklist on the 58mm receipt printer

@@ -79,6 +79,15 @@ function parseXiCSV(text){
     return;
   }
 
+  // Xero (PH) exports dates as DD/MM/YYYY. Convert to ISO here so Google Sheets
+  // can never re-interpret them: a US-locale sheet auto-parses "04/07/2026" as
+  // April 7, which silently filed every day-1-to-12 invoice under the wrong
+  // month and made it vanish from the Load List.
+  const _xiToISO = s => {
+    const m = String(s||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    return m ? m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2) : String(s||'').trim();
+  };
+
   xiRows = [];
   lines.slice(1).forEach(line=>{
     if(!line.trim()) return;
@@ -91,8 +100,8 @@ function parseXiCSV(text){
     if(!skuCode) return;
     xiRows.push({
       invoiceNumber: String(r[col.invoiceNum]  ||'').trim(),
-      invoiceDate:   String(r[col.invoiceDate] ||'').trim(),
-      dueDate:       String(r[col.dueDate]     ||'').trim(),
+      invoiceDate:   _xiToISO(r[col.invoiceDate]),
+      dueDate:       _xiToISO(r[col.dueDate]),
       contactName:   String(r[col.contact]     ||'').trim(),
       skuCode,
       description:   String(r[col.description]||'').trim(),

@@ -147,6 +147,11 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Aria
 .inv-section{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .inv-section-label{font-size:11px;font-weight:700;color:#0D3349;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px}
 .inv-field-label{font-size:11px;font-weight:600;color:#555;display:block;margin-bottom:3px;margin-top:8px}
+/* Collapsed options row — rarely-changed invoice fields */
+.inv-options-toggle{width:100%;display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:9px 12px;background:#F5F7F9;border:1.5px dashed #d0d7dd;border-radius:9px;font-size:12px;font-weight:600;color:#546E7A;cursor:pointer;text-align:left}
+.inv-options-toggle:active{background:#ECEFF1}
+#inv-options-summary{color:#0D3349;font-weight:700}
+#inv-options-chev{font-size:13px;color:#90A4AE}
 .inv-input{width:100%;box-sizing:border-box;border:1.5px solid #ddd;border-radius:8px;padding:9px 11px;font-size:13px;outline:none;background:#fff}
 .inv-input:focus{border-color:#0D3349}
 .inv-input-num{width:100%}
@@ -3552,18 +3557,8 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 
     <div class="inv-section">
       <div class="inv-section-label">Invoice Details</div>
-      <div class="inv-field-row">
-        <div style="flex:0 0 130px">
-          <label class="inv-field-label">Invoice #</label>
-          <input class="inv-input" id="inv-number" readonly style="background:#F5F5F5;color:#888">
-        </div>
-        <div>
-          <label class="inv-field-label">Date *</label>
-          <input class="inv-input" id="inv-date" type="date" onchange="onInvTermsChange()">
-        </div>
-      </div>
 
-      <label class="inv-field-label" style="margin-top:10px">Bill To (Dealer) *</label>
+      <label class="inv-field-label">Bill To (Dealer) *</label>
       <select class="inv-input" id="inv-dealer" onchange="onInvDealerChange()">
         <option value="">-- Select Dealer --</option>
       </select>
@@ -3571,38 +3566,58 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
       <!-- Recent orders for selected dealer -->
       <div class="inv-oh-wrap" id="inv-order-history" style="display:none"></div>
 
-      <label class="inv-field-label" style="margin-top:10px">Reference / DR#</label>
-      <input class="inv-input" id="inv-ref" type="text" placeholder="Delivery receipt, route, or order ref…">
+      <!-- Rarely-changed fields live behind this toggle — the defaults
+           (today · COD · Cash) cover normal on-the-spot sales -->
+      <button type="button" class="inv-options-toggle" onclick="toggleInvOptions()">
+        <span>⚙ Options — <span id="inv-options-summary">Today · COD · Cash</span></span>
+        <span id="inv-options-chev">▸</span>
+      </button>
 
-      <div class="inv-field-row" style="margin-top:10px">
-        <div>
-          <label class="inv-field-label">Payment Terms</label>
-          <select class="inv-input" id="inv-terms" onchange="onInvTermsChange()">
-            <option value="COD">COD</option>
-            <option value="Net 7">Net 7</option>
-            <option value="Net 15">Net 15</option>
-            <option value="Net 30">Net 30</option>
-          </select>
+      <div id="inv-options-body" style="display:none">
+        <div class="inv-field-row" style="margin-top:10px">
+          <div style="flex:0 0 130px">
+            <label class="inv-field-label">Invoice #</label>
+            <input class="inv-input" id="inv-number" readonly style="background:#F5F5F5;color:#888">
+          </div>
+          <div>
+            <label class="inv-field-label">Date *</label>
+            <input class="inv-input" id="inv-date" type="date" onchange="onInvTermsChange()">
+          </div>
         </div>
-        <div>
-          <label class="inv-field-label">Due Date</label>
-          <input class="inv-input" id="inv-due" type="date" readonly style="background:#F5F5F5;color:#555">
-        </div>
-      </div>
 
-      <!-- Payment type + check reference -->
-      <div class="inv-field-row" style="margin-top:10px">
-        <div>
-          <label class="inv-field-label">Payment Type</label>
-          <select class="inv-input" id="inv-payment-type" onchange="onInvPaymentTypeChange()">
-            <option value="Cash">Cash</option>
-            <option value="Check">Check</option>
-            <option value="Terms AR">Terms AR</option>
-          </select>
+        <label class="inv-field-label" style="margin-top:10px">Reference / DR#</label>
+        <input class="inv-input" id="inv-ref" type="text" placeholder="Delivery receipt, route, or order ref…">
+
+        <div class="inv-field-row" style="margin-top:10px">
+          <div>
+            <label class="inv-field-label">Payment Terms</label>
+            <select class="inv-input" id="inv-terms" onchange="onInvTermsChange()">
+              <option value="COD">COD</option>
+              <option value="Net 7">Net 7</option>
+              <option value="Net 15">Net 15</option>
+              <option value="Net 30">Net 30</option>
+            </select>
+          </div>
+          <div>
+            <label class="inv-field-label">Due Date</label>
+            <input class="inv-input" id="inv-due" type="date" readonly style="background:#F5F5F5;color:#555">
+          </div>
         </div>
-        <div id="inv-check-ref-field" style="display:none">
-          <label class="inv-field-label">Check Reference</label>
-          <input class="inv-input" id="inv-check-ref" type="text" placeholder="Bank · Check # · Date">
+
+        <!-- Payment type + check reference -->
+        <div class="inv-field-row" style="margin-top:10px">
+          <div>
+            <label class="inv-field-label">Payment Type</label>
+            <select class="inv-input" id="inv-payment-type" onchange="onInvPaymentTypeChange()">
+              <option value="Cash">Cash</option>
+              <option value="Check">Check</option>
+              <option value="Terms AR">Terms AR</option>
+            </select>
+          </div>
+          <div id="inv-check-ref-field" style="display:none">
+            <label class="inv-field-label">Check Reference</label>
+            <input class="inv-input" id="inv-check-ref" type="text" placeholder="Bank · Check # · Date">
+          </div>
         </div>
       </div>
     </div>

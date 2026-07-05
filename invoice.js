@@ -148,6 +148,10 @@ function resetInvForm(){
     chargeBtn.textContent  = '⚡ Charge';
     chargeBtn.style.background = '';
   }
+
+  // Options collapse back for the next sale (defaults cover street selling)
+  toggleInvOptions(false);
+  _updateInvOptionsSummary();
 }
 
 
@@ -216,16 +220,41 @@ function _renderDealerOrderHistory(dealerId){
 }
 
 
+// ── OPTIONS (rarely-changed fields, collapsed by default) ─────
+// The everyday screen is dealer → items → total → signature → charge.
+// Date/Reference/Terms/Payment live behind this toggle; the summary keeps
+// their current values visible so nothing is hidden-hidden.
+function toggleInvOptions(force){
+  const body = document.getElementById('inv-options-body');
+  const chev = document.getElementById('inv-options-chev');
+  if(!body) return;
+  const open = (force !== undefined) ? force : body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  if(chev) chev.textContent = open ? '▾' : '▸';
+}
+
+function _updateInvOptionsSummary(){
+  const el = document.getElementById('inv-options-summary');
+  if(!el) return;
+  const dateStr = document.getElementById('inv-date')?.value || '';
+  const isToday = (typeof phToday==='function') && dateStr === phToday();
+  const dateLbl = !dateStr ? '—' : (isToday ? 'Today' : (typeof phDate==='function' ? phDate(dateStr) : dateStr));
+  const terms   = document.getElementById('inv-terms')?.value || 'COD';
+  const pt      = document.getElementById('inv-payment-type')?.value || 'Cash';
+  el.textContent = dateLbl + ' · ' + terms + ' · ' + pt;
+}
+
 // ── PAYMENT TERMS ─────────────────────────────────────────────
 function onInvTermsChange(){
   const terms   = document.getElementById('inv-terms').value;
   const dateStr = document.getElementById('inv-date').value;
   const dueEl   = document.getElementById('inv-due');
-  if(!dateStr){ dueEl.value=''; return; }
+  if(!dateStr){ dueEl.value=''; _updateInvOptionsSummary(); return; }
   const base = new Date(dateStr+'T00:00:00');
   const days = terms==='Net 7'?7:terms==='Net 15'?15:terms==='Net 30'?30:0;
   base.setDate(base.getDate()+days);
   dueEl.value = base.toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'});
+  _updateInvOptionsSummary();
 }
 
 
@@ -234,6 +263,7 @@ function onInvPaymentTypeChange(){
   const pt    = document.getElementById('inv-payment-type')?.value || 'Cash';
   const field = document.getElementById('inv-check-ref-field');
   if(field) field.style.display = (pt==='Check') ? 'block' : 'none';
+  _updateInvOptionsSummary();
 }
 
 

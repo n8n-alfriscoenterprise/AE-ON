@@ -52,6 +52,10 @@ async function init(){
       } else {
         showApp();
       }
+      // Honor a PWA shortcut launch (e.g. long-press icon → Time Clock) even on
+      // a restored session — showApp() isn't always reached on this path.
+      // (Safe if showApp already ran it: the handler consumes the query param.)
+      if(typeof handleDeepLink === 'function') handleDeepLink();
       return; // Skip login screen entirely
     }
     // Session invalid — clear it and show login

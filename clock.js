@@ -129,14 +129,34 @@ function _clkFetchGPS(){
     { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
   );
 }
+// Last-chance GPS attempt at punch time. Employees open this screen to punch
+// IMMEDIATELY — the first fix often lands a few seconds later, so without this
+// a fast tap records "no location" even though GPS was about to resolve.
+function _clkEnsureGPS(){
+  return new Promise(function(resolve){
+    if(_clkGPS || !navigator.geolocation) return resolve();
+    navigator.geolocation.getCurrentPosition(
+      function(pos){
+        _clkGPS = { lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6),
+                    accuracy: Math.round(pos.coords.accuracy) };
+        _clkSetGPSNote('📍 Location locked (±' + _clkGPS.accuracy + 'm)');
+        resolve();
+      },
+      function(){ resolve(); },   // still no fix — record without location
+      { enableHighAccuracy: true, timeout: 4000, maximumAge: 120000 }
+    );
+  });
+}
 
 // ── PHOTO (required) ──────────────────────────────────────
 function onClkPhoto(input){
   const file = input.files && input.files[0];
   if(!file) return;
   const reader = new FileReader();
+  reader.onerror = function(){ showToast('Could not read the photo — please try again', 'error'); };
   reader.onload = function(e){
     const img = new Image();
+    img.onerror = function(){ showToast('Photo looks corrupted — please retake', 'error'); };
     img.onload = function(){
       // Compress to max 640px JPEG so the upload stays light
       const scale = Math.min(1, 640 / Math.max(img.width, img.height));
@@ -153,6 +173,9 @@ function onClkPhoto(input){
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
+  // Clear so re-selecting the SAME file still fires a change event — some phone
+  // cameras reuse one temp filename, which made "retake" silently do nothing
+  input.value = '';
 }
 
 // ── CLOCK ACTION ──────────────────────────────────────────
@@ -174,6 +197,9 @@ async function clockNow(action){
   const btn = document.getElementById(action==='IN' ? 'clk-in-btn' : 'clk-out-btn');
   const orig = btn ? btn.textContent : '';
   if(btn){ btn.disabled = true; btn.textContent = '⏳ Recording…'; }
+
+  // If GPS hasn't locked yet, give it one quick chance before recording
+  await _clkEnsureGPS();
 
   try{
     const r = await api({
@@ -197,7 +223,9 @@ async function clockNow(action){
       if(fi) fi.value = '';
       _clkRenderStatus();
       _clkLoadAll();   // refresh history (and confirm status) from server truth
-      if(action === 'IN' && r.late){
+      if(r.duplicate){
+        showToast('Already recorded a moment ago ✓ ' + phDateTime(r.timestamp), 'info', 4500);
+      } else if(action === 'IN' && r.late){
         showToast('TIME IN recorded — ' + r.late, 'warning', 6000);
       } else {
         showToast('TIME ' + action + ' recorded ✓ ' + phDateTime(r.timestamp), 'success', 5000);

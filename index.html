@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>AE-ON | Alfrisco Enterprise Online</title>
+<!-- PWA — installable as a real Android app (standalone window, app-drawer icon) -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0A5C46">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:#f0f2f5;min-height:100vh;overscroll-behavior:none}
@@ -1654,6 +1659,7 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
     <span class="driver-banner-text">Today's Manifest — View Only</span>
     <div style="display:flex;align-items:center;gap:8px">
       <span class="driver-banner-unit" id="driver-unit-badge">Bajaj 1</span>
+      <button class="driver-refresh-btn" onclick="openClock()">⏰ Time Clock</button>
       <button class="driver-refresh-btn" onclick="loadDriverManifest()">Refresh</button>
     </div>
   </div>
@@ -3759,6 +3765,15 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 <script src="invoice.js"></script>
 <script src="main.js"></script>
 <script>
+  // ── PWA: register the service worker (makes Chrome offer "Install app") ──
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('sw.js').catch(function(e){
+        console.warn('Service worker registration failed:', e);
+      });
+    });
+  }
+
   // Set logo src on all placeholders once everything is loaded
   document.addEventListener('DOMContentLoaded', function(){
     var sm = typeof LOGO_SMALL  !== 'undefined' ? LOGO_SMALL  : '';

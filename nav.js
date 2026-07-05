@@ -17,6 +17,18 @@ function showApp(){
   _startActivityWatcher();
   if(currentUser.role==='driver') showDriver();
   else showHome();
+  handleDeepLink();
+}
+
+// PWA shortcut deep link: long-press the app icon → "Time Clock" opens straight
+// to the punch screen. Called after login AND after session restore.
+function handleDeepLink(){
+  try{
+    if(new URLSearchParams(location.search).get('screen') === 'clock'){
+      history.replaceState(null, '', location.pathname); // consume so refresh doesn't re-trigger
+      openClock();
+    }
+  }catch(e){}
 }
 
 function showHome(){

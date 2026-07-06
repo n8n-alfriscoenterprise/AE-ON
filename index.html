@@ -1353,6 +1353,18 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 .xi-rev-table td{padding:7px 8px;border-bottom:1px solid #f0f0f0}
 .xi-rev-table td.num{text-align:right;font-variant-numeric:tabular-nums}
 .xi-rev-add{color:#2E7D32;font-weight:700}
+.xi-rev-daterow{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:10px 0 4px}
+.xi-rev-datefield{display:flex;flex-direction:column;gap:3px}
+.xi-rev-datefield label{font-size:11px;font-weight:700;color:#555}
+.xi-rev-datefield input{padding:7px 9px;border:1.5px solid #d0d7dd;border-radius:8px;font-size:12px}
+.xi-rev-chips{display:flex;gap:6px;flex-wrap:wrap;padding-bottom:2px}
+.xi-rev-chip{padding:6px 11px;border:1.5px solid #d0d7dd;border-radius:16px;background:#fff;font-size:11px;font-weight:700;color:#546E7A;cursor:pointer}
+.xi-rev-chip.active{border-color:#0A5C46;background:#0A5C46;color:#fff}
+.xi-rev-daterange-note{font-size:11px;color:#888;margin:2px 0 8px}
+.xi-rev-table th.chk,.xi-rev-table td.chk{width:34px;text-align:center;padding-left:4px;padding-right:4px}
+.xi-rev-table input[type=checkbox]{width:16px;height:16px;accent-color:#0A5C46;cursor:pointer}
+.xi-rev-table tr.unchecked td{opacity:.4}
+.xi-rev-table tr.unchecked td.chk{opacity:1}
 /* unrecognized contacts block */
 .xi-new-contacts-wrap{background:#FFF8E1;border:1.5px solid #FFE082;border-radius:12px;padding:12px 14px;flex-shrink:0}
 .xi-new-contacts-title{font-size:13px;font-weight:700;color:#E65100;margin-bottom:3px}
@@ -3840,10 +3852,23 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 
 <!-- XERO DEDUCTION REVERSAL MODAL (admin one-time cleanup) -->
 <div class="modal-overlay" id="xi-reversal-modal" style="display:none">
-  <div class="modal-card" style="max-width:560px">
+  <div class="modal-card" style="max-width:580px">
     <div class="epm-title">🩹 Fix Past Xero Over-Deductions</div>
-    <div class="epm-sub">Adds back warehouse stock that old <strong>Xero Import</strong> rows removed while the Load movement was also deducting it. Legitimate warehouse sales are not affected.</div>
-    <div id="xi-reversal-body" style="margin-top:10px;max-height:52vh;overflow-y:auto">
+    <div class="epm-sub">Adds back warehouse stock that old <strong>Xero Import</strong> rows removed while the Load movement was also deducting it. Pick a date range, then tick the exact SKUs to reverse. Legitimate warehouse sales are never touched.</div>
+
+    <div class="xi-rev-daterow">
+      <div class="xi-rev-datefield">
+        <label>From</label>
+        <input type="date" id="xi-rev-from" onchange="scanXeroReversal()">
+      </div>
+      <div class="xi-rev-datefield">
+        <label>To</label>
+        <input type="date" id="xi-rev-to" onchange="scanXeroReversal()">
+      </div>
+      <div class="xi-rev-chips" id="xi-rev-chips"></div>
+    </div>
+
+    <div id="xi-reversal-body" style="margin-top:6px;max-height:44vh;overflow-y:auto">
       <div class="xi-rev-loading">Scanning stock history…</div>
     </div>
     <div class="modal-err" id="xi-reversal-err" style="margin-top:8px;margin-bottom:8px"></div>

@@ -387,13 +387,58 @@ async function confirmXiImport(){
 }
 
 // ── XERO OVER-DEDUCTION REVERSAL (admin one-time cleanup) ────────────
-async function openXeroReversal(){
+let _xiRevItems = [];   // last scan's affected SKUs (for checkbox totals + apply)
+
+function _xiRevBags(n){ return Math.round(n*100)/100; }
+
+function _xiDateOffset(days){
+  const t = (typeof phToday==='function') ? phToday() : new Date().toLocaleDateString('sv-SE');
+  const d = new Date(t+'T00:00:00'); d.setDate(d.getDate()+days);
+  return d.toLocaleDateString('sv-SE');   // yyyy-MM-dd, local (Manila device)
+}
+
+function openXeroReversal(){
+  _xiRevItems = [];
   document.getElementById('xi-reversal-err').textContent='';
   document.getElementById('xi-reversal-apply').style.display='none';
-  document.getElementById('xi-reversal-body').innerHTML='<div class="xi-rev-loading">Scanning stock history…</div>';
+  // Default range = yesterday (the usual culprit); chips let you widen instantly
+  document.getElementById('xi-rev-from').value = _xiDateOffset(-1);
+  document.getElementById('xi-rev-to').value   = _xiDateOffset(-1);
   document.getElementById('xi-reversal-modal').style.display='flex';
+  _renderRevChips('yesterday');
+  scanXeroReversal();
+}
+
+function _renderRevChips(active){
+  const chips = [
+    {key:'yesterday', label:'Yesterday'},
+    {key:'today',     label:'Today'},
+    {key:'all',       label:'All dates'}
+  ];
+  document.getElementById('xi-rev-chips').innerHTML = chips.map(c=>
+    `<div class="xi-rev-chip${c.key===active?' active':''}" onclick="_xiRevChip('${c.key}')">${c.label}</div>`
+  ).join('');
+}
+
+function _xiRevChip(key){
+  const from = document.getElementById('xi-rev-from');
+  const to   = document.getElementById('xi-rev-to');
+  if(key==='yesterday'){ from.value=_xiDateOffset(-1); to.value=_xiDateOffset(-1); }
+  else if(key==='today'){ from.value=_xiDateOffset(0); to.value=_xiDateOffset(0); }
+  else { from.value=''; to.value=''; }   // all dates
+  _renderRevChips(key);
+  scanXeroReversal();
+}
+
+async function scanXeroReversal(){
+  const body = document.getElementById('xi-reversal-body');
+  document.getElementById('xi-reversal-err').textContent='';
+  document.getElementById('xi-reversal-apply').style.display='none';
+  body.innerHTML='<div class="xi-rev-loading">Scanning stock history…</div>';
+  const fromDate = document.getElementById('xi-rev-from').value || '';
+  const toDate   = document.getElementById('xi-rev-to').value || '';
   try{
-    const r = await api({action:'previewXeroReversal'});
+    const r = await api({action:'previewXeroReversal', fromDate, toDate});
     if(r.status!=='ok'){ _xiRevError(r.msg||'Could not scan'); return; }
     _renderXeroReversal(r);
   }catch(e){ _xiRevError(e.message); }
@@ -406,42 +451,77 @@ function _xiRevError(msg){
 
 function _renderXeroReversal(r){
   const body = document.getElementById('xi-reversal-body');
-  const items = r.items||[];
-  if(!items.length){
-    body.innerHTML='<div class="xi-rev-empty">✓ Nothing to fix — no un-reversed Xero over-deductions found.</div>';
+  _xiRevItems = r.items||[];
+  const span = (r.minDate && r.maxDate)
+    ? `<div class="xi-rev-daterange-note">Reversible Xero deductions on file: ${r.minDate} → ${r.maxDate}. Leave dates blank for all.</div>` : '';
+  if(!_xiRevItems.length){
+    body.innerHTML = span + '<div class="xi-rev-empty">✓ Nothing to fix in this range — no un-reversed Xero over-deductions found.</div>';
     return;
   }
-  const bags = (n)=> (Math.round(n*100)/100);
-  let html = `<div class="xi-rev-summary">${items.length} SKU${items.length!==1?'s':''} affected · adding back ${bags(r.totalBags)} bag${r.totalBags!==1?'s':''} total</div>`;
-  html += '<table class="xi-rev-table"><thead><tr><th>SKU / Item</th><th class="num">Now</th><th class="num">Add back</th><th class="num">→ Corrected</th></tr></thead><tbody>';
-  items.forEach(it=>{
-    html += `<tr>
+  let html = span
+    + '<div class="xi-rev-summary" id="xi-rev-summary"></div>'
+    + '<table class="xi-rev-table"><thead><tr>'
+    + '<th class="chk"><input type="checkbox" id="xi-rev-all" checked onchange="_xiRevToggleAll(this.checked)"></th>'
+    + '<th>SKU / Item</th><th class="num">Now</th><th class="num">Add back</th><th class="num">→ Corrected</th>'
+    + '</tr></thead><tbody>';
+  _xiRevItems.forEach((it,idx)=>{
+    html += `<tr id="xi-rev-row-${idx}">
+      <td class="chk"><input type="checkbox" data-idx="${idx}" checked onchange="_xiRevSync()"></td>
       <td><strong>${it.sku}</strong><br><span style="color:#888">${it.item||''}</span></td>
-      <td class="num">${bags(it.current)}</td>
-      <td class="num xi-rev-add">+${bags(it.deducted)}</td>
-      <td class="num"><strong>${bags(it.corrected)}</strong></td>
+      <td class="num">${_xiRevBags(it.current)}</td>
+      <td class="num xi-rev-add">+${_xiRevBags(it.deducted)}</td>
+      <td class="num"><strong>${_xiRevBags(it.corrected)}</strong></td>
     </tr>`;
   });
   html += '</tbody></table>';
   body.innerHTML = html;
+  document.getElementById('xi-reversal-apply').style.display='inline-block';
+  _xiRevSync();
+}
+
+// Recompute the live summary + apply button from the ticked rows
+function _xiRevSync(){
+  const boxes = document.querySelectorAll('#xi-reversal-body tbody input[type=checkbox]');
+  let count=0, bags=0;
+  boxes.forEach(b=>{
+    const row = b.closest('tr');
+    if(b.checked){ count++; bags += (_xiRevItems[+b.dataset.idx]?.deducted||0); row.classList.remove('unchecked'); }
+    else row.classList.add('unchecked');
+  });
+  const sum = document.getElementById('xi-rev-summary');
+  if(sum) sum.textContent = `${count} of ${_xiRevItems.length} SKU${_xiRevItems.length!==1?'s':''} selected · adding back ${_xiRevBags(bags)} bag${bags!==1?'s':''}`;
+  const allBox = document.getElementById('xi-rev-all');
+  if(allBox) allBox.checked = count===boxes.length && count>0;
   const ab = document.getElementById('xi-reversal-apply');
-  ab.style.display='inline-block';
-  ab.textContent = `Apply ${items.length} correction${items.length!==1?'s':''}`;
+  ab.disabled = count===0;
+  ab.textContent = count ? `Apply ${count} correction${count!==1?'s':''}` : 'Select at least one';
+}
+
+function _xiRevToggleAll(on){
+  document.querySelectorAll('#xi-reversal-body tbody input[type=checkbox]').forEach(b=>{ b.checked=on; });
+  _xiRevSync();
 }
 
 async function applyXeroReversal(){
+  const boxes = document.querySelectorAll('#xi-reversal-body tbody input[type=checkbox]');
+  const skus = [];
+  boxes.forEach(b=>{ if(b.checked){ const it=_xiRevItems[+b.dataset.idx]; if(it) skus.push(it.sku); } });
+  if(!skus.length) return;
   const ab = document.getElementById('xi-reversal-apply');
   ab.disabled=true; ab.textContent='Applying…';
   document.getElementById('xi-reversal-err').textContent='';
+  const fromDate = document.getElementById('xi-rev-from').value || '';
+  const toDate   = document.getElementById('xi-rev-to').value || '';
   try{
-    const r = await api({action:'applyXeroReversal', role:currentUser.role, by:currentUser.username});
-    if(r.status!=='ok'){ ab.disabled=false; ab.textContent='Apply corrections'; _xiRevError(r.msg||'Could not apply'); return; }
+    const r = await api({action:'applyXeroReversal', role:currentUser.role, by:currentUser.username,
+      fromDate, toDate, skus});
+    if(r.status!=='ok'){ ab.disabled=false; _xiRevSync(); _xiRevError(r.msg||'Could not apply'); return; }
     document.getElementById('xi-reversal-body').innerHTML =
-      `<div class="xi-rev-empty">✓ Done — corrected ${r.skuCount} SKU${r.skuCount!==1?'s':''}, added back ${Math.round(r.totalBags*100)/100} bags. Product List & Load List now reflect the fix.</div>`;
+      `<div class="xi-rev-empty">✓ Done — corrected ${r.skuCount} SKU${r.skuCount!==1?'s':''}, added back ${_xiRevBags(r.totalBags)} bags. Product List & Load List now reflect the fix.</div>`;
     ab.style.display='none';
     if(typeof showToast==='function') showToast('Xero over-deductions reversed ✓','success',4500);
     if(typeof loadPLData==='function') loadPLData();
-  }catch(e){ ab.disabled=false; ab.textContent='Apply corrections'; _xiRevError(e.message); }
+  }catch(e){ ab.disabled=false; _xiRevSync(); _xiRevError(e.message); }
 }
 
 function closeXeroReversal(){

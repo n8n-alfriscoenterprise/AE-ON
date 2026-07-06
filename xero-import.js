@@ -36,6 +36,12 @@ function resetXiTab(){
   const pa = document.getElementById('xi-preview-area'); if(pa) pa.innerHTML='';
   const cb = document.getElementById('xi-confirm-btn'); if(cb) cb.style.display='none';
   const dz = document.getElementById('xi-drop-zone'); if(dz) dz.classList.remove('xi-drop-active');
+  // Hide the upload-mode selector and reset it to the safe default (For Loading)
+  const mw = document.getElementById('xi-mode-wrap'); if(mw) mw.style.display='none';
+  const ml = document.querySelector('input[name="xi-mode"][value="load"]'); if(ml) ml.checked=true;
+  // Reversal tool is admin-only, and always available on this tab (no file needed)
+  const rt = document.getElementById('xi-reversal-tool');
+  if(rt) rt.style.display = (currentUser && currentUser.role==='admin') ? 'block' : 'none';
   setXiStatus('','');
 }
 
@@ -207,8 +213,20 @@ function renderXiPreview(){
   });
   html+=`</tbody></table></div>`;
   area.innerHTML = html;
+  const mw = document.getElementById('xi-mode-wrap'); if(mw) mw.style.display='block';
   document.getElementById('xi-confirm-btn').style.display='block';
+  onXiModeChange();   // set confirm-button label to match the selected mode
   setXiStatus(`✓ ${xiRows.length} line items across ${invoices.length} invoices ready to import.`,'ok');
+}
+
+// Reflect the chosen upload mode on the confirm button so intent is unmistakable
+function onXiModeChange(){
+  const mode = (document.querySelector('input[name="xi-mode"]:checked')||{}).value || 'load';
+  const btn = document.getElementById('xi-confirm-btn');
+  if(!btn) return;
+  btn.textContent = mode==='warehouse'
+    ? '✅ Import & Deduct Warehouse Stock'
+    : '✅ Import for Load List (no stock change)';
 }
 
 // Returns unique contact names that don't match any dealer (case-insensitive)
@@ -339,28 +357,96 @@ async function xiSaveNewDealer(uid, originalName){
 // ── Confirm ───────────────────────────────────────────
 async function confirmXiImport(){
   if(!xiRows.length) return;
+  const mode = (document.querySelector('input[name="xi-mode"]:checked')||{}).value || 'load';
   const btn = document.getElementById('xi-confirm-btn');
+  const label = btn.textContent;
   btn.disabled=true; btn.textContent='Importing…';
   setXiStatus('Sending to Google Sheets…','ok');
   try{
-    const r = await api({action:'importXeroSales', rows:xiRows, importedBy:currentUser.username});
+    const r = await api({action:'importXeroSales', rows:xiRows, importedBy:currentUser.username, stockMode:mode});
     if(r.status==='ok'){
-      const stockNote = r.stockUpdated > 0 ? ` Stock adjusted for ${r.stockUpdated} SKU${r.stockUpdated!==1?'s':''}.` : '';
+      const stockNote = r.stockUpdated > 0
+        ? ` Warehouse stock deducted for ${r.stockUpdated} SKU${r.stockUpdated!==1?'s':''}.`
+        : (mode==='load' ? ' Load list ready — no stock deducted (deducts when the van is loaded).' : '');
       const replNote  = r.replaced > 0 ? ` ${r.replaced} existing invoice${r.replaced!==1?'s':''} updated.` : '';
       setXiStatus(`✅ Done — ${r.imported} line${r.imported!==1?'s':''} imported.${replNote}${stockNote}`,'ok');
       btn.style.display='none'; xiRows=[];
       document.getElementById('xi-file-input').value='';
       document.getElementById('xi-preview-area').innerHTML='';
+      const mw = document.getElementById('xi-mode-wrap'); if(mw) mw.style.display='none';
       // Refresh product list data in background so low-stock badge updates
       if(typeof loadPLData === 'function') loadPLData();
     } else {
       setXiStatus('Import failed: '+(r.msg||'Unknown error'),'error');
-      btn.disabled=false; btn.textContent='Confirm & Import';
+      btn.disabled=false; btn.textContent=label;
     }
   }catch(e){
     setXiStatus('Import failed: '+e.message,'error');
-    btn.disabled=false; btn.textContent='Confirm & Import';
+    btn.disabled=false; btn.textContent=label;
   }
+}
+
+// ── XERO OVER-DEDUCTION REVERSAL (admin one-time cleanup) ────────────
+async function openXeroReversal(){
+  document.getElementById('xi-reversal-err').textContent='';
+  document.getElementById('xi-reversal-apply').style.display='none';
+  document.getElementById('xi-reversal-body').innerHTML='<div class="xi-rev-loading">Scanning stock history…</div>';
+  document.getElementById('xi-reversal-modal').style.display='flex';
+  try{
+    const r = await api({action:'previewXeroReversal'});
+    if(r.status!=='ok'){ _xiRevError(r.msg||'Could not scan'); return; }
+    _renderXeroReversal(r);
+  }catch(e){ _xiRevError(e.message); }
+}
+
+function _xiRevError(msg){
+  document.getElementById('xi-reversal-body').innerHTML='';
+  document.getElementById('xi-reversal-err').textContent='Error: '+msg;
+}
+
+function _renderXeroReversal(r){
+  const body = document.getElementById('xi-reversal-body');
+  const items = r.items||[];
+  if(!items.length){
+    body.innerHTML='<div class="xi-rev-empty">✓ Nothing to fix — no un-reversed Xero over-deductions found.</div>';
+    return;
+  }
+  const bags = (n)=> (Math.round(n*100)/100);
+  let html = `<div class="xi-rev-summary">${items.length} SKU${items.length!==1?'s':''} affected · adding back ${bags(r.totalBags)} bag${r.totalBags!==1?'s':''} total</div>`;
+  html += '<table class="xi-rev-table"><thead><tr><th>SKU / Item</th><th class="num">Now</th><th class="num">Add back</th><th class="num">→ Corrected</th></tr></thead><tbody>';
+  items.forEach(it=>{
+    html += `<tr>
+      <td><strong>${it.sku}</strong><br><span style="color:#888">${it.item||''}</span></td>
+      <td class="num">${bags(it.current)}</td>
+      <td class="num xi-rev-add">+${bags(it.deducted)}</td>
+      <td class="num"><strong>${bags(it.corrected)}</strong></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  body.innerHTML = html;
+  const ab = document.getElementById('xi-reversal-apply');
+  ab.style.display='inline-block';
+  ab.textContent = `Apply ${items.length} correction${items.length!==1?'s':''}`;
+}
+
+async function applyXeroReversal(){
+  const ab = document.getElementById('xi-reversal-apply');
+  ab.disabled=true; ab.textContent='Applying…';
+  document.getElementById('xi-reversal-err').textContent='';
+  try{
+    const r = await api({action:'applyXeroReversal', role:currentUser.role, by:currentUser.username});
+    if(r.status!=='ok'){ ab.disabled=false; ab.textContent='Apply corrections'; _xiRevError(r.msg||'Could not apply'); return; }
+    document.getElementById('xi-reversal-body').innerHTML =
+      `<div class="xi-rev-empty">✓ Done — corrected ${r.skuCount} SKU${r.skuCount!==1?'s':''}, added back ${Math.round(r.totalBags*100)/100} bags. Product List & Load List now reflect the fix.</div>`;
+    ab.style.display='none';
+    if(typeof showToast==='function') showToast('Xero over-deductions reversed ✓','success',4500);
+    if(typeof loadPLData==='function') loadPLData();
+  }catch(e){ ab.disabled=false; ab.textContent='Apply corrections'; _xiRevError(e.message); }
+}
+
+function closeXeroReversal(){
+  const m = document.getElementById('xi-reversal-modal');
+  if(m) m.style.display='none';
 }
 
 function setXiStatus(msg,type){

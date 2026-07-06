@@ -121,10 +121,7 @@ function resetInvForm(){
   document.getElementById('inv-number').value = 'Draft';
   const today = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Manila'}).slice(0,10);
   document.getElementById('inv-date').value  = today;
-  document.getElementById('inv-dealer').value = '';
-  document.getElementById('inv-dealer-info').style.display = 'none';
-  const oh = document.getElementById('inv-order-history');
-  if(oh) oh.style.display = 'none';
+  _clearInvDealer();   // hidden id + search text + info + contact-fix + history
   document.getElementById('inv-ref').value   = '';
   document.getElementById('inv-terms').value = 'COD';
   onInvTermsChange();
@@ -155,45 +152,212 @@ function resetInvForm(){
 }
 
 
-// ── DEALER SELECT ─────────────────────────────────────────────
-function buildInvDealerSelect(){
-  const sel = document.getElementById('inv-dealer');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">-- Select Dealer --</option>'
-    + '<option value="__add_new__">＋ Add New Dealer</option>';
-  const visible = dealerList
+// ── DEALER SEARCH COMBOBOX ────────────────────────────────────
+// Type-to-search picker over dealerList. The hidden #inv-dealer input still holds
+// the selected dealerId, so every downstream save/charge read is unchanged.
+function _invDealerCandidates(){
+  return dealerList
     .filter(d=>d.status==='Active'||d.status==='On Hold')
     .sort((a,b)=>a.storeName.localeCompare(b.storeName));
-  visible.forEach(d=>{
-    const o = document.createElement('option');
-    o.value       = d.dealerId;
-    o.textContent = d.storeName+(d.area?' · '+d.area:'');
-    sel.appendChild(o);
-  });
-  if(cur) sel.value = cur;
 }
 
-function onInvDealerChange(){
-  const sel  = document.getElementById('inv-dealer');
-  if(sel.value === '__add_new__'){
-    sel.value = '';   // reset so dropdown shows placeholder on return
+// Kept for existing callers (openInvoice, xero-import): re-syncs the visible
+// search text to whatever dealerId the hidden field currently holds.
+function buildInvDealerSelect(){
+  const hid = document.getElementById('inv-dealer');
+  _setInvDealerDisplay(hid ? hid.value : '');
+}
+
+function _setInvDealerDisplay(dealerId){
+  const d     = dealerList.find(x=>x.dealerId===dealerId);
+  const input = document.getElementById('inv-dealer-search');
+  const clr   = document.getElementById('inv-dealer-clear');
+  if(input) input.value = d ? d.storeName+(d.area?' · '+d.area:'') : '';
+  if(clr)   clr.style.display = d ? 'flex' : 'none';
+}
+
+function _invDealerFocus(){
+  const input = document.getElementById('inv-dealer-search');
+  if(input) input.value = '';          // clear so the user can type fresh
+  _invDealerSearch('');
+}
+
+function _invDealerSearch(query){
+  const dd = document.getElementById('inv-dealer-dd');
+  if(!dd) return;
+  const q   = query.toLowerCase().trim();
+  const all = _invDealerCandidates();
+  const matches = !q
+    ? all.slice(0,20)
+    : all.filter(d=>
+        (d.storeName||'').toLowerCase().includes(q)
+        || (d.ownerName||'').toLowerCase().includes(q)
+        || (d.area||'').toLowerCase().includes(q)
+        || (d.phone1||'').includes(q)
+      ).slice(0,25);
+  let html = '<div class="inv-dealer-dd-item inv-dealer-dd-add" '
+    +'onmousedown="_selectInvDealer(\'__add_new__\')">＋ Add New Dealer</div>';
+  html += matches.length
+    ? matches.map(d=>{
+        const missing = _invContactMissing(d);
+        const flag = missing.length ? '<span class="inv-dealer-dd-flag">⚠ incomplete</span>' : '';
+        const meta = [d.ownerName, d.area].filter(Boolean).join(' · ');
+        return '<div class="inv-dealer-dd-item" onmousedown="_selectInvDealer(\''+d.dealerId+'\')">'
+          +'<div class="inv-dealer-dd-name">'+d.storeName+flag+'</div>'
+          +(meta?'<div class="inv-dealer-dd-meta">'+meta+'</div>':'')
+          +'</div>';
+      }).join('')
+    : '<div class="inv-dealer-dd-empty">No dealers found — tap ＋ to add</div>';
+  dd.innerHTML = html;
+  dd.style.display = 'block';
+}
+
+function _hideInvDealerDd(){
+  // Delay so an onmousedown selection lands before blur hides the list
+  setTimeout(function(){
+    const dd = document.getElementById('inv-dealer-dd');
+    if(dd) dd.style.display = 'none';
+    // Restore the display text to the currently-selected dealer (if any)
+    const hid = document.getElementById('inv-dealer');
+    _setInvDealerDisplay(hid ? hid.value : '');
+  }, 150);
+}
+
+function _selectInvDealer(dealerId){
+  const dd = document.getElementById('inv-dealer-dd');
+  if(dd) dd.style.display = 'none';
+  if(dealerId === '__add_new__'){
+    _clearInvDealer();
     addNewDealerFromInvoice();
     return;
   }
+  const hid = document.getElementById('inv-dealer');
+  if(hid) hid.value = dealerId;
+  _setInvDealerDisplay(dealerId);
+  onInvDealerChange();
+}
+
+function _clearInvDealer(){
+  const hid   = document.getElementById('inv-dealer');
+  if(hid) hid.value = '';
+  const input = document.getElementById('inv-dealer-search');
+  if(input) input.value = '';
+  const clr   = document.getElementById('inv-dealer-clear');
+  if(clr) clr.style.display = 'none';
+  const info  = document.getElementById('inv-dealer-info');
+  if(info) info.style.display = 'none';
+  const fix   = document.getElementById('inv-contact-fix');
+  if(fix) fix.style.display = 'none';
+  const oh    = document.getElementById('inv-order-history');
+  if(oh) oh.style.display = 'none';
+}
+
+// Invoice-relevant contact fields that a dealer should have on file
+function _invContactMissing(d){
+  const missing = [];
+  if(!d) return missing;
+  if(!String(d.ownerName||'').trim()) missing.push('Owner name');
+  if(!String(d.phone1||'').trim())    missing.push('Phone');
+  if(!String(d.area||'').trim())      missing.push('Area');
+  if(!String(d.address||'').trim())   missing.push('Address');
+  return missing;
+}
+
+function onInvDealerChange(){
+  const hid  = document.getElementById('inv-dealer');
   const info = document.getElementById('inv-dealer-info');
-  const d    = dealerList.find(x=>x.dealerId===sel.value);
+  const d    = dealerList.find(x=>x.dealerId===(hid?hid.value:''));
   if(d){
     info.innerHTML =
-      '<strong>'+d.ownerName+'</strong> · '+d.phone1
+      '<strong>'+(d.ownerName||'—')+'</strong> · '+(d.phone1||'no phone')
       +(d.area?' · '+d.area:'')
       +(d.address?'<br>'+d.address:'');
     info.style.display = 'block';
+    _renderContactFixTrigger(d);
     _renderDealerOrderHistory(d.dealerId);
   } else {
     info.style.display = 'none';
+    const fix = document.getElementById('inv-contact-fix');
+    if(fix) fix.style.display = 'none';
     const oh = document.getElementById('inv-order-history');
     if(oh) oh.style.display = 'none';
   }
+}
+
+// ── CONTACT-COMPLETION TRIGGER ────────────────────────────────
+// When the selected dealer is missing invoice-relevant details, surface a quick
+// prompt so the seller can complete the contact right there — without leaving
+// the invoice (which would lose the cart).
+function _renderContactFixTrigger(d){
+  const fix = document.getElementById('inv-contact-fix');
+  if(!fix) return;
+  const missing = _invContactMissing(d);
+  if(!missing.length){ fix.style.display='none'; return; }
+  fix.innerHTML =
+    '<div class="inv-contact-fix-msg">⚠ Missing: <strong>'+missing.join(', ')+'</strong></div>'
+    +'<button class="inv-contact-fix-btn" onclick="openInvContactModal()">Complete</button>';
+  fix.style.display = 'flex';
+}
+
+function openInvContactModal(){
+  const hid = document.getElementById('inv-dealer');
+  const d = dealerList.find(x=>x.dealerId===(hid?hid.value:''));
+  if(!d) return;
+  document.getElementById('icm-store-label').textContent = d.storeName;
+  document.getElementById('icm-owner').value   = d.ownerName || '';
+  document.getElementById('icm-phone1').value  = d.phone1    || '';
+  document.getElementById('icm-area').value    = d.area      || '';
+  document.getElementById('icm-address').value = d.address   || '';
+  document.getElementById('icm-err').textContent = '';
+  document.getElementById('inv-contact-modal').style.display = 'flex';
+}
+
+function closeInvContactModal(){
+  const m = document.getElementById('inv-contact-modal');
+  if(m) m.style.display = 'none';
+}
+
+async function saveInvContact(){
+  const hid = document.getElementById('inv-dealer');
+  const d = dealerList.find(x=>x.dealerId===(hid?hid.value:''));
+  if(!d) return;
+  const err = document.getElementById('icm-err');
+  err.textContent = '';
+  const owner   = document.getElementById('icm-owner').value.trim();
+  const phone1  = document.getElementById('icm-phone1').value.trim();
+  const area    = document.getElementById('icm-area').value.trim();
+  const address = document.getElementById('icm-address').value.trim();
+  if(!owner) { err.textContent='Owner/Contact name is required.'; return; }
+  if(!phone1){ err.textContent='Primary phone is required.';      return; }
+  if(!area)  { err.textContent='Area/Municipality is required.';  return; }
+
+  const btn = document.getElementById('icm-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Manila' });
+  try{
+    // updateDealer overwrites EVERY column, so send the full record: spread the
+    // existing dealer's fields and override only the four the user just edited.
+    const r = await api({
+      action:'updateDealer', dealerId:d.dealerId,
+      storeName:d.storeName, ownerName:owner, phone1:phone1, phone2:d.phone2||'',
+      area:area, address:address, dealerType:d.dealerType||'', status:d.status||'',
+      lat:d.lat||'', lng:d.lng||'', accuracy:d.accuracy||'', notes:d.notes||'',
+      assignedVehicle:(d.assignedVehicle!==undefined?d.assignedVehicle:''),
+      updatedBy: currentUser.username, updatedAt: now
+    });
+    if(r.status==='ok'){
+      await loadDealers();
+      if(typeof analyzeDealers==='function') analyzeDealers(null);
+      closeInvContactModal();
+      showToast(d.storeName+' details updated ✓','success');
+      onInvDealerChange();   // refresh info panel + hide the now-satisfied trigger
+    } else {
+      err.textContent = 'Error: ' + (r.msg||'Could not save');
+    }
+  }catch(e){
+    err.textContent = 'Network error: ' + e.message;
+  }
+  btn.disabled = false; btn.textContent = '💾 Save Details';
 }
 
 // Show the last 3 invoices for this dealer (uses already-loaded history)

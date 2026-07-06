@@ -598,9 +598,8 @@ async function saveDealerForm(){
       if(isNew && window._invReturnAfterDealer){
         window._invReturnAfterDealer = false;
         await openInvoice();
-        if(savedDealerId){
-          const sel = document.getElementById('inv-dealer');
-          if(sel){ sel.value = savedDealerId; onInvDealerChange(); }
+        if(savedDealerId && typeof _selectInvDealer==='function'){
+          _selectInvDealer(savedDealerId);   // sets hidden id + search text + info
         }
         return;
       }

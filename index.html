@@ -255,6 +255,25 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Aria
 .inv-sku-dd-name{font-size:13px;color:#222;font-weight:500}
 .inv-sku-dd-code{font-size:11px;color:#888;font-weight:600;margin-left:8px;flex-shrink:0}
 .inv-sku-dd-empty{padding:12px;text-align:center;color:#888;font-size:13px}
+/* ── DEALER SEARCH COMBOBOX ── */
+.inv-dealer-wrap{position:relative}
+.inv-dealer-input{width:100%;padding-right:34px}
+.inv-dealer-clear{position:absolute;top:50%;right:8px;transform:translateY(-50%);width:24px;height:24px;border:none;background:#ECEFF1;color:#607D8B;border-radius:50%;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.inv-dealer-clear:active{background:#CFD8DC}
+.inv-dealer-dropdown{position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #0A5C46;border-top:none;border-radius:0 0 10px 10px;max-height:240px;overflow-y:auto;z-index:200;box-shadow:0 6px 16px rgba(0,0,0,0.13)}
+.inv-dealer-dd-item{padding:10px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0}
+.inv-dealer-dd-item:last-child{border-bottom:none}
+.inv-dealer-dd-item:active,.inv-dealer-dd-item:hover{background:#f0f7f4}
+.inv-dealer-dd-add{color:#0A5C46;font-weight:700;font-size:13px}
+.inv-dealer-dd-name{font-size:13px;color:#222;font-weight:600}
+.inv-dealer-dd-meta{font-size:11px;color:#888;margin-top:2px}
+.inv-dealer-dd-flag{color:#E67E22;font-size:10px;font-weight:700;margin-left:6px}
+.inv-dealer-dd-empty{padding:12px;text-align:center;color:#888;font-size:13px}
+/* ── CONTACT-COMPLETION TRIGGER ── */
+.inv-contact-fix{margin-top:8px;padding:9px 12px;background:#FFF6E5;border:1.5px solid #F0C36D;border-radius:9px;font-size:12px;color:#8A5A00;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.inv-contact-fix-msg{flex:1;line-height:1.4}
+.inv-contact-fix-btn{flex-shrink:0;padding:7px 12px;background:#E67E22;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.inv-contact-fix-btn:active{background:#D35400}
 /* ── 58MM THERMAL RECEIPT ── */
 .rcp-wrap{font-family:'Courier New',Courier,monospace;font-size:9px;color:#000;width:52mm;margin:0 auto;line-height:1.5}
 .rcp-biz-name{font-size:11px;font-weight:700;text-align:center;letter-spacing:.5px}
@@ -3559,10 +3578,22 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
       <div class="inv-section-label">Invoice Details</div>
 
       <label class="inv-field-label">Bill To (Dealer) *</label>
-      <select class="inv-input" id="inv-dealer" onchange="onInvDealerChange()">
-        <option value="">-- Select Dealer --</option>
-      </select>
+      <!-- Type-to-search dealer picker. Hidden input holds the selected dealerId
+           so all save/charge code keeps reading getElementById('inv-dealer').value. -->
+      <input type="hidden" id="inv-dealer">
+      <div class="inv-dealer-wrap">
+        <input class="inv-input inv-dealer-input" id="inv-dealer-search" type="text" autocomplete="off"
+          placeholder="🔍 Type dealer name, owner, or area..."
+          oninput="_invDealerSearch(this.value)"
+          onfocus="_invDealerFocus()"
+          onblur="_hideInvDealerDd()">
+        <button type="button" class="inv-dealer-clear" id="inv-dealer-clear" style="display:none"
+          onmousedown="event.preventDefault()" onclick="_clearInvDealer()">✕</button>
+        <div class="inv-dealer-dropdown" id="inv-dealer-dd" style="display:none"></div>
+      </div>
       <div class="inv-dealer-info" id="inv-dealer-info" style="display:none"></div>
+      <!-- Contact-completion trigger: appears when the chosen dealer is missing details -->
+      <div class="inv-contact-fix" id="inv-contact-fix" style="display:none"></div>
       <!-- Recent orders for selected dealer -->
       <div class="inv-oh-wrap" id="inv-order-history" style="display:none"></div>
 
@@ -3730,6 +3761,33 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 
 <!-- ══ PRINT VIEW (outside all screens — shown only on @media print) ══ -->
 <div id="inv-print-view"></div>
+
+<!-- CONTACT-COMPLETION MODAL (quick-fill missing dealer details without leaving the invoice) -->
+<div class="modal-overlay" id="inv-contact-modal" style="display:none">
+  <div class="modal-card">
+    <div class="epm-title">Complete Contact Details</div>
+    <div class="epm-sub" id="icm-store-label"></div>
+
+    <label class="epm-label">Owner / Contact Name *</label>
+    <input class="epm-input" id="icm-owner" type="text" placeholder="Full name">
+
+    <label class="epm-label">Primary Phone *</label>
+    <input class="epm-input" id="icm-phone1" type="tel" placeholder="09XX XXX XXXX">
+
+    <label class="epm-label">Area / Municipality *</label>
+    <input class="epm-input" id="icm-area" type="text" placeholder="e.g. Urdaneta, Dagupan">
+
+    <label class="epm-label">Address</label>
+    <input class="epm-input" id="icm-address" type="text" placeholder="Street / barangay (optional)">
+
+    <div class="modal-err" id="icm-err" style="margin-top:0;margin-bottom:8px"></div>
+
+    <div class="epm-btns">
+      <button class="epm-cancel" onclick="closeInvContactModal()">Cancel</button>
+      <button class="epm-save" id="icm-save-btn" onclick="saveInvContact()">💾 Save Details</button>
+    </div>
+  </div>
+</div>
 
 <!-- LOAD LIST MODAL -->
 <div class="modal-overlay" id="loadlist-modal" style="display:none;align-items:stretch;padding:0">

@@ -641,6 +641,15 @@ function renderPODetail(){
         + rcpts.map(e => '<div class="po-receipt-history-entry">' + e + '</div>').join('');
       hdr.appendChild(rHistDiv);
     }
+    // Duplicate-receipt warning + reversal (admin only) — catches double-submits
+    if(isAdmin && _poDupReceiptCount(po.receiptHistory) > 0){
+      const dupDiv = document.createElement('div');
+      dupDiv.className = 'po-dup-warn';
+      dupDiv.innerHTML =
+        '<div class="po-dup-msg">⚠ <strong>Duplicate receipt detected.</strong> This delivery looks like it was recorded more than once (a double-tap during a slowdown), so the received quantity and warehouse stock may be doubled.</div>'
+        + '<button class="po-dup-btn" onclick="reverseDuplicatePO()">↩ Reverse duplicate receipt</button>';
+      hdr.appendChild(dupDiv);
+    }
   }
 
   // ── EDIT PAYMENT DETAILS (admin only — APPROVED or PARTIAL) ──
@@ -1165,6 +1174,7 @@ function updateRecvPriceBadge(i){
   badge.innerHTML = html;
 }
 
+let _poReceiving = false;   // guards against a double-tap on Confirm Receipt
 async function receiveItems(){
   const lines = currentPO.lineItems || [];
   const receipts = [];
@@ -1217,6 +1227,8 @@ async function receiveItems(){
     confirmText += '\n\n💲 Your price list (cost on file) will update:\n' + priceChanges.join('\n');
   }
   if(!confirm(confirmText)) return;
+  if(_poReceiving) return;          // block a double-tap while the request is in flight
+  _poReceiving = true;
 
   try{
     const r = await api({
@@ -1227,7 +1239,11 @@ async function receiveItems(){
       docRef:      docRef,
       receipts
     });
-    if(r.status==='ok'){
+    if(r.status==='ok' && r.duplicate){
+      // Backend saw this exact receipt moments ago — a slow-response double-tap
+      showToast('Already recorded — duplicate receipt ignored ✓','info',4500);
+      await openPODetail(currentPO.poNumber);
+    } else if(r.status==='ok'){
       const summary = receipts.length + ' item(s) received'
         + (docRef ? ' — Doc Ref: ' + docRef : '')
         + ' — inventory updated as STOCK IN ✓';
@@ -1252,6 +1268,66 @@ async function receiveItems(){
       await openPODetail(currentPO.poNumber);
       await loadPOs();
     }else alert('Error: '+r.msg);
+  }catch(e){ alert('Network error: '+e.message); }
+  finally { _poReceiving = false; }
+}
+
+// ── REVERSE DUPLICATE RECEIPT (admin — undo a double-submit) ───────────────
+// Detects near-in-time identical receipt-history entries client-side to show the
+// banner; the actual reversal is computed & applied server-side (dry-run first).
+function _poDupReceiptCount(receiptHistory){
+  if(!receiptHistory) return 0;
+  const entries = receiptHistory.split('|||').map(e=>{
+    const m = e.trim().match(/^\[([^\]·]+)·([^\]]*)\]\s*(.*)$/);
+    return { ts:(m?m[1].trim():''), by:(m?m[2].trim():''), rest:(m?m[3].trim():e.trim()) };
+  });
+  const keep = entries.map(()=>true); let dups = 0;
+  for(let i=0;i<entries.length;i++){
+    for(let j=0;j<i;j++){
+      if(!keep[j]) continue;
+      if(entries[j].by===entries[i].by && entries[j].rest===entries[i].rest && entries[i].rest){
+        const di=new Date(entries[i].ts.replace(' ','T')+':00');
+        const dj=new Date(entries[j].ts.replace(' ','T')+':00');
+        if(!isNaN(di.getTime()) && !isNaN(dj.getTime()) && Math.abs(di.getTime()-dj.getTime())<10*60*1000){
+          keep[i]=false; dups++; break;
+        }
+      }
+    }
+  }
+  return dups;
+}
+
+async function reverseDuplicatePO(){
+  if(!currentPO) return;
+  const po = currentPO;
+  // 1) Dry-run to compute the exact plan
+  let plan;
+  try{
+    const r = await api({action:'reverseDuplicateReceipt', poNumber:po.poNumber, poType:po.type,
+      role:currentUser.role, by:currentUser.username, dryRun:true});
+    if(r.status!=='ok'){ alert('Error: '+(r.msg||'Could not scan')); return; }
+    if(!r.removedCount){ alert(r.message||'No duplicate receipts detected on this PO.'); return; }
+    plan = r;
+  }catch(e){ alert('Network error: '+e.message); return; }
+
+  // 2) Confirm with the precise before/after
+  let msg = 'Reverse '+plan.removedCount+' duplicate receipt'+(plan.removedCount!==1?'s':'')+' on '+po.poNumber+'?\n\nThis will correct:';
+  (plan.plan||[]).forEach(p=>{
+    msg += '\n• '+p.item+':  received '+p.receivedBefore+'→'+p.receivedAfter+',  stock '+p.stockBefore+'→'+p.stockAfter;
+  });
+  if(plan.unmapped && plan.unmapped.length) msg += '\n\n⚠ Could not match to a SKU (left alone): '+plan.unmapped.join(', ');
+  msg += '\n\nThe duplicate line is removed from Receipt History. This cannot be auto-undone.';
+  if(!confirm(msg)) return;
+
+  // 3) Apply
+  try{
+    const r = await api({action:'reverseDuplicateReceipt', poNumber:po.poNumber, poType:po.type,
+      role:currentUser.role, by:currentUser.username, dryRun:false});
+    if(r.status!=='ok'){ alert('Error: '+(r.msg||'Could not reverse')); return; }
+    showToast('Duplicate receipt reversed — stock & PO corrected ✓','success',5000);
+    await openPODetail(po.poNumber);
+    await loadPOs();
+    if(typeof loadPLData==='function') loadPLData();
   }catch(e){ alert('Network error: '+e.message); }
 }
 

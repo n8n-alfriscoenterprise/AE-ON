@@ -26,11 +26,19 @@
   const activeTab = document.getElementById('pl-tab-' + plTab);
   if(activeTab) activeTab.classList.add('active');
 
-  document.getElementById('pl-body').innerHTML = '<div class="pl-empty">Loading product list...</div>';
-  document.getElementById('pl-summary-count').textContent = 'Loading...';
-  await loadPLData();
-  buildPLChips();
-  renderPL();
+  // Instant paint from the session's last data, then refresh in the background —
+  // the screen used to blank out for a full Apps Script round trip on every open
+  if((plData.dist && plData.dist.length) || (plData.retail && plData.retail.length)){
+    buildPLChips();
+    renderPL();
+    loadPLData().then(function(){ buildPLChips(); renderPL(); });
+  } else {
+    document.getElementById('pl-body').innerHTML = '<div class="pl-empty">Loading product list...</div>';
+    document.getElementById('pl-summary-count').textContent = 'Loading...';
+    await loadPLData();
+    buildPLChips();
+    renderPL();
+  }
 }
 
 function closePL(){

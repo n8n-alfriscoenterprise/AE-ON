@@ -33,8 +33,11 @@ async function openInvoice(){
   showScreen('invoice-screen');
   updateFabVisibility();
   showInvSubtab('new', document.getElementById('inv-tab-new'));
-  if(!dealerList.length) await loadDealers();
-  await loadInvProducts();
+  // Load dealers + products in PARALLEL — they were sequential, doubling the wait
+  await Promise.all([
+    dealerList.length ? Promise.resolve() : loadDealers(),
+    loadInvProducts()
+  ]);
   buildInvDealerSelect();
   resetInvForm();
   // Background loads

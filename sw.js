@@ -2,12 +2,17 @@
 // AE-ON service worker — makes the app installable on Android
 // (real app icon, standalone window) and keeps it usable offline.
 //
-// Strategy: NETWORK-FIRST for everything. When online, employees
-// always run the newest deployed code (no stale-cache pain); the
-// cache is only a fallback when the connection drops. API calls to
-// Apps Script are never cached.
+// Strategy: STALE-WHILE-REVALIDATE. Serve every same-origin file
+// from cache instantly (fast startup on any connection), then
+// refresh the cached copy in the background. After a deploy, the
+// new code applies on the NEXT app open — open the app twice.
+// API calls to Apps Script are POSTs and are never touched.
+//
+// (v1 was network-first, which re-downloaded ~30 files from GitHub
+// on every launch before painting anything — that's why startup
+// felt slow. v2 paints from cache first.)
 // ════════════════════════════════════════════════════════
-const CACHE = 'aeon-v1';
+const CACHE = 'aeon-v2';
 
 const CORE = [
   './',
@@ -37,18 +42,22 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;       // never touch Apps Script / external
 
-  e.respondWith(
-    fetch(req)
-      .then(res => {
-        // Fresh from network — update the cache copy for offline use
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(req, copy));
-        return res;
-      })
-      .catch(() =>
-        caches.match(req).then(hit =>
-          hit || (req.mode === 'navigate' ? caches.match('./index.html') : undefined)
-        )
-      )
-  );
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const hit = await cache.match(req);
+
+    // Always kick off a background refresh so the cache tracks deploys
+    const refresh = fetch(req).then(res => {
+      if (res && res.ok) cache.put(req, res.clone());
+      return res;
+    }).catch(() => undefined);
+
+    if (hit) {
+      e.waitUntil(refresh.then(() => {}));   // keep SW alive until refresh lands
+      return hit;                            // instant paint from cache
+    }
+    // Nothing cached yet (first run / new file) — wait for the network
+    const res = await refresh;
+    return res || (req.mode === 'navigate' ? cache.match('./index.html') : undefined);
+  })());
 });

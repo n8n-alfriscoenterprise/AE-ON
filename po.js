@@ -1,4 +1,18 @@
-﻿function generatePONumber(){
+﻿// A SKU may list ALTERNATE suppliers ("Primary, Alternate" in the SKU Master's
+// Supplier column). Match the PO's chosen supplier against ANY of them,
+// case-insensitively, so the item is orderable from every listed source.
+function skuHasSupplier(s, supplier){
+  const want = String(supplier||'').trim().toLowerCase();
+  if(Array.isArray(s.suppliers) && s.suppliers.length)
+    return s.suppliers.some(x => String(x).trim().toLowerCase() === want);
+  return String(s.supplier||'').trim().toLowerCase() === want;
+}
+function skuNoSupplier(s){
+  if(Array.isArray(s.suppliers)) return s.suppliers.length === 0;
+  return !s.supplier || String(s.supplier).trim() === '';
+}
+
+function generatePONumber(){
   const d=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Manila'}));
   const date=d.getFullYear().toString()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
   const todayPOs=poList.filter(p=>p.poNumber&&p.poNumber.includes(date));
@@ -181,11 +195,9 @@ function onPOSupplierChange(){
     const sel = document.querySelector(`#po-line-${idx} select`);
     if(!sel) return;
 
-    // Rebuild options for this line
-    const filtered = liveSKUs.filter(s => s.type === type && s.supplier === supplier);
-    const unassigned = liveSKUs.filter(s =>
-      s.type === type && (!s.supplier || s.supplier.trim() === '')
-    );
+    // Rebuild options for this line — a SKU shows under ANY of its listed suppliers
+    const filtered = liveSKUs.filter(s => s.type === type && skuHasSupplier(s, supplier));
+    const unassigned = liveSKUs.filter(s => s.type === type && skuNoSupplier(s));
     const cats = [...new Set(filtered.map(s=>s.category))];
     let skuOpts = '<option value="">-- Select item --</option>';
     skuOpts += cats.map(cat=>{
@@ -248,7 +260,9 @@ function onPOTypeChange(){
     supNames = supplierList.filter(s=>s.type===type||s.type==='BOTH').map(s=>s.name).sort();
   }
   if(!supNames||!supNames.length){
-    const assigned=[...new Set(liveSKUs.filter(s=>s.type===type&&s.supplier).map(s=>s.supplier))].sort();
+    // Derive from SKU Master — include ALTERNATE suppliers, not just primaries
+    const assigned=[...new Set(liveSKUs.filter(s=>s.type===type)
+      .flatMap(s=>Array.isArray(s.suppliers)&&s.suppliers.length?s.suppliers:(s.supplier?[s.supplier]:[])))].sort();
     supNames = assigned.length ? assigned : (type==='DIST' ? DIST_SUPPLIERS : RETAIL_SUPPLIERS);
   }
   sup.innerHTML = supNames.map(s=>`<option value="${s}">${s}</option>`).join('');
@@ -258,15 +272,11 @@ function onPOTypeChange(){
 function addPOLineItem(preData){
   const type=document.getElementById('po-type').value;
   const supplier=document.getElementById('po-supplier').value;
-  // Filter strictly to selected supplier — no fallback bleed-through
-  const filtered = liveSKUs.filter(s => {
-    if(s.type !== type) return false;
-    return s.supplier === supplier;
-  });
+  // Strictly the selected supplier — but a SKU listing it as an ALTERNATE
+  // (comma-separated in the SKU Master) counts too
+  const filtered = liveSKUs.filter(s => s.type === type && skuHasSupplier(s, supplier));
   // SKUs with no supplier assigned shown in separate group
-  const unassigned = liveSKUs.filter(s =>
-    s.type === type && (!s.supplier || s.supplier.trim() === '')
-  );
+  const unassigned = liveSKUs.filter(s => s.type === type && skuNoSupplier(s));
 
   const cats = [...new Set(filtered.map(s=>s.category))];
   let skuOpts = cats.map(cat=>{

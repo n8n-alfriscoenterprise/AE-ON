@@ -56,16 +56,21 @@ function buildDriverList(){
       const hdr=document.createElement('div');hdr.className='cat-header';hdr.textContent=cat;list.appendChild(hdr);
     }
     visible.filter(i=>(i.cat||'Uncategorised')===cat).forEach((item,idx)=>{
-      const remaining=Math.max(0,(item.loaded||0)-(item.sold||0));
+      // INV/OTS split comes from the Tag column (older backend: everything = INV)
+      const inv = Number(item.invoicedLoaded!=null ? item.invoicedLoaded : item.loaded)||0;
+      const ots = Number(item.otsExtra)||0;
       const row=document.createElement('div');row.className='driver-sku-row';
       row.innerHTML=`
         <div class="driver-sku-info">
           <div class="driver-sku-name">${item.name}</div>
           <div class="driver-sku-code">${item.code}</div>
         </div>
-        <div class="driver-qty-chips">
-          <div class="driver-qty-chip loaded" title="Loaded">${item.loaded||0}</div>
-          <div class="driver-qty-chip pending" title="Remaining">${remaining}</div>
+        <div class="driver-stat-strip">
+          <div class="driver-stat inv"><span class="driver-stat-lbl">Inv</span><span class="driver-stat-val">${inv}</span></div>
+          <div class="driver-stat ots"><span class="driver-stat-lbl">OTS</span><span class="driver-stat-val">${ots}</span></div>
+          <div class="driver-stat load"><span class="driver-stat-lbl">Loaded</span><span class="driver-stat-val">${item.loaded||0}</span></div>
+          <div class="driver-stat ret"><span class="driver-stat-lbl">Returned</span><span class="driver-stat-val">${item.returned||0}</span></div>
+          <div class="driver-stat sold"><span class="driver-stat-lbl">Sold</span><span class="driver-stat-val">${item.sold||0}</span></div>
         </div>`;
       list.appendChild(row);
     });

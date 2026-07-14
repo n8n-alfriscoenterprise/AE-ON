@@ -456,7 +456,17 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Aria
 .sold-val.zero{color:#ddd}
 
 /* DRIVER SKU ROW */
-.driver-sku-row{display:flex;align-items:center;padding:10px 14px;background:white;border-bottom:1px solid #f0f0f0;gap:10px}
+.driver-sku-row{display:flex;flex-direction:column;align-items:stretch;padding:10px 14px;background:white;border-bottom:1px solid #f0f0f0;gap:0}
+/* 5-column stat strip: INV | OTS | LOADED | RETURNED | SOLD */
+.driver-stat-strip{display:flex;gap:5px;margin-top:8px}
+.driver-stat{flex:1;text-align:center;border-radius:8px;padding:3px 2px 4px;border:1px solid #e0e0e0;background:#FAFAFA}
+.driver-stat-lbl{display:block;font-size:8px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;opacity:.75;margin-bottom:1px}
+.driver-stat-val{display:block;font-size:14px;font-weight:800;line-height:1.1}
+.driver-stat.inv{background:#EEF5FE;border-color:#85B7EB;color:#0C447C}
+.driver-stat.ots{background:#EDF8E6;border-color:#7DC459;color:#2A6B0A}
+.driver-stat.load{background:#E8EAF6;border-color:#7986CB;color:#283593}
+.driver-stat.ret{background:#FFF8E6;border-color:#FAC775;color:#7A5500}
+.driver-stat.sold{background:#F3E5F5;border-color:#CE93D8;color:#6A1B9A}
 .driver-sku-info{flex:1;min-width:0}
 .driver-sku-name{font-size:12px;font-weight:600;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .driver-sku-code{font-size:10px;color:#bbb;margin-top:2px}

@@ -414,19 +414,22 @@ async function saveMovEdits(){
   _movEditBatch.totalLoaded   = _movEditBatch.lines.reduce((s,l)=>s+l.loaded,  0);
   _movEditBatch.totalReturned = _movEditBatch.lines.reduce((s,l)=>s+l.returned,0);
 
-  showToast(updates.length+' row'+(updates.length!==1?'s':'')+' updated ✓','success');
+  showToast(updates.length+' row'+(updates.length!==1?'s':'')+' updated — warehouse stock adjusted ✓','success',4500);
   closeEditMov();
   _renderMovHistory(); // refresh cards with new values
+  if(typeof loadPLData==='function') loadPLData();   // edits now adjust stock — refresh Product List
 }
 
 // ── DELETE ─────────────────────────────────────────────────────
 async function deleteMovBatch(batchKey){
-  if(!confirm('Delete this movement batch? Stock counts will NOT be reversed automatically.')) return;
-  const r = await api({action:'deleteMovementBatch', batchKey});
+  if(!confirm('Delete this movement batch?\n\nWarehouse stock will be adjusted back automatically (loads returned to stock, returns taken out again).')) return;
+  const r = await api({action:'deleteMovementBatch', batchKey, by: currentUser?currentUser.username:''});
   if(r.status==='ok'){
     _movHistBatches = _movHistBatches.filter(b=>b.batchKey!==batchKey);
     _renderMovHistory();
-    showToast('Movement batch deleted','success');
+    showToast('Movement deleted — warehouse stock adjusted for '
+      +(r.stockAdjusted||0)+' SKU'+((r.stockAdjusted||0)!==1?'s':'')+' ✓','success',4500);
+    if(typeof loadPLData==='function') loadPLData();   // refresh Product List numbers
   } else {
     alert('Delete failed: '+(r.msg||'Unknown error'));
   }

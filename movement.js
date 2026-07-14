@@ -159,17 +159,33 @@ async function submitForm(){
   const allSkus={};
   Object.values(DIST_SKUS).flat().forEach(s=>allSkus[s.code]=s.name);
   Object.values(csskus).flat().forEach(s=>allSkus[s.code]=s.name);
-  const rows=entries.map(([code,q])=>[
-    now,currentUser.username,unit,mode,code,
-    allSkus[code]||code,q.cat||'',q.loaded,q.returned,
-    Math.max(0,q.loaded-q.returned)
-  ]);
+  // After a Load List pre-fill, anything loaded BEYOND the invoiced amount is an
+  // OTS extra — log it as a separate row tagged 'OTS EXTRA' so re-pre-fills don't
+  // count free-selling stock against invoice requirements. Manual-only sessions
+  // (no pre-fill) behave exactly as before: everything logs as one untagged row.
+  const rows=[];
+  let otsBags=0;
+  entries.forEach(([code,q])=>{
+    const base=[now,currentUser.username,unit,mode,code,allSkus[code]||code,q.cat||''];
+    const extra = (mode==='LOAD' && window._llPrefillActive)
+      ? Math.max(0, q.loaded - Math.min(q.loaded, q.invQty||0)) : 0;
+    if(extra>0){
+      const invPart = q.loaded - extra;
+      if(invPart>0 || q.returned>0)
+        rows.push([...base, invPart, q.returned, Math.max(0,invPart-q.returned), '']);
+      rows.push([...base, extra, 0, extra, 'OTS EXTRA']);
+      otsBags += extra;
+    } else {
+      rows.push([...base, q.loaded, q.returned, Math.max(0,q.loaded-q.returned), '']);
+    }
+  });
   try{
     const r=await api({sheet:'Stock Movements',rows});
     if(r.status==='ok'){
-      showBanner('success-bar',`${mode} submitted — ${rows.length} SKUs logged by ${currentUser.username}`);
-      accessLog.unshift({who:currentUser.username,what:`${mode} — ${rows.length} SKUs via ${unit}`,when:now});
-      saveLocal();quantities={};buildSkuList();updateTotals();
+      showBanner('success-bar',`${mode} submitted — ${entries.length} SKUs logged by ${currentUser.username}`
+        +(otsBags>0?` (incl. ${otsBags} OTS extra bag${otsBags!==1?'s':''})`:''));
+      accessLog.unshift({who:currentUser.username,what:`${mode} — ${entries.length} SKUs via ${unit}`,when:now});
+      saveLocal();quantities={};window._llPrefillActive=false;buildSkuList();updateTotals();
     }else{alert('Error: '+(r.msg||'Unknown'));}
   }catch(e){alert('Network error: '+e.message);}
   btn.disabled=false;

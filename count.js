@@ -6,6 +6,7 @@
     if(!confirmed){const sel=document.getElementById('unit-select');sel.value=sel.dataset.lastUnit||sel.options[0].value;return;}
   }
   quantities={};
+  window._llPrefillActive=false;   // fresh unit — pre-fill markers no longer apply
   const sel=document.getElementById('unit-select');
   sel.dataset.lastUnit=sel.value;
   if(isReturnMode){

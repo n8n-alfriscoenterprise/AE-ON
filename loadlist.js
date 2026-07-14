@@ -229,11 +229,17 @@ async function llPrefillLoad(){
   const pf=document.getElementById('ll-prefill-btn');
   const pfOrig=pf?pf.textContent:'';
   if(pf){ pf.disabled=true; pf.textContent='⏳ Checking van…'; }
-  let loadedToday={}, checkOk=false;
+  let loadedToday={}, otsOnBoard=0, checkOk=false;
   try{
     const lr=await api({action:'getTodayLoads', unit: active});
     if(lr.status==='ok'){
-      (lr.rows||[]).forEach(function(r){ loadedToday[r.code]=Number(r.loaded)||0; });
+      (lr.rows||[]).forEach(function(r){
+        // Count only INVOICE loads against invoice requirements — bags loaded as
+        // OTS EXTRA are free stock for on-the-spot selling, not delivery cover.
+        // (Older backend without the split falls back to total loaded.)
+        loadedToday[r.code]=Number(r.invoicedLoaded!=null?r.invoicedLoaded:r.loaded)||0;
+        otsOnBoard += Number(r.otsExtra)||0;
+      });
       checkOk=true;
     }
   }catch(e){ /* offline — fall through, warn below */ }
@@ -274,6 +280,9 @@ async function llPrefillLoad(){
       +(alreadyFull.length?' ('+alreadyFull.length+' item(s) fully loaded — skipped)':'')
       +'.\nFilling only what’s still missing.';
   }
+  if(checkOk && otsOnBoard>0){
+    msg+='\n\n🟢 Also on board: '+otsOnBoard+' bag(s) loaded as OTS extras — free for on-the-spot selling, not counted against invoices.';
+  }
   if(skipped.length) msg+='\n\n'+skipped.length+' skipped (not in SKU Master): '+skipped.map(function(i){return i.skuCode;}).join(', ');
   msg+='\n\nThis sets the unit to '+_llVehLabel(active)+', clears the form, and fills Loaded quantities — review against the van before submitting.';
   if(!confirm(msg)) return;
@@ -299,12 +308,16 @@ async function llPrefillLoad(){
   const movTabs=document.querySelectorAll('#movement-area .tab');
   if(movTabs.length){ movTabs.forEach(function(t){t.classList.remove('active');}); movTabs[0].classList.add('active'); }
 
-  // One van at a time — clear then set this van's quantities exactly
+  // One van at a time — clear then set this van's quantities exactly.
+  // invQty marks the INVOICED portion: anything the stockman manually adds on
+  // top (OTS extras) gets logged as a separate tagged row at submit, so a later
+  // re-pre-fill never counts extras against invoice requirements.
   Object.keys(quantities).forEach(function(k){ delete quantities[k]; });
   matched.forEach(function(it){
     const cat=(distCodes[it.skuCode]||{}).category||'';
-    quantities[it.skuCode]={loaded:it.qty, returned:0, cat:cat};
+    quantities[it.skuCode]={loaded:it.qty, returned:0, cat:cat, invQty:it.qty};
   });
+  window._llPrefillActive = true;
 
   if(typeof buildTab==='function') buildTab();
   else { if(typeof buildSkuList==='function') buildSkuList(); if(typeof updateTotals==='function') updateTotals(); }

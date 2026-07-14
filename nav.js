@@ -246,7 +246,8 @@ function showMovement(){
   if(document.getElementById('tnav-po')) document.getElementById('tnav-po').style.display=canPO?'block':'none';
   if(document.getElementById('tnav-admin')) document.getElementById('tnav-admin').style.display=isAdmin?'block':'none';
   const histBtn=document.getElementById('mov-history-btn');
-  if(histBtn) histBtn.style.display=isAdmin?'flex':'none';
+  // Staff get VIEW access + correction requests; only admins can edit directly
+  if(histBtn) histBtn.style.display=(currentUser&&currentUser.role!=='driver')?'flex':'none';
   document.getElementById('movement-area').style.display='block';
   document.getElementById('mode-btn').style.display='flex';
   isReturnMode=false;

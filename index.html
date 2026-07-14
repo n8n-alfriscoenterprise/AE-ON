@@ -990,6 +990,24 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Aria
 .mov-hist-refresh{background:#0A5C46;color:#fff;border:none;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
 /* batch card */
 .mov-hist-card{border-bottom:1px solid #f0f0f0}
+/* correction requests (staff propose → admin approve) */
+.mov-req-section-title{font-size:12px;font-weight:800;color:#0D3349;letter-spacing:.3px;padding:10px 2px 6px}
+.mov-req-card{background:#FBF8F1;border:1.5px solid #EAD9A8;border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.mov-req-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mov-req-type{font-size:10px;font-weight:800;padding:3px 8px;border-radius:6px;letter-spacing:.3px}
+.mov-req-type.edit{background:#E3F2FD;color:#1565C0}
+.mov-req-type.del{background:#FDEDEC;color:#C0392B}
+.mov-req-meta{font-size:11px;color:#555;font-weight:600}
+.mov-req-status{margin-left:auto;font-size:10px;font-weight:800;padding:3px 8px;border-radius:10px}
+.mov-req-status.pend{background:#FFF3CD;color:#7A5500}
+.mov-req-status.appr{background:#E8F5E9;color:#1B5E20}
+.mov-req-status.rej{background:#FDEDEC;color:#C0392B}
+.mov-req-by{font-size:11px;color:#777;margin-top:4px}
+.mov-req-lines{font-size:12px;color:#333;margin-top:6px;line-height:1.6}
+.mov-req-reason{font-size:11px;color:#6A5300;font-style:italic;margin-top:6px;padding:6px 9px;background:#FFF9E8;border-radius:7px}
+.mov-req-actions{display:flex;gap:8px;margin-top:9px}
+.mov-req-approve{flex:1;padding:9px;background:#0A5C46;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer}
+.mov-req-reject{flex:1;padding:9px;background:#fff;color:#C0392B;border:1.5px solid #E6B0AA;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer}
 .mov-hist-row{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 14px;gap:10px}
 .mov-hist-main{display:flex;align-items:flex-start;gap:10px;flex:1;min-width:0}
 .mov-hist-badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0;margin-top:2px}

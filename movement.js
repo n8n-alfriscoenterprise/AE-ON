@@ -216,11 +216,13 @@ function showBanner(id,msg){
   setTimeout(()=>{ if(b) b.style.display='none'; },5000);
 }
 
-// ── MOVEMENT HISTORY (admin / staff) ────────────────────────────
+// ── MOVEMENT HISTORY (admin: full control · staff: view + request) ──
 let _movHistBatches  = [];
 let _movHistExpanded = new Set();
 let _movEditBatch    = null;
 let _movEditChanges  = {}; // {rowIndex: {loaded, returned}}
+let _movRequests     = []; // correction requests (staff propose, admin resolve)
+let _movReqMode      = null; // null = admin direct edit · 'edit' | 'delete' = staff request
 
 async function openMovHistory(){
   document.getElementById('mov-hist-modal').style.display='flex';
@@ -232,28 +234,80 @@ async function _loadMovHistory(){
   body.innerHTML = '<div style="text-align:center;padding:24px;color:#888;font-size:13px">Loading…</div>';
   const mode = document.getElementById('mov-hist-mode')?.value || 'All';
   const date = document.getElementById('mov-hist-date')?.value || '';
-  const r    = await api({action:'getMovementHistory', mode, date, limit:200});
+  // History + correction requests in parallel (one wait, not two)
+  const [r, rq] = await Promise.all([
+    api({action:'getMovementHistory', mode, date, limit:200}),
+    api({action:'getMovementRequests'}).catch(()=>({status:'error'}))
+  ]);
   if(r.status!=='ok'){
     body.innerHTML='<div style="padding:16px;color:#E24B4A">Failed to load history.</div>';
     return;
   }
   _movHistBatches  = r.batches || [];
+  _movRequests     = rq && rq.status==='ok' ? (rq.requests||[]) : [];
   _movHistExpanded = new Set();
   _renderMovHistory();
 }
 
+// Requests section: admin sees all PENDING with Approve/Reject;
+// staff see their own recent requests with status.
+function _renderMovRequests(){
+  const isAdmin = currentUser && currentUser.role==='admin';
+  const mine = r => r.requestedBy === (currentUser?currentUser.username:'');
+  const show = isAdmin
+    ? _movRequests.filter(r=>r.status==='Pending')
+    : _movRequests.filter(mine).slice(0,8);
+  if(!show.length) return '';
+
+  const fmtLines = (req) => {
+    if(req.type==='DELETE') return '<div class="mov-req-lines">Delete the whole batch — stock will be adjusted back.</div>';
+    return '<div class="mov-req-lines">'+(req.lines||[]).map(l=>
+      '• '+l.sku+': '
+      +(l.oldLoaded!==l.newLoaded ? 'loaded '+l.oldLoaded+'→<strong>'+l.newLoaded+'</strong>' : '')
+      +(l.oldLoaded!==l.newLoaded && l.oldReturned!==l.newReturned ? ', ' : '')
+      +(l.oldReturned!==l.newReturned ? 'returned '+l.oldReturned+'→<strong>'+l.newReturned+'</strong>' : '')
+    ).join('<br>')+'</div>';
+  };
+
+  let html = '<div class="mov-req-section-title">📨 '+(isAdmin?'Pending correction requests':'My correction requests')+'</div>';
+  show.forEach(req=>{
+    const stCls = req.status==='Pending'?'pend':req.status==='Approved'?'appr':'rej';
+    html += '<div class="mov-req-card">'
+      +'<div class="mov-req-head">'
+        +'<span class="mov-req-type '+(req.type==='DELETE'?'del':'edit')+'">'+(req.type==='DELETE'?'🗑 DELETE':'✎ EDIT')+'</span>'
+        +'<span class="mov-req-meta">'+req.unit+' '+req.mode+' · '+_fmtMovTs(req.batchTime)+'</span>'
+        +'<span class="mov-req-status '+stCls+'">'+req.status+'</span>'
+      +'</div>'
+      +'<div class="mov-req-by">Requested by <strong>'+req.requestedBy+'</strong> · '+_fmtMovTs(req.requestedAt)
+        +(req.resolvedBy?' · '+req.status.toLowerCase()+' by '+req.resolvedBy:'')+'</div>'
+      + fmtLines(req)
+      +'<div class="mov-req-reason">“'+req.reason+'”</div>'
+      +(isAdmin && req.status==='Pending'
+        ? '<div class="mov-req-actions">'
+          +'<button class="mov-req-approve" onclick="resolveMovRequest(\''+req.requestId+'\',\'approve\')">✓ Approve & Apply</button>'
+          +'<button class="mov-req-reject" onclick="resolveMovRequest(\''+req.requestId+'\',\'reject\')">✕ Reject</button>'
+          +'</div>'
+        : '')
+      +'</div>';
+  });
+  return html;
+}
+
 function _renderMovHistory(){
   const body = document.getElementById('mov-hist-body');
+  const reqHtml = _renderMovRequests();
   if(!_movHistBatches.length){
-    body.innerHTML='<div style="text-align:center;padding:24px;color:#888;font-size:13px">No movement records found.</div>';
+    body.innerHTML = reqHtml
+      +'<div style="text-align:center;padding:24px;color:#888;font-size:13px">No movement records found.</div>';
     return;
   }
-  body.innerHTML='';
+  body.innerHTML = reqHtml;
   _movHistBatches.forEach(b=>{
     const isLoad   = b.mode.toUpperCase()==='LOAD';
     const expanded = _movHistExpanded.has(b.batchKey);
     const canEdit  = _canEditMovBatch(b);
     const isAdmin  = currentUser && currentUser.role==='admin';
+    const canRequest = !isAdmin && currentUser && currentUser.role!=='driver';
     const ts       = _fmtMovTs(b.timestamp);
 
     // Totals line — always show both sides so RETURN is never ambiguous
@@ -297,6 +351,8 @@ function _renderMovHistory(){
         +'<div class="mov-hist-actions">'
           +(canEdit?'<button class="mov-hist-edit-btn" onclick="openEditMovBatch(\''+b.batchKey.replace(/'/g,"\\'")+'\')" >✏ Edit</button>':'')
           +(isAdmin?'<button class="mov-hist-del-btn" onclick="deleteMovBatch(\''+b.batchKey.replace(/'/g,"\\'")+'\')" >Delete</button>':'')
+          +(canRequest?'<button class="mov-hist-edit-btn" onclick="openEditMovBatch(\''+b.batchKey.replace(/'/g,"\\'")+'\',\'edit\')" >✎ Request Edit</button>':'')
+          +(canRequest?'<button class="mov-hist-del-btn" onclick="openEditMovBatch(\''+b.batchKey.replace(/'/g,"\\'")+'\',\'delete\')" >🗑 Request Deletion</button>':'')
           +'<button class="mov-hist-expand-btn" onclick="toggleMovBatch(\''+b.batchKey.replace(/'/g,"\\'")+'\')">'+( expanded?'▲ Hide':'▼ Items')+'</button>'
         +'</div>'
       +'</div>'
@@ -312,11 +368,9 @@ function toggleMovBatch(key){
 }
 
 function _canEditMovBatch(batch){
-  if(!currentUser) return false;
-  if(currentUser.role==='driver') return false;
-  if(currentUser.role==='admin')  return true;
-  // Staff can edit only their own submissions
-  return batch.submittedBy === currentUser.username;
+  // Direct edit/delete is ADMIN-only. Staff view everything and submit
+  // correction requests instead — admin approves before anything changes.
+  return !!(currentUser && currentUser.role==='admin');
 }
 
 function _fmtMovTs(ts){
@@ -327,34 +381,54 @@ function closeMovHistory(){
   document.getElementById('mov-hist-modal').style.display='none';
 }
 
-// ── EDIT MODAL ─────────────────────────────────────────────────
-function openEditMovBatch(batchKey){
+// ── EDIT / REQUEST MODAL ────────────────────────────────────────
+// reqMode: undefined = admin direct edit · 'edit' = staff edit request ·
+// 'delete' = staff deletion request (quantities read-only, reason required)
+function openEditMovBatch(batchKey, reqMode){
   _movEditBatch   = _movHistBatches.find(b=>b.batchKey===batchKey);
   if(!_movEditBatch) return;
   _movEditChanges = {};
+  _movReqMode     = reqMode || null;
 
   const title = document.getElementById('mov-edit-title');
-  if(title) title.textContent = '✏ Edit — '+_movEditBatch.unit+' '+_movEditBatch.mode+' · '+_fmtMovTs(_movEditBatch.timestamp);
+  const tPrefix = _movReqMode==='delete' ? '🗑 Request Deletion — '
+                : _movReqMode==='edit'   ? '✎ Request Edit — ' : '✏ Edit — ';
+  if(title) title.textContent = tPrefix+_movEditBatch.unit+' '+_movEditBatch.mode+' · '+_fmtMovTs(_movEditBatch.timestamp);
+
+  const introTxt = _movReqMode==='delete'
+    ? 'You are requesting DELETION of this whole batch. Admin will review; if approved, warehouse stock is adjusted back automatically.'
+    : _movReqMode==='edit'
+    ? 'Enter the CORRECT quantities. Admin will review; if approved, the batch and warehouse stock are corrected automatically.'
+    : 'Adjust loaded / returned quantities per SKU. Sold is calculated automatically.';
+  const lockInputs = _movReqMode==='delete' ? ' disabled style="opacity:.55"' : '';
 
   const body = document.getElementById('mov-edit-body');
   body.innerHTML =
-    '<div style="font-size:11px;color:#888;margin-bottom:10px">Adjust loaded / returned quantities per SKU. Sold is calculated automatically.</div>'
+    '<div style="font-size:11px;color:#888;margin-bottom:10px">'+introTxt+'</div>'
     +'<table class="mov-hist-table" style="width:100%">'
     +'<thead><tr><th>Item</th><th class="mh-r">Loaded</th><th class="mh-r">Returned</th></tr></thead>'
     +'<tbody>'
     + _movEditBatch.lines.map(l=>
         '<tr>'
           +'<td><div class="mh-sku">'+l.sku+'</div><div style="font-size:11px;color:#555">'+l.name+'</div></td>'
-          +'<td class="mh-r"><input class="mov-edit-input" type="number" min="0" step="1"'
+          +'<td class="mh-r"><input class="mov-edit-input" type="number" min="0" step="1"'+lockInputs
             +' id="mev-l-'+l.rowIndex+'" value="'+l.loaded+'"'
             +' oninput="_movEditChanges['+l.rowIndex+'] = _movEditChanges['+l.rowIndex+'] || {}; _movEditChanges['+l.rowIndex+'].loaded=Number(this.value)||0; _movEditUpdateSoldLabel('+l.rowIndex+')"></td>'
-          +'<td class="mh-r"><input class="mov-edit-input" type="number" min="0" step="1"'
+          +'<td class="mh-r"><input class="mov-edit-input" type="number" min="0" step="1"'+lockInputs
             +' id="mev-r-'+l.rowIndex+'" value="'+l.returned+'"'
             +' oninput="_movEditChanges['+l.rowIndex+'] = _movEditChanges['+l.rowIndex+'] || {}; _movEditChanges['+l.rowIndex+'].returned=Number(this.value)||0; _movEditUpdateSoldLabel('+l.rowIndex+')"></td>'
         +'</tr>'
       ).join('')
     +'</tbody></table>'
+    +(_movReqMode
+      ? '<div style="font-size:11px;font-weight:700;color:#555;margin-top:10px">Reason (required)</div>'
+        +'<textarea id="mov-edit-reason" rows="2" placeholder="e.g. Typed 15 but only 5 bags were actually loaded" '
+        +'style="width:100%;margin-top:4px;padding:8px 10px;border:1.5px solid #d0d7dd;border-radius:8px;font-size:12px;font-family:inherit;resize:vertical"></textarea>'
+      : '')
     +'<div id="mov-edit-err" style="font-size:11px;color:#c00;margin-top:8px;min-height:14px"></div>';
+
+  const saveBtn = document.getElementById('mov-edit-save');
+  if(saveBtn) saveBtn.textContent = _movReqMode ? '📨 Submit Request' : '💾 Save Changes';
 
   document.getElementById('mov-edit-modal').style.display='flex';
 }
@@ -367,10 +441,76 @@ function closeEditMov(){
   document.getElementById('mov-edit-modal').style.display='none';
   _movEditBatch   = null;
   _movEditChanges = {};
+  _movReqMode     = null;
+}
+
+// Staff request path — builds the proposal and sends it for admin approval.
+async function _submitMovRequest(){
+  const errEl   = document.getElementById('mov-edit-err');
+  const saveBtn = document.getElementById('mov-edit-save');
+  errEl.textContent='';
+  const reason = (document.getElementById('mov-edit-reason')?.value||'').trim();
+  if(!reason){ errEl.textContent='A reason is required — tell Admin why this correction is needed.'; return; }
+
+  let lines = [];
+  if(_movReqMode==='edit'){
+    _movEditBatch.lines.forEach(l=>{
+      const nl = Math.max(0, Number(document.getElementById('mev-l-'+l.rowIndex)?.value)||0);
+      const nr = Math.max(0, Number(document.getElementById('mev-r-'+l.rowIndex)?.value)||0);
+      if(nl!==l.loaded || nr!==l.returned)
+        lines.push({sku:l.sku, name:l.name, oldLoaded:l.loaded, oldReturned:l.returned, newLoaded:nl, newReturned:nr});
+    });
+    if(!lines.length){ errEl.textContent='No changes entered — adjust at least one quantity, or use Request Deletion.'; return; }
+  }
+
+  saveBtn.disabled=true; saveBtn.textContent='Sending…';
+  try{
+    const r = await api({
+      action:'submitMovementRequest',
+      type: _movReqMode==='delete' ? 'DELETE' : 'EDIT',
+      batchKey: _movEditBatch.batchKey,
+      unit: _movEditBatch.unit,
+      mode: _movEditBatch.mode,
+      batchTime: _movEditBatch.timestamp,
+      lines: lines,
+      reason: reason,
+      requestedBy: currentUser.username
+    });
+    if(r.status==='ok'){
+      showToast('Request sent to Admin for approval 📨','success',4500);
+      closeEditMov();
+      await _loadMovHistory();   // refresh "My requests" section
+    } else {
+      errEl.textContent = 'Error: '+(r.msg||'Could not send request');
+    }
+  }catch(e){ errEl.textContent='Network error: '+e.message; }
+  saveBtn.disabled=false; saveBtn.textContent='📨 Submit Request';
+}
+
+// Admin decision — approve applies the correction WITH stock compensation.
+async function resolveMovRequest(requestId, decision){
+  const msg = decision==='approve'
+    ? 'Approve this correction?\n\nIt will be applied immediately and warehouse stock adjusted automatically.'
+    : 'Reject this request? Nothing will be changed.';
+  if(!confirm(msg)) return;
+  try{
+    const r = await api({action:'resolveMovementRequest', requestId, decision,
+      role: currentUser.role, by: currentUser.username});
+    if(r.status==='ok'){
+      showToast(decision==='approve'
+        ? 'Approved — correction applied, stock adjusted ✓'
+        : 'Request rejected','success',4500);
+      await _loadMovHistory();
+      if(decision==='approve' && typeof loadPLData==='function') loadPLData();
+    } else {
+      alert('Error: '+(r.msg||'Could not resolve request'));
+    }
+  }catch(e){ alert('Network error: '+e.message); }
 }
 
 async function saveMovEdits(){
   if(!_movEditBatch) return;
+  if(_movReqMode){ await _submitMovRequest(); return; }   // staff request path
   const errEl  = document.getElementById('mov-edit-err');
   const saveBtn = document.getElementById('mov-edit-save');
   errEl.textContent='';

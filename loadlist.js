@@ -308,16 +308,15 @@ async function llPrefillLoad(){
   const movTabs=document.querySelectorAll('#movement-area .tab');
   if(movTabs.length){ movTabs.forEach(function(t){t.classList.remove('active');}); movTabs[0].classList.add('active'); }
 
-  // One van at a time — clear then set this van's quantities exactly.
-  // invQty marks the INVOICED portion: anything the stockman manually adds on
-  // top (OTS extras) gets logged as a separate tagged row at submit, so a later
-  // re-pre-fill never counts extras against invoice requirements.
+  // One van at a time — clear then set this van's INV quantities. The stockman
+  // types any OTS extras into the separate OTS field on the load form; those get
+  // logged as tagged rows at submit, so a re-pre-fill never counts extras against
+  // invoice requirements.
   Object.keys(quantities).forEach(function(k){ delete quantities[k]; });
   matched.forEach(function(it){
     const cat=(distCodes[it.skuCode]||{}).category||'';
-    quantities[it.skuCode]={loaded:it.qty, returned:0, cat:cat, invQty:it.qty};
+    quantities[it.skuCode]={inv:it.qty, ots:0, returned:0, cat:cat};
   });
-  window._llPrefillActive = true;
 
   if(typeof buildTab==='function') buildTab();
   else { if(typeof buildSkuList==='function') buildSkuList(); if(typeof updateTotals==='function') updateTotals(); }

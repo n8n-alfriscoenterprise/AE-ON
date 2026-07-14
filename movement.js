@@ -16,8 +16,10 @@ async function toggleMode(){
       if(r.status==='ok'&&r.rows&&r.rows.length>0){
         r.rows.forEach(item=>{
           const code=item.code;
-          if(!quantities[code])quantities[code]={loaded:0,returned:0,cat:item.cat||''};
-          quantities[code].loaded=Number(item.loaded)||0;
+          if(!quantities[code])quantities[code]={inv:0,ots:0,returned:0,cat:item.cat||''};
+          // RETURN mode only needs the total loaded for display — split not needed here
+          quantities[code].inv=Number(item.loaded)||0;
+          quantities[code].ots=0;
           quantities[code].cat=item.cat||quantities[code].cat;
         });
         showBanner('success-bar',
@@ -33,6 +35,9 @@ async function toggleMode(){
   }
   buildSkuList();
 }
+
+// Total loaded = invoiced portion + on-the-spot extras
+function qLoaded(q){ return (Number(q.inv)||0) + (Number(q.ots)||0); }
 
 function buildTab(){buildChips();buildSkuList();updateTotals();}
 
@@ -70,29 +75,52 @@ function buildSkuList(){
     if(!skus.length)return;
     const hdr=document.createElement('div');hdr.className='cat-header';hdr.textContent=cat;list.appendChild(hdr);
     skus.forEach(sku=>{
-      if(!quantities[sku.code])quantities[sku.code]={loaded:0,returned:0,cat};
+      if(!quantities[sku.code])quantities[sku.code]={inv:0,ots:0,returned:0,cat};
       const q=quantities[sku.code];
-      const sold=Math.max(0,q.loaded-q.returned);
-      const sid='sold_'+sku.code.replace(/[^a-z0-9]/gi,'_');
+      const loaded=qLoaded(q);
+      const sold=Math.max(0,loaded-q.returned);
+      const clean=sku.code.replace(/[^a-z0-9]/gi,'_');
+      const sid='sold_'+clean, lid='load_'+clean;
 
-      // Mode-locked: LOAD mode locks Returned, RETURN mode shows loaded as badge
-      const loadedLocked=isReturnMode;
-      const returnedLocked=!isReturnMode;
-
-      // In RETURN mode: show loaded as a read-only display badge (not an input)
-      // This way the pre-filled value from Sheets is visible but not editable
-      const loadedDisplay = isReturnMode
-        ? `<div class="qty-col">
+      // LOAD mode: explicit INV + OTS inputs, with LOADED shown as their live sum.
+      // RETURN mode: LOADED is a read-only badge, RETURNED is the input.
+      let qtyCols;
+      if(isReturnMode){
+        qtyCols = `
+          <div class="qty-col">
             <div class="qty-lbl">Loaded</div>
-            <div class="sold-val ${q.loaded===0?'zero':''}" style="width:44px;font-size:13px;border-radius:8px;border:1.5px solid #85B7EB;background:#EEF5FE;color:#0C447C;padding:5px 2px;">${q.loaded||0}</div>
-           </div>`
-        : `<div class="qty-col">
+            <div class="sold-val ${loaded===0?'zero':''}" style="width:44px;font-size:13px;border-radius:8px;border:1.5px solid #85B7EB;background:#EEF5FE;color:#0C447C;padding:5px 2px;">${loaded}</div>
+          </div>
+          <div class="qty-col">
+            <div class="qty-lbl">Returned</div>
+            <input class="qty-input returned active-input" type="number" min="0" step="1"
+              value="${q.returned||''}" placeholder="0"
+              oninput="setQty('${sku.code}','returned',this.value,'${cat}')">
+          </div>
+          <div class="sold-col">
+            <div class="qty-lbl">Sold</div>
+            <div class="sold-val ${sold===0?'zero':''}" id="${sid}">${sold}</div>
+          </div>`;
+      } else {
+        qtyCols = `
+          <div class="qty-col">
+            <div class="qty-lbl" title="From the invoices / load list">INV</div>
+            <input class="qty-input loaded active-input" type="number" min="0" step="1"
+              value="${q.inv||''}" placeholder="0"
+              oninput="setQty('${sku.code}','inv',this.value,'${cat}')">
+          </div>
+          <div class="qty-col">
+            <div class="qty-lbl" title="On-the-spot extras (not invoiced)" style="color:#2A6B0A">OTS</div>
+            <input class="qty-input active-input" type="number" min="0" step="1"
+              value="${q.ots||''}" placeholder="0"
+              style="border-color:#7DC459;background:#F4FBEF"
+              oninput="setQty('${sku.code}','ots',this.value,'${cat}')">
+          </div>
+          <div class="sold-col">
             <div class="qty-lbl">Loaded</div>
-            <input class="qty-input loaded active-input"
-              type="number" min="0" step="1"
-              value="${q.loaded||''}" placeholder="0"
-              oninput="setQty('${sku.code}','loaded',this.value,'${cat}')">
-           </div>`;
+            <div class="sold-val ${loaded===0?'zero':''}" id="${lid}" style="color:#283593;font-weight:800">${loaded}</div>
+          </div>`;
+      }
 
       const row=document.createElement('div');row.className='sku-row';
       row.innerHTML=`
@@ -100,53 +128,45 @@ function buildSkuList(){
           <div class="sku-name">${sku.name}</div>
           <div class="sku-code">${sku.code}</div>
         </div>
-        <div class="qty-group">
-          ${loadedDisplay}
-          <div class="qty-col">
-            <div class="qty-lbl">Returned</div>
-            <input class="qty-input returned ${returnedLocked?'locked-input':'active-input'}"
-              type="number" min="0" step="1"
-              value="${q.returned||''}" placeholder="0"
-              ${returnedLocked?'disabled':''}
-              oninput="setQty('${sku.code}','returned',this.value,'${cat}')">
-          </div>
-          <div class="sold-col">
-            <div class="qty-lbl">Sold</div>
-            <div class="sold-val ${sold===0?'zero':''}" id="${sid}">${sold}</div>
-          </div>
-        </div>`;
+        <div class="qty-group">${qtyCols}</div>`;
       list.appendChild(row);
     });
   });
 }
 
 function setQty(code,field,val,cat){
-  if(!quantities[code])quantities[code]={loaded:0,returned:0,cat};
+  if(!quantities[code])quantities[code]={inv:0,ots:0,returned:0,cat};
   quantities[code][field]=Math.max(0,parseFloat(val)||0);
   quantities[code].cat=cat;
-  const sold=Math.max(0,quantities[code].loaded-quantities[code].returned);
-  const el=document.getElementById('sold_'+code.replace(/[^a-z0-9]/gi,'_'));
-  if(el){el.textContent=sold;el.className='sold-val'+(sold===0?' zero':'');}
+  const q=quantities[code];
+  const loaded=qLoaded(q);
+  const sold=Math.max(0,loaded-q.returned);
+  const clean=code.replace(/[^a-z0-9]/gi,'_');
+  // LOAD mode: update the live LOADED sum. RETURN mode: update the SOLD display.
+  const lel=document.getElementById('load_'+clean);
+  if(lel){lel.textContent=loaded;lel.className='sold-val'+(loaded===0?' zero':'');lel.style.color='#283593';lel.style.fontWeight='800';}
+  const sel=document.getElementById('sold_'+clean);
+  if(sel){sel.textContent=sold;sel.className='sold-val'+(sold===0?' zero':'');}
   updateTotals();
 }
 
 function updateTotals(){
   let tl=0,tr=0;
-  Object.values(quantities).forEach(q=>{tl+=q.loaded;tr+=q.returned;});
+  Object.values(quantities).forEach(q=>{tl+=qLoaded(q);tr+=(Number(q.returned)||0);});
   document.getElementById('t-loaded').textContent=Math.round(tl);
   document.getElementById('t-returned').textContent=Math.round(tr);
   document.getElementById('t-sold').textContent=Math.round(Math.max(0,tl-tr));
 }
 
 async function submitForm(){
-  const entries=Object.entries(quantities).filter(([k,v])=>v.loaded>0||v.returned>0);
+  const entries=Object.entries(quantities).filter(([k,v])=>qLoaded(v)>0||v.returned>0);
   if(!entries.length){alert('Please enter at least one quantity before submitting.');return;}
   // RETURN mode: returning more than was loaded would inflate warehouse stock
   if(isReturnMode){
-    const overs=entries.filter(([k,v])=>v.returned>v.loaded);
+    const overs=entries.filter(([k,v])=>v.returned>qLoaded(v));
     if(overs.length){
       alert('Returned quantity exceeds loaded quantity for:\n\n'
-        +overs.map(([k,v])=>'• '+k+': returned '+v.returned+' vs loaded '+v.loaded).join('\n')
+        +overs.map(([k,v])=>'• '+k+': returned '+v.returned+' vs loaded '+qLoaded(v)).join('\n')
         +'\n\nA van cannot return more than it was loaded with. Please correct these entries.');
       return;
     }
@@ -159,25 +179,21 @@ async function submitForm(){
   const allSkus={};
   Object.values(DIST_SKUS).flat().forEach(s=>allSkus[s.code]=s.name);
   Object.values(csskus).flat().forEach(s=>allSkus[s.code]=s.name);
-  // After a Load List pre-fill, anything loaded BEYOND the invoiced amount is an
-  // OTS extra — log it as a separate row tagged 'OTS EXTRA' so re-pre-fills don't
-  // count free-selling stock against invoice requirements. Manual-only sessions
-  // (no pre-fill) behave exactly as before: everything logs as one untagged row.
+  // INV portion → untagged row; OTS extras → a separate row tagged 'OTS EXTRA'
+  // so re-pre-fills never count free-selling stock against invoice requirements.
+  // (RETURN mode writes a single row — returns aren't split.)
   const rows=[];
   let otsBags=0;
   entries.forEach(([code,q])=>{
     const base=[now,currentUser.username,unit,mode,code,allSkus[code]||code,q.cat||''];
-    const extra = (mode==='LOAD' && window._llPrefillActive)
-      ? Math.max(0, q.loaded - Math.min(q.loaded, q.invQty||0)) : 0;
-    if(extra>0){
-      const invPart = q.loaded - extra;
-      if(invPart>0 || q.returned>0)
-        rows.push([...base, invPart, q.returned, Math.max(0,invPart-q.returned), '']);
-      rows.push([...base, extra, 0, extra, 'OTS EXTRA']);
-      otsBags += extra;
-    } else {
-      rows.push([...base, q.loaded, q.returned, Math.max(0,q.loaded-q.returned), '']);
+    if(mode==='RETURN'){
+      const loaded=qLoaded(q);
+      rows.push([...base, loaded, q.returned, Math.max(0,loaded-q.returned), '']);
+      return;
     }
+    const inv=Number(q.inv)||0, ots=Number(q.ots)||0;
+    if(inv>0) rows.push([...base, inv, 0, inv, '']);
+    if(ots>0){ rows.push([...base, ots, 0, ots, 'OTS EXTRA']); otsBags+=ots; }
   });
   try{
     const r=await api({sheet:'Stock Movements',rows});
@@ -185,7 +201,7 @@ async function submitForm(){
       showBanner('success-bar',`${mode} submitted — ${entries.length} SKUs logged by ${currentUser.username}`
         +(otsBags>0?` (incl. ${otsBags} OTS extra bag${otsBags!==1?'s':''})`:''));
       accessLog.unshift({who:currentUser.username,what:`${mode} — ${entries.length} SKUs via ${unit}`,when:now});
-      saveLocal();quantities={};window._llPrefillActive=false;buildSkuList();updateTotals();
+      saveLocal();quantities={};buildSkuList();updateTotals();
     }else{alert('Error: '+(r.msg||'Unknown'));}
   }catch(e){alert('Network error: '+e.message);}
   btn.disabled=false;

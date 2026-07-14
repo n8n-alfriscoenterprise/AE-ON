@@ -1,12 +1,11 @@
 ﻿function onUnitChange(){
-  const hasUnsaved=Object.values(quantities).some(q=>q.loaded>0||q.returned>0);
+  const hasUnsaved=Object.values(quantities).some(q=>((q.inv||0)+(q.ots||0))>0||q.returned>0);
   if(hasUnsaved){
     const unitLabel=document.getElementById('unit-select').value;
     const confirmed=confirm('You have unsaved quantities for the current unit.\n\nSwitching to '+unitLabel+' will clear the current form.\n\nHave you already submitted the previous unit\'s data?');
     if(!confirmed){const sel=document.getElementById('unit-select');sel.value=sel.dataset.lastUnit||sel.options[0].value;return;}
   }
   quantities={};
-  window._llPrefillActive=false;   // fresh unit — pre-fill markers no longer apply
   const sel=document.getElementById('unit-select');
   sel.dataset.lastUnit=sel.value;
   if(isReturnMode){

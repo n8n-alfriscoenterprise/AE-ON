@@ -255,7 +255,7 @@ function showMovement(){
   document.getElementById('submit-btn').className='submit-btn';
   document.getElementById('submit-btn').textContent='Submit to Google Sheets';
   setTNav('tnav-movement');
-  quantities={};window._llPrefillActive=false;currentTab='dist';currentCat='All';
+  quantities={};currentTab='dist';currentCat='All';
   document.querySelectorAll('#movement-area .tab').forEach(t=>t.classList.remove('active'));
   const ft=document.querySelector('#movement-area .tab');
   if(ft)ft.classList.add('active');

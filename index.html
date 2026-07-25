@@ -1223,6 +1223,31 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 .hr-flag.ok{background:#E8F5E9;color:#2E7D32}
 .hr-flag.late{background:#FFF3CD;color:#7A5500}
 .hr-flag.half{background:#FDEDEC;color:#C0392B}
+/* ── HR DASHBOARD (admin) ── */
+.hra-sum-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.hra-sum{text-align:center;border-radius:9px;padding:8px 4px;border:1px solid #e0e0e0;background:#FAFAFA}
+.hra-sum-val{display:block;font-size:14px;font-weight:800;color:#0D3349;line-height:1.2}
+.hra-sum-lbl{display:block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;opacity:.7;margin-top:3px}
+.hra-total{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding:12px;background:#4A148C;color:#fff;border-radius:10px;font-size:15px;font-weight:800}
+.hra-flag-note{margin-top:8px;padding:8px 10px;background:#FFF6E5;border:1px solid #F0C36D;border-radius:8px;font-size:11.5px;color:#8A5A00;line-height:1.5}
+.hra-emp{background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:10px;overflow:hidden}
+.hra-emp.warn{border-left:4px solid #F0C36D}
+.hra-emp-head{display:flex;align-items:center;gap:10px;padding:12px 13px;cursor:pointer}
+.hra-emp-main{flex:1;min-width:0}
+.hra-emp-name{font-size:14px;font-weight:800;color:#222;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.hra-badge{font-size:8.5px;font-weight:800;padding:2px 6px;border-radius:5px;letter-spacing:.3px}
+.hra-badge.hourly{background:#F3E5F5;color:#6A1B9A}
+.hra-badge.daily{background:#E3F2FD;color:#0C447C}
+.hra-role{font-size:9px;font-weight:700;color:#888;text-transform:uppercase}
+.hra-emp-meta{font-size:11.5px;color:#666;margin-top:3px}
+.hra-emp-warn{font-size:10.5px;color:#C0392B;font-weight:600;margin-top:3px}
+.hra-emp-pay{text-align:right;flex-shrink:0}
+.hra-emp-amt{font-size:15px;font-weight:800;color:#1B5E20}
+.hra-emp-amt.muted{color:#bbb}
+.hra-emp-toggle{font-size:10px;color:#7B1FA2;font-weight:700;margin-top:3px}
+.hra-emp-detail{padding:0 13px 13px;border-top:1px solid #f2f2f2}
+.hra-detail-line{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed #eee;font-size:12.5px;color:#333}
+.hra-detail-line.ded span:last-child{color:#C0392B;font-weight:700}
 .clk-body{flex:1;overflow-y:auto;padding:16px 14px;background:#f0f2f5;display:flex;flex-direction:column;gap:12px}
 .clk-status-card{background:white;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);border-left:5px solid #9AA5B1}
 .clk-status-card.clk-in{border-left-color:#2E7D32;background:#F4FBF5}
@@ -1729,6 +1754,22 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 </div>
 
 <!-- TIME CLOCK SCREEN -->
+<!-- ══ HR DASHBOARD (admin) — all employees for one pay cutoff ══ -->
+<div id="hr-admin-screen" class="screen" style="flex-direction:column">
+  <div style="background:#4A148C;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <span style="color:white;font-size:15px;font-weight:700">📊 HR Dashboard</span>
+    <button class="back-btn" onclick="closeHRAdmin()">← Back</button>
+  </div>
+  <div class="hr-body">
+    <div class="hr-period-bar">
+      <button class="hr-per-btn" onclick="hraShiftPeriod(-1)">‹ Previous</button>
+      <div class="hr-period-label" id="hra-period-label">Loading…</div>
+      <button class="hr-per-btn" id="hra-next-btn" onclick="hraShiftPeriod(1)">Next ›</button>
+    </div>
+    <div id="hra-content"><div class="hr-loading">Loading payroll…</div></div>
+  </div>
+</div>
+
 <!-- ══ MY HR — attendance standing + expected salary (own record only) ══ -->
 <div id="hr-screen" class="screen" style="flex-direction:column">
   <div style="background:#4A148C;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
@@ -4021,6 +4062,7 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 <script src="loadlist.js"></script>
 <script src="clock.js"></script>
 <script src="hr.js"></script>
+<script src="hr-admin.js"></script>
 <script src="dealer.js"></script>
 <script src="invoice.js"></script>
 <script src="main.js"></script>

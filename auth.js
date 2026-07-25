@@ -93,6 +93,7 @@ function restoreScreen(screenId){
     case 'pl-screen':       openPL();       break;
     case 'clock-screen':    openClock();    break;
     case 'hr-screen':       openHR();       break;
+    case 'hr-admin-screen': openHRAdmin();  break;
     case 'prod-screen':     openProduction(); break;
     case 'driver-screen':   showDriver();   break;
     default:                showHome();     break;

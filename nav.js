@@ -121,6 +121,7 @@ function buildHomeTiles(){
   // 10. Sales Import — admin only
   if(currentUser.role==='admin') tiles.push({icon:'📥',name:'Sales Import',desc:'Import Xero (distribution) & Loyverse (retail) sales',cls:'t-xero',fn:'openSalesImport()'});
   // 10. Admin
+  if(currentUser.role==='admin') tiles.push({icon:'📊',name:'HR Dashboard',desc:'All staff attendance & payroll for the cutoff',cls:'t-hr',fn:'openHRAdmin()'});
   if(currentUser.role==='admin') tiles.push({icon:'⚙️',name:'Admin',desc:'Staff accounts & app settings',cls:'t-admin',fn:'openAdminFromHome()'});
   if(tiles.length%2!==0) tiles[tiles.length-1].full=true;
   tiles.forEach(t=>{

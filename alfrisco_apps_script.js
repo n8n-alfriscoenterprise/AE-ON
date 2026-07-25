@@ -60,7 +60,9 @@ function doPost(e) {
         canCreateInvoice:  String(r[16]|| 'NO').toUpperCase()  === 'YES',
         canViewCountHistory: String(r[17]|| 'NO').toUpperCase() === 'YES',
         canApprovePODist:    String(r[18]|| 'NO').toUpperCase() === 'YES',
-        canApprovePORetail:  String(r[19]|| 'NO').toUpperCase() === 'YES'
+        canApprovePORetail:  String(r[19]|| 'NO').toUpperCase() === 'YES',
+        dailyRate:           Number(r[20]) || 0,  // U: basis for HR pay estimates
+        payType:             String(r[21]||'daily').toLowerCase()==='hourly' ? 'hourly' : 'daily' // V
       }));
       return ok({ staff });
     }
@@ -97,11 +99,15 @@ function doPost(e) {
         data.canCreateInvoice   ? 'YES' : 'NO',                    // Q: CanCreateInvoice
         data.canViewCountHistory ? 'YES' : 'NO',                   // R: CanViewCountHistory
         data.canApprovePODist   ? 'YES' : 'NO',                    // S: CanApprovePODist
-        data.canApprovePORetail ? 'YES' : 'NO'                     // T: CanApprovePORetail
+        data.canApprovePORetail ? 'YES' : 'NO',                    // T: CanApprovePORetail
+        Number(data.dailyRate) || 0,                               // U: Daily Rate (HR)
+        String(data.payType||'daily').toLowerCase()==='hourly' ? 'hourly' : 'daily'  // V: Pay Type
       ]);
       if (sheet.getRange(1, 18).getValue() === '') sheet.getRange(1, 18).setValue('CanViewCountHistory');
       if (sheet.getRange(1, 19).getValue() === '') sheet.getRange(1, 19).setValue('CanApprovePODist');
       if (sheet.getRange(1, 20).getValue() === '') sheet.getRange(1, 20).setValue('CanApprovePORetail');
+      if (sheet.getRange(1, 21).getValue() === '') sheet.getRange(1, 21).setValue('Daily Rate');
+      if (sheet.getRange(1, 22).getValue() === '') sheet.getRange(1, 22).setValue('Pay Type');
       return ok({});
     }
 
@@ -131,9 +137,17 @@ function doPost(e) {
           sheet.getRange(i+1, 18).setValue(data.canViewCountHistory ? 'YES' : 'NO');
           sheet.getRange(i+1, 19).setValue(data.canApprovePODist   ? 'YES' : 'NO');
           sheet.getRange(i+1, 20).setValue(data.canApprovePORetail ? 'YES' : 'NO');
+          // Daily rate is optional on the payload — only overwrite when supplied,
+          // so a permissions-only save can never wipe someone's pay rate
+          if (data.dailyRate !== undefined && data.dailyRate !== null && data.dailyRate !== '')
+            sheet.getRange(i+1, 21).setValue(Number(data.dailyRate) || 0);
+          if (data.payType !== undefined && data.payType !== null && data.payType !== '')
+            sheet.getRange(i+1, 22).setValue(String(data.payType).toLowerCase()==='hourly' ? 'hourly' : 'daily');
           if (sheet.getRange(1, 18).getValue() === '') sheet.getRange(1, 18).setValue('CanViewCountHistory');
           if (sheet.getRange(1, 19).getValue() === '') sheet.getRange(1, 19).setValue('CanApprovePODist');
           if (sheet.getRange(1, 20).getValue() === '') sheet.getRange(1, 20).setValue('CanApprovePORetail');
+          if (sheet.getRange(1, 21).getValue() === '') sheet.getRange(1, 21).setValue('Daily Rate');
+          if (sheet.getRange(1, 22).getValue() === '') sheet.getRange(1, 22).setValue('Pay Type');
           updated = true;
           break;
         }
@@ -188,6 +202,8 @@ function doPost(e) {
       const aSheet = getOrCreateSheet(ss, 'Attendance', [
         'Timestamp','Username','Action','Late','Photo','Latitude','Longitude','Accuracy (m)','Role'
       ]);
+      // Backfill the Role header on sheets created before that column existed
+      if (aSheet.getRange(1, 9).getValue() === '') aSheet.getRange(1, 9).setValue('Role');
       const setSheet = getOrCreateSheet(ss, 'Attendance Settings', ['Setting','Value']);
       if (setSheet.getLastRow() < 2) {
         setSheet.appendRow(['Official Start','07:45:00']);
@@ -207,10 +223,38 @@ function doPost(e) {
         return parseInt(m[1],10)*3600 + parseInt(m[2],10)*60 + (m[3] ? parseInt(m[3],10) : 0);
       }
 
-      const tz   = Session.getScriptTimeZone();
+      // Hard-coded Manila time: attendance drives payroll penalties, so it must
+      // never depend on the Apps Script project's timezone setting being correct
+      const tz   = 'Asia/Manila';
       const nowD = new Date();
       const now  = Utilities.formatDate(nowD, tz, 'yyyy-MM-dd HH:mm:ss');
       const act  = String(data.clockAction||'').toUpperCase() === 'OUT' ? 'OUT' : 'IN';
+
+      // Idempotency guard — a double-tap or a network retry that lands twice is
+      // ONE punch, not two. Same user + same action within 2 minutes → return the
+      // existing punch (also avoids saving a duplicate photo to Drive).
+      // Only the TAIL of the sheet can matter for a 2-minute window, so read the
+      // last 20 rows instead of the whole ever-growing Attendance sheet.
+      const aLast = aSheet.getLastRow();
+      if (aLast > 1) {
+        const tailStart = Math.max(2, aLast - 19);
+        const dupRows = aSheet.getRange(tailStart, 1, aLast - tailStart + 1, 4).getValues();
+        for (var di = dupRows.length - 1; di >= 0; di--) {
+          if (String(dupRows[di][1]).toLowerCase() !== String(data.username||'').toLowerCase()) continue;
+          if (String(dupRows[di][2]).toUpperCase() === act) {
+            var prevD = dupRows[di][0] instanceof Date ? dupRows[di][0] : new Date(String(dupRows[di][0]));
+            if (!isNaN(prevD.getTime()) && (nowD.getTime() - prevD.getTime()) < 2*60*1000) {
+              return ok({
+                timestamp: Utilities.formatDate(prevD, tz, 'yyyy-MM-dd HH:mm:ss'),
+                clockAction: act,
+                late: String(dupRows[di][3]||''),
+                duplicate: true
+              });
+            }
+          }
+          break; // only the user's most recent punch matters
+        }
+      }
 
       // Late / half-day flag — staff roles only (staff + staff-retail; drivers and
       // admin are not flagged), on IN, second-accurate. HARD cutoff: hitting
@@ -263,7 +307,7 @@ function doPost(e) {
       if (!atRows.length) return ok({ last: null });
       const lastR = atRows[atRows.length - 1];
       const lastTs = lastR[0] instanceof Date
-        ? Utilities.formatDate(lastR[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+        ? Utilities.formatDate(lastR[0], 'Asia/Manila', 'yyyy-MM-dd HH:mm:ss')
         : String(lastR[0]);
       return ok({ last: { timestamp: lastTs, action: String(lastR[2]), late: String(lastR[3]||'') } });
     }
@@ -275,7 +319,7 @@ function doPost(e) {
     if (data.action === 'getMyAttendance') {
       const atSheet = ss.getSheetByName('Attendance');
       if (!atSheet) return ok({ days: [], last: null });
-      const tz    = Session.getScriptTimeZone();
+      const tz    = 'Asia/Manila';  // attendance is payroll-critical — never trust the project tz
       const uname = String(data.username||'').toLowerCase();
       const rows  = atSheet.getDataRange().getValues().slice(1)
         .filter(function(r){ return r[0] && String(r[1]).toLowerCase() === uname; });
@@ -306,29 +350,156 @@ function doPost(e) {
       return ok({ days: days, last: lastPunch });
     }
 
+    // ── MY HR: attendance standing + expected salary for a pay cutoff ──
+    // Semi-monthly cutoffs: 1–15 and 16–end of month. Pay rules mirror the
+    // Employee Time Monitoring workbook:
+    //   full day        → daily rate
+    //   LATE +Xm        → rate − (rate ÷ 10) × hours late
+    //   HALF DAY        → rate ÷ 2
+    //   no punch        → not counted (no pay, no deduction)
+    // Approved-but-unsettled cash advances are deducted from the total.
+    // `offset` 0 = current cutoff, -1 = previous, -2 = the one before, etc.
+    if (data.action === 'getMyHR') {
+      const range = hrCutoffRange(Number(data.offset)||0);
+      const unameL = String(data.username||'').trim().toLowerCase();
+
+      const who = hrStaffPay(ss)[unameL] || { dailyRate:0, payType:'daily', found:false };
+      const grouped = hrGroupAttendance(ss, range.startDate, range.endDate);
+      const res = hrComputeDays(grouped[unameL] || {}, who.dailyRate, who.payType);
+      const cashAdvance = hrCashAdvances(ss)[unameL] || 0;
+
+      const r2 = function(n){ return Math.round(n*100)/100; };
+      const expected = Math.max(0, res.gross - res.totalDeduction - cashAdvance);
+
+      return ok({
+        period:      range.label,
+        startDate:   range.startDate,
+        endDate:     range.endDate,
+        offset:      Number(data.offset)||0,
+        rateSet:     who.dailyRate > 0,
+        found:       who.found === true,
+        payType:     who.payType,
+        dailyRate:   who.dailyRate,
+        hourlyRate:  r2(who.dailyRate / HR_STD_HOURS),
+        stdHours:    HR_STD_HOURS,
+        hoursPaid:   r2(res.hoursPaid),
+        otHours:     r2(res.otHours),
+        fullDays:    res.fullDays,
+        incompleteDays: res.incompleteDays,
+        daysWorked:  res.daysWorked,
+        lateDays:    res.lateDays,
+        halfDays:    res.halfDays,
+        lateMinutes: Math.round(res.lateMinutes),
+        gross:            r2(res.gross),
+        lateDeduction:    r2(res.lateDeduction),
+        halfDayDeduction: r2(res.halfDayDeduction),
+        totalDeduction:   r2(res.totalDeduction),
+        cashAdvance:      r2(cashAdvance),
+        expected:         r2(expected),
+        days: res.days
+      });
+    }
+
+    // ── HR SUMMARY (admin) — every employee for one cutoff, one payload ──
+    // Uses the SAME helpers as getMyHR, so an employee's screen and this
+    // dashboard can never disagree on someone's pay.
+    if (data.action === 'getHRSummary') {
+      if (String(data.role||'').toLowerCase() !== 'admin') return err('Admin only');
+      const range   = hrCutoffRange(Number(data.offset)||0);
+      const payMap  = hrStaffPay(ss);
+      const grouped = hrGroupAttendance(ss, range.startDate, range.endDate);
+      const advMap  = hrCashAdvances(ss);
+      const r2 = function(n){ return Math.round(n*100)/100; };
+
+      const employees = [];
+      let totalPayroll = 0, totalAdvances = 0, totalDeductions = 0, flagged = 0;
+
+      Object.keys(payMap).forEach(function(uL){
+        const who = payMap[uL];
+        const res = hrComputeDays(grouped[uL] || {}, who.dailyRate, who.payType);
+        const adv = advMap[uL] || 0;
+        const expected = Math.max(0, res.gross - res.totalDeduction - adv);
+        // Skip people with no activity AND no rate — keeps the list meaningful
+        if (res.daysWorked === 0 && res.incompleteDays === 0 && who.dailyRate === 0) return;
+        if (res.incompleteDays > 0 || who.dailyRate === 0) flagged++;
+        totalPayroll    += expected;
+        totalAdvances   += adv;
+        totalDeductions += res.totalDeduction;
+        employees.push({
+          username:   who.username,
+          role:       who.role,
+          payType:    who.payType,
+          dailyRate:  who.dailyRate,
+          rateSet:    who.dailyRate > 0,
+          daysWorked: res.daysWorked,
+          lateDays:   res.lateDays,
+          halfDays:   res.halfDays,
+          lateMinutes:Math.round(res.lateMinutes),
+          hoursPaid:  r2(res.hoursPaid),
+          otHours:    r2(res.otHours),
+          fullDays:   res.fullDays,
+          incompleteDays: res.incompleteDays,
+          gross:          r2(res.gross),
+          totalDeduction: r2(res.totalDeduction),
+          cashAdvance:    r2(adv),
+          expected:       r2(expected),
+          days: res.days
+        });
+      });
+
+      employees.sort(function(a,b){ return a.username.localeCompare(b.username); });
+
+      return ok({
+        period:    range.label,
+        startDate: range.startDate,
+        endDate:   range.endDate,
+        offset:    Number(data.offset)||0,
+        stdHours:  HR_STD_HOURS,
+        headcount: employees.length,
+        flagged:   flagged,
+        totalPayroll:    r2(totalPayroll),
+        totalDeductions: r2(totalDeductions),
+        totalAdvances:   r2(totalAdvances),
+        employees: employees
+      });
+    }
+
     // ── GET ALL SKUs ───────────────────────────────────────────────────
     if (data.action === 'getAllSKUs') {
+      // The Supplier cell may list ALTERNATE suppliers separated by commas or
+      // slashes — "TERRAFEED VENTURES INC., CVM Feeds". `suppliers` carries the
+      // full list (PO screens match against any of them); `supplier` stays the
+      // FIRST name (primary) so every older code path keeps working.
+      const splitSup = function(v){
+        return String(v||'').split(/[,/;]/).map(function(s){return s.trim();}).filter(Boolean);
+      };
       const skus = [];
       const distSheet = ss.getSheetByName('SKU Master');
       if (distSheet) {
         distSheet.getDataRange().getValues().slice(4)
           .filter(r => r[0] && String(r[5]).toUpperCase() === 'YES')
-          .forEach((r, i) => skus.push({
-            code:String(r[0]).trim(),name:String(r[1]).trim(),
-            category:String(r[2]).trim(),type:'DIST',
-            order:Number(r[4])||i,supplier:String(r[7]||'').trim(),cost:Number(r[8])||0
-          }));
+          .forEach((r, i) => {
+            const sups = splitSup(r[7]);
+            skus.push({
+              code:String(r[0]).trim(),name:String(r[1]).trim(),
+              category:String(r[2]).trim(),type:'DIST',
+              order:Number(r[4])||i,supplier:sups[0]||'',suppliers:sups,cost:Number(r[8])||0
+            });
+          });
       }
       const retailSheet = ss.getSheetByName('SKU Master - Retail');
       if (retailSheet) {
         retailSheet.getDataRange().getValues().slice(4)
           .filter(r => r[0] && String(r[7]).toUpperCase() === 'YES')
-          .forEach((r, i) => skus.push({
-            code:String(r[0]).trim(),name:String(r[1]).trim(),
-            category:String(r[2]).trim(),type:'RETAIL',
-            unit:String(r[4]||'').trim(),order:Number(r[6])||1000+i,
-            supplier:String(r[8]||'').trim(),cost:Number(r[9])||0
-          }));
+          .forEach((r, i) => {
+            const sups = splitSup(r[8]);
+            skus.push({
+              code:String(r[0]).trim(),name:String(r[1]).trim(),
+              category:String(r[2]).trim(),type:'RETAIL',
+              unit:String(r[4]||'').trim(),order:Number(r[6])||1000+i,
+              supplier:sups[0]||'',suppliers:sups,cost:Number(r[9])||0
+            });
+          });
       }
       skus.sort((a,b)=>a.order-b.order);
       return ok({skus});
@@ -340,9 +511,12 @@ function doPost(e) {
       if (!sheet) return ok({skus:[]});
       const skus = sheet.getDataRange().getValues().slice(4)
         .filter(r=>r[0]&&String(r[5]).toUpperCase()==='YES')
-        .map((r,i)=>({code:String(r[0]).trim(),name:String(r[1]).trim(),
-          category:String(r[2]).trim(),type:'DIST',order:Number(r[4])||i,
-          supplier:String(r[7]||'').trim(),cost:Number(r[8])||0}))
+        .map((r,i)=>{
+          const sups = String(r[7]||'').split(/[,/;]/).map(function(s){return s.trim();}).filter(Boolean);
+          return {code:String(r[0]).trim(),name:String(r[1]).trim(),
+            category:String(r[2]).trim(),type:'DIST',order:Number(r[4])||i,
+            supplier:sups[0]||'',suppliers:sups,cost:Number(r[8])||0};
+        })
         .sort((a,b)=>a.order-b.order);
       return ok({skus});
     }
@@ -365,9 +539,14 @@ function doPost(e) {
         })
         .forEach(function(r){
           const code = String(r[4]);
-          if(!loadMap[code]) loadMap[code]={code,name:String(r[5]),cat:String(r[6]),loaded:0,returned:0};
-          loadMap[code].loaded   += Number(r[7])||0;
+          if(!loadMap[code]) loadMap[code]={code,name:String(r[5]),cat:String(r[6]),loaded:0,returned:0,invoicedLoaded:0,otsExtra:0};
+          const qty = Number(r[7])||0;
+          loadMap[code].loaded   += qty;
           loadMap[code].returned += Number(r[8])||0;
+          // Split invoice loads from OTS extras (Tag col 11) — pre-fill counts
+          // only invoice loads against invoice requirements
+          if (String(r[10]||'').toUpperCase() === 'OTS EXTRA') loadMap[code].otsExtra += qty;
+          else loadMap[code].invoicedLoaded += qty;
         });
 
       // Calculate sold from today's Sales Invoice Lines for this driver
@@ -393,8 +572,12 @@ function doPost(e) {
 
       const rows = Object.values(loadMap).map(function(item){
         return {code:item.code,name:item.name,cat:item.cat,
-                loaded:item.loaded,returned:item.returned,sold:soldMap[item.code]||0};
-      });
+                loaded:item.loaded,returned:item.returned,sold:soldMap[item.code]||0,
+                invoicedLoaded:item.invoicedLoaded,otsExtra:item.otsExtra};
+      })
+      // Hide fully-zeroed items (e.g. a line removed via an approved correction) —
+      // otherwise the manifest shows a useless 0|0|0 row for them
+      .filter(function(item){ return item.loaded>0 || item.returned>0 || item.sold>0; });
       return ok({rows});
     }
 
@@ -921,11 +1104,49 @@ function doPost(e) {
 
     // ── RECEIVE PO ────────────────────────────────────────────────────
     if (data.action === 'receivePO') {
+      const rlock = LockService.getScriptLock();
+      rlock.waitLock(20000);
+      try {
       const poSheet=ss.getSheetByName('Purchase Orders');
       const liSheet=ss.getSheetByName('PO Line Items');
       if(!poSheet||!liSheet)return err('Sheets not found');
       const liRows=liSheet.getDataRange().getValues();
       const now=Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+
+      // Receipt summary for this delivery (also the dedup signature)
+      var rcptSummary = (data.receipts||[]).map(function(r){
+        return (r.itemName||r.skuCode) + ' ×' + r.qtyReceived;
+      }).join(', ');
+      var incomingRest = ((data.docRef?data.docRef+' —':'')+' '+rcptSummary).trim();
+
+      // Read PO header rows once (reused for the status/history + calendar steps)
+      const poRows=poSheet.getDataRange().getValues();
+
+      // ── IDEMPOTENCY GUARD ───────────────────────────────────────────
+      // A slow response makes users tap Receive twice (the 13:22 / 13:24 case).
+      // If an identical receipt (same person, doc ref, items) was recorded on
+      // THIS PO within 3 minutes, treat the repeat as a duplicate and change
+      // nothing. The script lock above also blocks two in-flight requests racing.
+      var nowMs = new Date().getTime();
+      for(var gi=1; gi<poRows.length; gi++){
+        if(String(poRows[gi][0])!==data.poNumber) continue;
+        var gHist=String(poRows[gi][26]||'');
+        if(gHist){
+          var gEntries=gHist.split('|||');
+          var gLast=gEntries[gEntries.length-1];
+          var gm=gLast.match(/^\[([^\]·]+)·([^\]]*)\]\s*(.*)$/);
+          if(gm){
+            var gBy=gm[2].trim(), gRest=gm[3].trim();
+            var gD=new Date(gm[1].trim().replace(' ','T')+':00');
+            if(gBy===String(data.receivedBy||'').trim() && gRest===incomingRest
+               && !isNaN(gD.getTime()) && (nowMs-gD.getTime())<3*60*1000){
+              return ok({ duplicate:true, poNumber:data.poNumber,
+                newStatus:String(poRows[gi][3]||''), message:'Duplicate receipt ignored — you were already recorded.' });
+            }
+          }
+        }
+        break;
+      }
 
       // Update line items with received qty and actual cost.
       // Primary match: receipt.lineIndex — the position of the line within this PO's
@@ -984,14 +1205,12 @@ function doPost(e) {
 
       // Build a Receipt History entry for THIS delivery — who received what, when.
       // Each partial delivery appends its own line, so split deliveries are fully traceable.
-      var rcptSummary = (data.receipts||[]).map(function(r){
-        return (r.itemName||r.skuCode) + ' ×' + r.qtyReceived;
-      }).join(', ');
+      // (rcptSummary was computed above for the dedup guard.)
       var rcptEntry = '[' + now.slice(0,16) + ' · ' + (data.receivedBy||'') + ']'
         + (data.docRef ? ' ' + data.docRef + ' —' : '') + ' ' + rcptSummary;
 
       // Update PO header: status + docRef + received date + receipt history (col 27)
-      const poRows=poSheet.getDataRange().getValues();
+      // (poRows was read once at the top of this action and is reused here.)
       for(let i=1;i<poRows.length;i++){
         if(String(poRows[i][0])===data.poNumber){
           poSheet.getRange(i+1, 4).setValue(newStatus);
@@ -1021,10 +1240,13 @@ function doPost(e) {
       });
 
       var stockInLabel='STOCK IN — '+data.poNumber+(data.docRef?' ('+data.docRef+')':'');
+      // Build all STOCK IN rows first, then write them in ONE setValues call —
+      // appendRow-per-item cost ~100-300ms each and made receiving feel slow
+      var stockInRows = [];
       (data.receipts||[]).forEach(function(r){
         var current=latestStock[r.skuCode]||{qty:0, unit:r.unit||'bag', category:''};
         var newQty=current.qty+Number(r.qtyReceived);
-        cs.appendRow([
+        stockInRows.push([
           now, data.receivedBy, stockInLabel,
           r.skuCode, r.itemName, newQty,
           r.unit||current.unit||'bag', data.poType, 'PO Receipt'
@@ -1032,6 +1254,9 @@ function doPost(e) {
         // Update local map so multiple receipts in the same batch stack correctly
         latestStock[r.skuCode]={qty:newQty, unit:r.unit||current.unit||'bag', category:current.category};
       });
+      if(stockInRows.length){
+        cs.getRange(cs.getLastRow()+1, 1, stockInRows.length, 9).setValues(stockInRows);
+      }
 
       // ── AUTO-UPDATE COST ON FILE (price list reference) ──────────────
       // When goods arrive at a different unit cost, push the new cost into the SKU
@@ -1117,6 +1342,145 @@ function doPost(e) {
       // ─────────────────────────────────────────────────────────────────
 
       return ok({newStatus, calendarNote, costUpdates: costUpdates});
+      } finally { rlock.releaseLock(); }
+    }
+
+    // ── REVERSE DUPLICATE PO RECEIPT (admin cleanup for double-submits) ──
+    // Detects receipt-history entries that are identical (same person, doc ref,
+    // items) and recorded close in time — the double-tap signature. Reverses the
+    // extra receipt(s): reduces the line-item received qty, fixes outstanding +
+    // status, subtracts the phantom stock, and removes the duplicate history line.
+    // dryRun returns the plan without writing so the UI can confirm first.
+    if (data.action === 'reverseDuplicateReceipt') {
+      if (String(data.role||'').toLowerCase() !== 'admin') return err('Admin only — reversal not permitted');
+      const rlock = LockService.getScriptLock();
+      rlock.waitLock(20000);
+      try {
+        const dryRun  = !!data.dryRun;
+        const poSheet = ss.getSheetByName('Purchase Orders');
+        const liSheet = ss.getSheetByName('PO Line Items');
+        if(!poSheet||!liSheet) return err('Sheets not found');
+        const poRows = poSheet.getDataRange().getValues();
+        let poIdx = -1;
+        for(let i=1;i<poRows.length;i++){ if(String(poRows[i][0])===data.poNumber){ poIdx=i; break; } }
+        if(poIdx<0) return err('PO not found: '+data.poNumber);
+
+        const hist = String(poRows[poIdx][26]||'');
+        if(!hist) return ok({ reversed:false, message:'No receipt history on this PO.' });
+
+        // Parse each entry: [ts · by] rest
+        const entries = hist.split('|||').map(function(e){
+          const m = e.match(/^\[([^\]·]+)·([^\]]*)\]\s*(.*)$/);
+          return { raw:e, ts:(m?m[1].trim():''), by:(m?m[2].trim():''), rest:(m?m[3].trim():e.trim()) };
+        });
+
+        // Flag as duplicate any entry matching an earlier KEPT entry (same by+rest)
+        // within 10 minutes — the accidental double-tap signature.
+        const keep = entries.map(function(){ return true; });
+        const dupByName = {};   // itemName -> qty to add back
+        for(let i=0;i<entries.length;i++){
+          for(let j=0;j<i;j++){
+            if(!keep[j]) continue;
+            if(entries[j].by===entries[i].by && entries[j].rest===entries[i].rest && entries[i].rest){
+              const di=new Date(entries[i].ts.replace(' ','T')+':00');
+              const dj=new Date(entries[j].ts.replace(' ','T')+':00');
+              if(!isNaN(di.getTime()) && !isNaN(dj.getTime()) && Math.abs(di.getTime()-dj.getTime())<10*60*1000){
+                keep[i]=false;
+                // Parse "Item ×qty, Item ×qty" (drop optional "docRef — " prefix)
+                let body=entries[i].rest; const dash=body.indexOf('— ');
+                if(dash>=0) body=body.slice(dash+2);
+                body.split(',').forEach(function(tok){
+                  const mm=tok.trim().match(/^(.*?)×\s*([\d.]+)\s*$/);
+                  if(mm){ const nm=mm[1].trim(); dupByName[nm]=(dupByName[nm]||0)+Number(mm[2]); }
+                });
+                break;
+              }
+            }
+          }
+        }
+        const removedCount = keep.filter(function(f){ return !f; }).length;
+        if(!removedCount) return ok({ reversed:false, message:'No duplicate receipts detected on this PO.' });
+
+        // Map itemName -> SKU via this PO's line items (build line-row index too)
+        const liRows = liSheet.getDataRange().getValues();
+        const nameToSku = {}; const poLineNums = [];
+        for(let i=1;i<liRows.length;i++){
+          if(String(liRows[i][0])!==data.poNumber) continue;
+          nameToSku[String(liRows[i][2]).trim()] = String(liRows[i][1]).trim();
+          poLineNums.push(i+1);
+        }
+        const dupBySku = {}; const unmapped = [];
+        Object.keys(dupByName).forEach(function(nm){
+          const sku=nameToSku[nm];
+          if(sku) dupBySku[sku]=(dupBySku[sku]||0)+dupByName[nm];
+          else unmapped.push(nm);
+        });
+
+        // Read current stock (latest per SKU) for the correct sheet
+        const csName = data.poType==='RETAIL' ? 'Stock Counts - Retail' : 'Stock Counts - Distribution';
+        const cs = getOrCreateSheet(ss, csName, [
+          'Timestamp','Submitted By','Location','SKU Code','Item Name','Qty On Hand','Unit','Type','Category']);
+        const latest = {};
+        cs.getDataRange().getValues().slice(1).filter(function(r){return r[0]&&r[3];})
+          .forEach(function(r){ latest[String(r[3]).trim()]={qty:Number(r[5])||0, unit:String(r[6]||'bag'), cat:String(r[8]||''), name:String(r[4]||'')}; });
+
+        // Build the plan (per SKU): received before/after, stock before/after
+        const plan = Object.keys(dupBySku).map(function(sku){
+          const dq = dupBySku[sku];
+          const cur = latest[sku] || {qty:0, name:sku};
+          // sum current received across this PO's rows for the SKU
+          let recv=0; poLineNums.forEach(function(rn){ if(String(liRows[rn-1][1]).trim()===sku) recv+=Number(liRows[rn-1][8]||0); });
+          return { sku:sku, item:cur.name||sku, dupQty:dq,
+            receivedBefore:recv, receivedAfter:Math.max(0,recv-dq),
+            stockBefore:cur.qty, stockAfter:cur.qty-dq };
+        });
+
+        if(dryRun){
+          return ok({ reversed:false, dryRun:true, removedCount:removedCount,
+            plan:plan, unmapped:unmapped });
+        }
+
+        // ── APPLY ──────────────────────────────────────────────────────
+        const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        // 1) Reduce received on line items (spill across rows if a SKU repeats)
+        Object.keys(dupBySku).forEach(function(sku){
+          let remaining = dupBySku[sku];
+          poLineNums.forEach(function(rn){
+            if(remaining<=0) return;
+            if(String(liRows[rn-1][1]).trim()!==sku) return;
+            const recv = Number(liRows[rn-1][8]||0);
+            const cut  = Math.min(recv, remaining);
+            const newRecv = recv - cut;
+            const ordered = Number(liRows[rn-1][4]||0);
+            liSheet.getRange(rn,9).setValue(newRecv);
+            liSheet.getRange(rn,10).setValue(Math.max(0, ordered-newRecv));
+            liSheet.getRange(rn,11).setValue((ordered-newRecv)<=0 && newRecv>0 ? 'Received' : (newRecv>0?'Partial':'Pending'));
+            remaining -= cut;
+          });
+        });
+        SpreadsheetApp.flush();
+
+        // 2) Recompute PO status from the updated lines
+        const updatedLi = liSheet.getDataRange().getValues().slice(1).filter(function(r){return String(r[0])===data.poNumber;});
+        const allFulfilled = updatedLi.every(function(r){ return (r[9]===''||r[9]==null?0:Number(r[9]))<=0; });
+        const anyReceived  = updatedLi.some(function(r){ return Number(r[8]||0)>0; });
+        const newStatus = allFulfilled && anyReceived ? 'RECEIVED' : anyReceived ? 'PARTIAL' : 'APPROVED';
+        poSheet.getRange(poIdx+1,4).setValue(newStatus);
+
+        // 3) Subtract phantom stock (append correction row per SKU)
+        Object.keys(dupBySku).forEach(function(sku){
+          const cur = latest[sku]; if(!cur) return;
+          cs.appendRow([ now, 'Reversal — duplicate PO receipt ('+(data.by||'admin')+')', 'Correction',
+            sku, cur.name||sku, cur.qty - dupBySku[sku], cur.unit||'bag', data.poType||'DIST', cur.cat||'' ]);
+        });
+
+        // 4) Rewrite receipt history without the duplicate entries
+        const kept = entries.filter(function(e,i){ return keep[i]; }).map(function(e){ return e.raw; });
+        poSheet.getRange(poIdx+1,27).setValue(kept.join('|||'));
+
+        return ok({ reversed:true, removedCount:removedCount, newStatus:newStatus,
+          plan:plan, unmapped:unmapped });
+      } finally { rlock.releaseLock(); }
     }
 
 
@@ -1560,11 +1924,19 @@ function doPost(e) {
           'Invoice Number','Invoice Date','Due Date','Dealer',
           'SKU Code','Description','Qty','Unit Price (₱)','Line Amount (₱)',
           'Invoice Total (₱)','Amount Paid (₱)','Amount Due (₱)',
-          'Status','Imported At','Imported By','Division'
+          'Status','Imported At','Imported By','Division','Stock Mode'
         ]);
         if (sheet.getRange(1,16).getValue() === '') sheet.getRange(1,16).setValue('Division');
+        // Backfill the Stock Mode header on sheets created before this column
+        if (sheet.getRange(1,17).getValue() === '') sheet.getRange(1,17).setValue('Stock Mode');
 
         const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+
+        // 'warehouse' = direct pickup, deducts warehouse stock now.
+        // 'load' (default) = builds the load list only; stock deducts when the van
+        // is physically loaded. This is what stops the Xero-vs-Load double-count.
+        const deduct = String(data.stockMode||'load').toLowerCase() === 'warehouse';
+        const modeVal = deduct ? 'warehouse' : 'load';
 
         // Invoices present in THIS upload — their old rows get replaced.
         const uploadInvoices = {};
@@ -1576,7 +1948,7 @@ function doPost(e) {
         // Read existing rows. Keep the ones NOT being replaced; tally the OLD
         // quantities of the replaced invoices for the inventory net-delta.
         const all = sheet.getDataRange().getValues();
-        const width = Math.max(16, (all[0]||[]).length);
+        const width = Math.max(17, (all[0]||[]).length);
         const kept = [];
         const oldQtyBySku = {};
         const replacedInv = {};
@@ -1586,7 +1958,14 @@ function doPost(e) {
           if (uploadInvoices[inv]) {
             replacedInv[inv] = true;
             const sku = String(all[i][4]||'').trim();
-            if (sku) oldQtyBySku[sku] = (oldQtyBySku[sku]||0) + (Number(all[i][6])||0);
+            // Only rows that ACTUALLY deducted before (stored mode 'warehouse')
+            // count toward the reversal delta — so re-uploading a previously
+            // warehouse-deducted invoice as 'load' correctly adds the stock back.
+            // Legacy/blank/'load' rows are treated as never-deducted here.
+            const prevMode = String(all[i][16]||'').toLowerCase();
+            if (sku && prevMode === 'warehouse') {
+              oldQtyBySku[sku] = (oldQtyBySku[sku]||0) + (Number(all[i][6])||0);
+            }
           } else {
             const row = all[i].slice(0, width);
             while (row.length < width) row.push('');
@@ -1594,18 +1973,29 @@ function doPost(e) {
           }
         }
 
+        // Normalise DD/MM/YYYY → ISO before writing. Sheets auto-parses slash
+        // dates with the US convention (MM/DD), so "04/07/2026" became April 7 —
+        // filing day-1-to-12 invoices under the wrong month. ISO is unambiguous.
+        function xISO(s){
+          s = String(s||'').trim();
+          var dm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          return dm ? (dm[3]+'-'+('0'+dm[2]).slice(-2)+'-'+('0'+dm[1]).slice(-2)) : s;
+        }
+
         // Build the upload's new rows + tally new quantities per SKU.
+        // New quantities only count toward a deduction when this upload is a
+        // warehouse sale; a 'load' upload records the sale but never touches stock.
         const newQtyBySku = {}, itemBySku = {};
         const newRows = (data.rows || []).map(function(r){
           const sku = String(r.skuCode||'').trim();
           if (sku) {
-            newQtyBySku[sku] = (newQtyBySku[sku]||0) + (Number(r.quantity)||0);
+            if (deduct) newQtyBySku[sku] = (newQtyBySku[sku]||0) + (Number(r.quantity)||0);
             if (!itemBySku[sku]) itemBySku[sku] = String(r.description||'');
           }
-          const row = [r.invoiceNumber, r.invoiceDate, r.dueDate, r.contactName,
+          const row = [r.invoiceNumber, xISO(r.invoiceDate), xISO(r.dueDate), r.contactName,
             r.skuCode, r.description, r.quantity, r.unitAmount, r.lineAmount,
             r.invoiceTotal, r.amountPaid, r.amountDue,
-            r.status, now, data.importedBy||'', r.division||''];
+            r.status, now, data.importedBy||'', r.division||'', modeVal];
           while (row.length < width) row.push('');
           return row;
         });
@@ -1630,23 +2020,126 @@ function doPost(e) {
         const touched = {};
         Object.keys(newQtyBySku).forEach(function(s){ touched[s]=true; });
         Object.keys(oldQtyBySku).forEach(function(s){ touched[s]=true; });
-        let stockUpdated = 0;
+        // Collect delta rows, then write once — appendRow per SKU made big
+        // warehouse-mode imports crawl (each call is a full Sheets round trip)
+        const deltaRows = [];
         Object.keys(touched).forEach(function(sku){
           const delta = (newQtyBySku[sku]||0) - (oldQtyBySku[sku]||0); // + = more sold, − = sold less
           if (delta === 0) return;
           if (!distLatest.hasOwnProperty(sku)) return; // no baseline — skip
           const cur = distLatest[sku];
-          distCntSheet.appendRow([
-            now, 'Xero Import (' + (data.importedBy||'system') + ')', 'Warehouse',
+          // NOTE: label is 'Xero Warehouse Sale' — deliberately NOT 'Xero Import'.
+          // The old buggy always-deduct rows are labelled 'Xero Import', which is
+          // what the one-time reversal tool targets. Keeping a distinct label here
+          // means legitimate warehouse-sale deductions are never swept up by it.
+          deltaRows.push([
+            now, 'Xero Warehouse Sale (' + (data.importedBy||'system') + ')', 'Warehouse',
             sku, itemBySku[sku] || '', cur.qty - delta, cur.unit, 'DIST', cur.category
           ]);
-          stockUpdated++;
         });
+        let stockUpdated = deltaRows.length;
+        if (deltaRows.length) {
+          distCntSheet.getRange(distCntSheet.getLastRow()+1, 1, deltaRows.length, 9).setValues(deltaRows);
+        }
 
-        return ok({ imported: newRows.length, replaced: Object.keys(replacedInv).length, stockUpdated: stockUpdated });
+        return ok({ imported: newRows.length, replaced: Object.keys(replacedInv).length, stockUpdated: stockUpdated, mode: modeVal });
       } finally {
         xlock.releaseLock();
       }
+    }
+
+    // ── XERO DEDUCTION REVERSAL (one-time cleanup of the double-deduct bug) ──
+    // Old 'Xero Import' rows in Stock Counts - Distribution deducted warehouse
+    // stock that the LOAD movement also deducted — the same bags twice. This
+    // reverses those rows: per SKU it sums how much the un-reversed 'Xero Import'
+    // rows removed (optionally within a date range and only for selected SKUs),
+    // appends one correction entry restoring the right on-hand, then tags the
+    // reversed rows so a repeat run is a no-op (idempotent). Legitimate
+    // 'Xero Warehouse Sale' rows are never touched.
+    if (data.action === 'previewXeroReversal' || data.action === 'applyXeroReversal') {
+      const apply = data.action === 'applyXeroReversal';
+      if (apply && String(data.role||'').toLowerCase() !== 'admin')
+        return err('Admin only — reversal not permitted');
+      const cs = ss.getSheetByName('Stock Counts - Distribution');
+      if (!cs) return ok({ items: [], totalBags: 0, applied: apply, skuCount: 0, minDate:'', maxDate:'' });
+
+      const tz    = Session.getScriptTimeZone();
+      const fromD = String(data.fromDate||'').trim();   // 'yyyy-MM-dd' or '' (no lower bound)
+      const toD   = String(data.toDate||'').trim();     // 'yyyy-MM-dd' or '' (no upper bound)
+      function rowDate(v){
+        return (v instanceof Date) ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : String(v||'').slice(0,10);
+      }
+      function inRange(v){
+        const d = rowDate(v);
+        if (fromD && d < fromD) return false;
+        if (toD   && d > toD)   return false;
+        return true;
+      }
+      // Optional per-SKU selection (apply only). null = every affected SKU.
+      let selSet = null;
+      if (Array.isArray(data.skus)) { selSet = {}; data.skus.forEach(function(s){ selSet[String(s).trim()] = true; }); }
+
+      const vals = cs.getDataRange().getValues();
+      const bySku = {};
+      let minDate = '', maxDate = '';
+      for (let i = 1; i < vals.length; i++) {
+        const r = vals[i];
+        if (!r[0] || !r[3]) continue;
+        const sku = String(r[3]).trim();
+        const by  = String(r[1]||'');
+        const isXero = by.indexOf('Xero Import') === 0 && by.indexOf('[REVERSED]') < 0;
+        if (isXero) {  // track the span of reversible rows so the UI can bound its date pickers
+          const d = rowDate(r[0]);
+          if (d && (!minDate || d < minDate)) minDate = d;
+          if (d && (!maxDate || d > maxDate)) maxDate = d;
+        }
+        (bySku[sku] = bySku[sku] || []).push({
+          rowNum: i+1, value: Number(r[5])||0, isXero: isXero, ts: r[0],
+          item: String(r[4]||''), unit: String(r[6]||'bag'), cat: String(r[8]||'')
+        });
+      }
+
+      const now = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm:ss');
+      const items = []; let totalBags = 0; let tagRows = [];
+      Object.keys(bySku).forEach(function(sku){
+        // On apply with a selection, skip SKUs the user didn't tick
+        if (apply && selSet && !selSet[sku]) return;
+        const chain = bySku[sku];
+        let prev = null, deducted = 0; const xeroRowNums = [];
+        chain.forEach(function(e){
+          // A row's change = previous on-hand − this on-hand. Count only the
+          // un-reversed Xero rows within the date range; the chain still walks
+          // real stored values so interleaved Load/Count rows keep maths correct.
+          const countIt = (prev !== null) && e.isXero && inRange(e.ts);
+          if (countIt) { deducted += (prev - e.value); xeroRowNums.push(e.rowNum); }
+          prev = e.value;
+        });
+        if (deducted === 0 || !xeroRowNums.length) return;
+        const last = chain[chain.length-1];
+        const corrected = last.value + deducted;   // only adds back what's being reversed
+        items.push({ sku: sku, item: last.item, current: last.value,
+          deducted: deducted, corrected: corrected, rows: xeroRowNums.length });
+        totalBags += deducted;
+        tagRows = tagRows.concat(xeroRowNums);
+        if (apply) {
+          cs.appendRow([
+            now, 'Reversal — Xero double-deduction (' + (data.by||'admin') + ')', 'Correction',
+            sku, last.item, corrected, last.unit, 'DIST', last.cat
+          ]);
+        }
+      });
+
+      if (apply && tagRows.length) {
+        SpreadsheetApp.flush();
+        // Tag reversed rows so a second run reverses nothing (idempotent)
+        tagRows.forEach(function(rn){
+          const cell = cs.getRange(rn, 2);
+          const cur  = String(cell.getValue()||'');
+          if (cur.indexOf('[REVERSED]') < 0) cell.setValue(cur + ' [REVERSED]');
+        });
+      }
+      return ok({ items: items, totalBags: totalBags, applied: apply, skuCount: items.length,
+        minDate: minDate, maxDate: maxDate });
     }
 
     // ── IMPORT LOYVERSE SALES ─────────────────────────────────────────
@@ -3257,6 +3750,10 @@ function doPost(e) {
     }
 
     // ── UPDATE MOVEMENT ROW (admin / staff edit) ───────────────────────
+    // Editing a movement now ALSO reverses its warehouse effect: a LOAD had
+    // deducted stock at submit, a RETURN had added it back — changing the
+    // quantities writes a compensating Stock Counts entry so the warehouse
+    // balance stays true (previously edits silently left stock drifted).
     if (data.action === 'updateMovementRow') {
       const s = ss.getSheetByName('Stock Movements');
       if (!s) return err('Stock Movements sheet not found');
@@ -3264,28 +3761,255 @@ function doPost(e) {
       if (!rowIndex || rowIndex < 2) return err('Invalid row index');
       const allRows = s.getDataRange().getValues();
       if (rowIndex > allRows.length) return err('Row not found');
+      const oldRow      = allRows[rowIndex - 1];
+      const mode        = String(oldRow[3]).toUpperCase();
+      const oldLoaded   = Number(oldRow[7]) || 0;
+      const oldReturned = Number(oldRow[8]) || 0;
       const loaded   = Math.max(0, Number(data.loaded)   || 0);
       const returned = Math.max(0, Number(data.returned) || 0);
       const sold     = Math.max(0, loaded - returned);
       s.getRange(rowIndex,  8).setValue(loaded);
       s.getRange(rowIndex,  9).setValue(returned);
       s.getRange(rowIndex, 10).setValue(sold);
-      return ok({ rowIndex, loaded, returned, sold });
+
+      // Warehouse compensation:
+      //   LOAD row:   submit deducted `loaded` → adjust = old − new (give back reduction)
+      //   RETURN row: submit added `returned`  → adjust = new − old
+      const adjust = mode === 'LOAD' ? (oldLoaded - loaded)
+                   : mode === 'RETURN' ? (returned - oldReturned) : 0;
+      let stockAdjusted = 0;
+      if (adjust !== 0) {
+        const sku = String(oldRow[4]).trim();
+        const cnt = getOrCreateSheet(ss, 'Stock Counts - Distribution', [
+          'Timestamp','Submitted By','Location','SKU Code','Item Name','Qty On Hand','Unit','Type','Category']);
+        let cur = null;
+        cnt.getDataRange().getValues().slice(1).forEach(function(r){
+          if (r[0] && String(r[3]).trim() === sku)
+            cur = { qty:Number(r[5])||0, name:String(r[4]||''), unit:String(r[6]||'bag'), type:String(r[7]||'DIST'), cat:String(r[8]||'') };
+        });
+        const base = cur || { qty:0, name:String(oldRow[5]||sku), unit:'bag', type:'DIST', cat:String(oldRow[6]||'') };
+        const nowE = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        cnt.appendRow([ nowE, 'Adjustment — movement edited (' + (data.editedBy||'admin') + ')', 'Correction',
+          sku, base.name, base.qty + adjust, base.unit, base.type, base.cat ]);
+        stockAdjusted = adjust;
+      }
+      return ok({ rowIndex, loaded, returned, sold, stockAdjusted });
     }
 
     // ── DELETE MOVEMENT BATCH ──────────────────────────────────────────
+    // Deleting a batch now REVERSES its warehouse effect first: LOAD rows give
+    // the bags back to warehouse stock, RETURN rows take them out again — so
+    // the Product List stays accurate instead of silently drifting.
     if (data.action === 'deleteMovementBatch') {
       const s = ss.getSheetByName('Stock Movements');
       if (!s) return err('Sheet not found');
       const rows = s.getDataRange().getValues();
-      for (let i = rows.length - 1; i >= 1; i--) {
+
+      // 1) Collect the batch's rows + net warehouse effect to reverse per SKU
+      const delIdx = [];
+      const adjBySku = {};   // sku → { adjust, name, cat }
+      for (let i = 1; i < rows.length; i++) {
         const ts = rows[i][0] instanceof Date
           ? Utilities.formatDate(rows[i][0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
           : String(rows[i][0]);
         const key = ts + '|' + String(rows[i][2]) + '|' + String(rows[i][3]);
-        if (key === data.batchKey) s.deleteRow(i + 1);
+        if (key !== data.batchKey) continue;
+        delIdx.push(i + 1);
+        const sku  = String(rows[i][4]).trim();
+        const mode = String(rows[i][3]).toUpperCase();
+        // Reverse of the submit-time effect: LOAD deducted → add back; RETURN added → take out
+        const adj  = mode === 'LOAD' ? (Number(rows[i][7])||0)
+                   : mode === 'RETURN' ? -(Number(rows[i][8])||0) : 0;
+        if (!adjBySku[sku]) adjBySku[sku] = { adjust:0, name:String(rows[i][5]||sku), cat:String(rows[i][6]||'') };
+        adjBySku[sku].adjust += adj;
       }
-      return ok({});
+      if (!delIdx.length) return ok({ deleted:0, stockAdjusted:0 });
+
+      // 2) Append the compensating Stock Counts entries BEFORE deleting
+      const skusToAdj = Object.keys(adjBySku).filter(function(k){ return adjBySku[k].adjust !== 0; });
+      if (skusToAdj.length) {
+        const cnt = getOrCreateSheet(ss, 'Stock Counts - Distribution', [
+          'Timestamp','Submitted By','Location','SKU Code','Item Name','Qty On Hand','Unit','Type','Category']);
+        const latest = {};
+        cnt.getDataRange().getValues().slice(1).forEach(function(r){
+          if (r[0] && r[3]) latest[String(r[3]).trim()] =
+            { qty:Number(r[5])||0, name:String(r[4]||''), unit:String(r[6]||'bag'), type:String(r[7]||'DIST'), cat:String(r[8]||'') };
+        });
+        const nowD2 = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        const corr = [];
+        skusToAdj.forEach(function(sku){
+          const a   = adjBySku[sku];
+          const cur = latest[sku] || { qty:0, name:a.name, unit:'bag', type:'DIST', cat:a.cat };
+          corr.push([ nowD2, 'Reversal — movement deleted (' + (data.by||'admin') + ')', 'Correction',
+            sku, cur.name || a.name, cur.qty + a.adjust, cur.unit, cur.type, cur.cat || a.cat ]);
+        });
+        cnt.getRange(cnt.getLastRow()+1, 1, corr.length, 9).setValues(corr);
+      }
+
+      // 3) Delete the movement rows bottom-up (indices stay valid)
+      for (let d = delIdx.length - 1; d >= 0; d--) s.deleteRow(delIdx[d]);
+
+      return ok({ deleted: delIdx.length, stockAdjusted: skusToAdj.length });
+    }
+
+    // ── MOVEMENT CORRECTION REQUESTS (staff propose → admin approve) ────
+    // Staff can't edit/delete movements directly; they file a request with the
+    // proposed numbers and a reason. Approving applies the change AND the
+    // warehouse stock compensation in one motion; rejecting changes nothing.
+    if (data.action === 'submitMovementRequest') {
+      const reqSheet = getOrCreateSheet(ss, 'Movement Correction Requests', [
+        'Request ID','Requested At','Requested By','Type','Batch Key','Unit','Mode',
+        'Batch Time','Details','Reason','Status','Resolved By','Resolved At'
+      ]);
+      const nowR = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+      const reqId = 'MCR-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMddHHmmss')
+        + '-' + Math.floor(Math.random()*900+100);
+      if (!String(data.reason||'').trim()) return err('A reason is required');
+      reqSheet.appendRow([
+        reqId, nowR, String(data.requestedBy||''),
+        String(data.type||'EDIT').toUpperCase() === 'DELETE' ? 'DELETE' : 'EDIT',
+        String(data.batchKey||''), String(data.unit||''), String(data.mode||''),
+        String(data.batchTime||''), JSON.stringify(data.lines||[]),
+        String(data.reason||'').trim(), 'Pending', '', ''
+      ]);
+      return ok({ requestId: reqId });
+    }
+
+    if (data.action === 'getMovementRequests') {
+      const reqSheet = ss.getSheetByName('Movement Correction Requests');
+      if (!reqSheet) return ok({ requests: [] });
+      const requests = reqSheet.getDataRange().getValues().slice(1)
+        .filter(function(r){ return r[0]; })
+        .map(function(r){
+          let lines = [];
+          try { lines = JSON.parse(String(r[8]||'[]')); } catch(e) {}
+          const fmtTs = function(v){
+            return v instanceof Date
+              ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+              : String(v||'');
+          };
+          return {
+            requestId: String(r[0]), requestedAt: fmtTs(r[1]), requestedBy: String(r[2]),
+            type: String(r[3]), batchKey: String(r[4]), unit: String(r[5]), mode: String(r[6]),
+            batchTime: fmtTs(r[7]), lines: lines, reason: String(r[9]||''),
+            status: String(r[10]||'Pending'), resolvedBy: String(r[11]||''), resolvedAt: fmtTs(r[12])
+          };
+        })
+        .reverse()      // newest first (sheet is append-only)
+        .slice(0, 100);
+      return ok({ requests: requests });
+    }
+
+    if (data.action === 'resolveMovementRequest') {
+      if (String(data.role||'').toLowerCase() !== 'admin') return err('Admin only');
+      const reqSheet = ss.getSheetByName('Movement Correction Requests');
+      if (!reqSheet) return err('No requests sheet');
+      const reqRows = reqSheet.getDataRange().getValues();
+      let reqIdx = -1;
+      for (let i = 1; i < reqRows.length; i++) {
+        if (String(reqRows[i][0]) === String(data.requestId)) { reqIdx = i; break; }
+      }
+      if (reqIdx < 0) return err('Request not found');
+      if (String(reqRows[reqIdx][10]) !== 'Pending') return err('Request already resolved');
+
+      const nowV = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+      const markResolved = function(status){
+        reqSheet.getRange(reqIdx+1, 11).setValue(status);
+        reqSheet.getRange(reqIdx+1, 12).setValue(String(data.by||'admin'));
+        reqSheet.getRange(reqIdx+1, 13).setValue(nowV);
+      };
+
+      if (String(data.decision) !== 'approve') {
+        markResolved('Rejected');
+        return ok({ resolved: 'Rejected' });
+      }
+
+      // ── APPROVE: locate the batch by key NOW (row indices from request time
+      //    may be stale), apply the change, and write stock compensation.
+      const reqType  = String(reqRows[reqIdx][3]);
+      const batchKey = String(reqRows[reqIdx][4]);
+      let reqLines = [];
+      try { reqLines = JSON.parse(String(reqRows[reqIdx][8]||'[]')); } catch(e) {}
+
+      const s = ss.getSheetByName('Stock Movements');
+      if (!s) return err('Stock Movements sheet not found');
+      const mv = s.getDataRange().getValues();
+      const batchRows = [];
+      for (let i = 1; i < mv.length; i++) {
+        const ts = mv[i][0] instanceof Date
+          ? Utilities.formatDate(mv[i][0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+          : String(mv[i][0]);
+        if (ts + '|' + String(mv[i][2]) + '|' + String(mv[i][3]) !== batchKey) continue;
+        batchRows.push({ row: i+1, sku: String(mv[i][4]).trim(), mode: String(mv[i][3]).toUpperCase(),
+          loaded: Number(mv[i][7])||0, returned: Number(mv[i][8])||0,
+          name: String(mv[i][5]||''), cat: String(mv[i][6]||'') });
+      }
+      if (!batchRows.length) return err('That batch no longer exists — reject this request instead.');
+
+      const adjBySku = {}; const applied = []; const misses = [];
+      const noteAdj = function(sku, adj, name, cat){
+        if (adj === 0) return;
+        if (!adjBySku[sku]) adjBySku[sku] = { adjust: 0, name: name, cat: cat };
+        adjBySku[sku].adjust += adj;
+      };
+
+      if (reqType === 'DELETE') {
+        // Reverse each row's warehouse effect, then delete the batch rows
+        batchRows.forEach(function(b){
+          noteAdj(b.sku, b.mode==='LOAD' ? b.loaded : b.mode==='RETURN' ? -b.returned : 0, b.name, b.cat);
+        });
+      } else {
+        // EDIT: match each requested line to a batch row by sku + old values —
+        // if the batch changed since the request, that line is skipped & reported
+        const used = {};
+        reqLines.forEach(function(ln){
+          const m = batchRows.find(function(b){
+            return !used[b.row] && b.sku === String(ln.sku).trim()
+              && b.loaded === Number(ln.oldLoaded) && b.returned === Number(ln.oldReturned);
+          });
+          if (!m) { misses.push(String(ln.sku)); return; }
+          used[m.row] = true;
+          const nl = Math.max(0, Number(ln.newLoaded)||0);
+          const nr = Math.max(0, Number(ln.newReturned)||0);
+          s.getRange(m.row, 8).setValue(nl);
+          s.getRange(m.row, 9).setValue(nr);
+          s.getRange(m.row, 10).setValue(Math.max(0, nl - nr));
+          noteAdj(m.sku, m.mode==='LOAD' ? (m.loaded - nl) : m.mode==='RETURN' ? (nr - m.returned) : 0, m.name, m.cat);
+          applied.push(m.sku);
+        });
+        if (!applied.length) return err('Batch has changed since this request was filed'
+          + (misses.length ? ' (no match for: ' + misses.join(', ') + ')' : '') + ' — reject it and ask staff to re-file.');
+      }
+
+      // Stock compensation rows (same pattern as direct edit/delete)
+      const skusAdj = Object.keys(adjBySku).filter(function(k){ return adjBySku[k].adjust !== 0; });
+      if (skusAdj.length) {
+        const cnt = getOrCreateSheet(ss, 'Stock Counts - Distribution', [
+          'Timestamp','Submitted By','Location','SKU Code','Item Name','Qty On Hand','Unit','Type','Category']);
+        const latest = {};
+        cnt.getDataRange().getValues().slice(1).forEach(function(r){
+          if (r[0] && r[3]) latest[String(r[3]).trim()] =
+            { qty:Number(r[5])||0, name:String(r[4]||''), unit:String(r[6]||'bag'), type:String(r[7]||'DIST'), cat:String(r[8]||'') };
+        });
+        const corr = [];
+        skusAdj.forEach(function(sku){
+          const a = adjBySku[sku];
+          const cur = latest[sku] || { qty:0, name:a.name, unit:'bag', type:'DIST', cat:a.cat };
+          corr.push([ nowV, 'Approved request — ' + reqType.toLowerCase() + ' ('
+            + String(reqRows[reqIdx][2]) + ' → ' + (data.by||'admin') + ')', 'Correction',
+            sku, cur.name || a.name, cur.qty + a.adjust, cur.unit, cur.type, cur.cat || a.cat ]);
+        });
+        cnt.getRange(cnt.getLastRow()+1, 1, corr.length, 9).setValues(corr);
+      }
+
+      // DELETE requests: remove the batch rows after compensation (bottom-up)
+      if (reqType === 'DELETE') {
+        for (let d = batchRows.length - 1; d >= 0; d--) s.deleteRow(batchRows[d].row);
+      }
+
+      markResolved('Approved');
+      return ok({ resolved: 'Approved', type: reqType,
+        stockAdjusted: skusAdj.length, applied: applied.length, misses: misses });
     }
 
     // ── STANDARD SHEET APPEND ──────────────────────────────────────────
@@ -3293,7 +4017,7 @@ function doPost(e) {
     if (!sheetName) return err('No sheet name provided');
     const headerMap = {
       'Stock Movements':['Timestamp','Submitted By','Bajaj Unit','Mode',
-        'SKU Code','Item Name','Category','Qty Loaded','Qty Returned','Qty Sold'],
+        'SKU Code','Item Name','Category','Qty Loaded','Qty Returned','Qty Sold','Tag'],
       'Backorders':['Timestamp','Submitted By','Dealer Name','Dealer Phone',
         'SKU Code','Item Name','Qty Requested','Purchase Unit','Promised Date','Status','Notes'],
       'Backorders - Retail':['Timestamp','Submitted By','Customer Name','Contact Number',
@@ -3331,6 +4055,96 @@ function doPost(e) {
       ],
     };
     const sheet = getOrCreateSheet(ss, sheetName, headerMap[sheetName]||null);
+
+    // ── AUTO-CLASSIFY LOAD ROWS: INV vs OTS EXTRA ────────────────────────
+    // The SERVER is the referee. Bags up to today's invoice requirement for
+    // this unit count as INV (untagged); anything beyond is tagged 'OTS EXTRA'
+    // — regardless of which box the client typed into. This also correctly
+    // classifies rows sent by older app versions that never set a tag.
+    if (sheetName === 'Stock Movements') {
+      const loadRowsIn = (data.rows||[]).filter(function(r){ return String(r[3])==='LOAD'; });
+      if (loadRowsIn.length) {
+        const unitName = String(loadRowsIn[0][2]||'');
+        const tzc = Session.getScriptTimeZone();
+        const todayC = Utilities.formatDate(new Date(), tzc, 'yyyy-MM-dd');
+
+        // 1) Today's invoice requirement per SKU for THIS unit — same routing as
+        //    the Load List: Xero Division → dealer's Assigned Vehicle → unassigned
+        const invNeed = {};
+        const slSheet = ss.getSheetByName('Sales Log - Distribution');
+        if (slSheet) {
+          const cNorm = function(v){
+            if (v instanceof Date) return Utilities.formatDate(v, tzc, 'yyyy-MM-dd');
+            const s = String(v||'').trim();
+            if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+            const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+            if (m) return m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);
+            const d = new Date(s);
+            return isNaN(d.getTime()) ? s : Utilities.formatDate(d, tzc, 'yyyy-MM-dd');
+          };
+          const dealerVeh = {};
+          const dirS = ss.getSheetByName('Dealer Directory');
+          if (dirS) dirS.getDataRange().getValues().slice(1).forEach(function(r){
+            const nm = String(r[1]||'').trim().toLowerCase();
+            if (nm) dealerVeh[nm] = String(r[17]||'').trim();
+          });
+          const vehS = ss.getSheetByName('Delivery Vehicles');
+          const vehs = vehS ? vehS.getDataRange().getValues().slice(1)
+            .filter(function(r){ return r[0]; })
+            .map(function(r){ return { id:String(r[0]).trim(), div:String(r[3]||'').trim().toLowerCase() }; }) : [];
+          const toVeh = function(div){
+            const dl = String(div||'').trim().toLowerCase();
+            if(!dl) return '';
+            for (var i=0;i<vehs.length;i++) if (vehs[i].div && vehs[i].div===dl) return vehs[i].id;
+            for (var j=0;j<vehs.length;j++) if (dl.indexOf(vehs[j].id.toLowerCase())>=0) return vehs[j].id;
+            return '';
+          };
+          slSheet.getDataRange().getValues().slice(1).forEach(function(r){
+            if (!r[0] || !r[4]) return;
+            if (cNorm(r[1]) !== todayC) return;
+            const veh = toVeh(r[15]) || dealerVeh[String(r[3]||'').trim().toLowerCase()] || '';
+            if (veh !== unitName) return;
+            const sku = String(r[4]).trim();
+            invNeed[sku] = (invNeed[sku]||0) + (Number(r[6])||0);
+          });
+        }
+
+        // 2) Invoice-loads ALREADY recorded today for this unit (untagged LOAD rows)
+        const alreadyInv = {};
+        sheet.getDataRange().getValues().slice(1).forEach(function(r){
+          if (!r[0]) return;
+          const ts = r[0] instanceof Date
+            ? Utilities.formatDate(r[0], tzc, 'yyyy-MM-dd') : String(r[0]).slice(0,10);
+          if (ts !== todayC || String(r[2]) !== unitName || String(r[3]) !== 'LOAD') return;
+          if (String(r[10]||'').toUpperCase() === 'OTS EXTRA') return;
+          const sku = String(r[4]).trim();
+          alreadyInv[sku] = (alreadyInv[sku]||0) + (Number(r[7])||0);
+        });
+
+        // 3) Rebuild the rows: sum each SKU's typed total, then split by the
+        //    REMAINING invoice need. RETURN rows pass through untouched.
+        const bySkuC = {}, orderC = [], passThrough = [];
+        (data.rows||[]).forEach(function(r){
+          if (String(r[3]) !== 'LOAD') { passThrough.push(r); return; }
+          const sku = String(r[4]).trim();
+          if (!bySkuC[sku]) { bySkuC[sku] = { proto:r, total:0 }; orderC.push(sku); }
+          bySkuC[sku].total += Number(r[7])||0;
+        });
+        const classified = [];
+        orderC.forEach(function(sku){
+          const g = bySkuC[sku];
+          if (g.total <= 0) return;
+          const need    = Math.max(0, (invNeed[sku]||0) - (alreadyInv[sku]||0));
+          const invPart = Math.min(g.total, need);
+          const otsPart = g.total - invPart;
+          const p = g.proto;
+          if (invPart > 0) classified.push([p[0],p[1],p[2],p[3],p[4],p[5],p[6], invPart, 0, invPart, '']);
+          if (otsPart > 0) classified.push([p[0],p[1],p[2],p[3],p[4],p[5],p[6], otsPart, 0, otsPart, 'OTS EXTRA']);
+        });
+        data.rows = passThrough.concat(classified);
+      }
+    }
+
     data.rows.forEach(row => sheet.appendRow(row));
 
     // ── STOCK MOVEMENTS → STOCK COUNTS SYNC ──────────────────────────────
@@ -3340,6 +4154,13 @@ function doPost(e) {
     //   LOAD   → stock leaves the warehouse  → currentStock - qtyLoaded
     //   RETURN → unsold stock comes back     → currentStock + qtyReturned
     if (sheetName === 'Stock Movements') {
+      // Backfill the Tag header (col 11 = 'OTS EXTRA' marker) on older sheets,
+      // styled to match the other 10 headers (bold, blue fill, white text) so the
+      // column doesn't look mismatched/unlabelled.
+      if (sheet.getRange(1, 11).getValue() === '') {
+        sheet.getRange(1, 11).setValue('Tag')
+             .setFontWeight('bold').setBackground('#1F4E78').setFontColor('#FFFFFF');
+      }
       const distCnt = getOrCreateSheet(ss, 'Stock Counts - Distribution',
         headerMap['Stock Counts - Distribution']);
 
@@ -3409,6 +4230,176 @@ function doPost(e) {
   } catch(e) {
     return err(e.toString());
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// HR / PAYROLL HELPERS — shared by getMyHR (employee view) and
+// getHRSummary (admin dashboard) so the two can never disagree.
+// Standard duty is 10 hours = 1 full day; hourly rate = daily ÷ 10.
+// ══════════════════════════════════════════════════════════════════
+const HR_TZ = 'Asia/Manila';   // payroll-critical — never trust the project tz
+const HR_STD_HOURS = 10;
+
+// Semi-monthly cutoff (1–15, 16–end). offset 0 = current, -1 = previous, …
+function hrCutoffRange(offset) {
+  const pad2 = function(n){ return ('0'+n).slice(-2); };
+  const todayStr = Utilities.formatDate(new Date(), HR_TZ, 'yyyy-MM-dd');
+  let cy = Number(todayStr.slice(0,4)),
+      cm = Number(todayStr.slice(5,7)),
+      half = Number(todayStr.slice(8,10)) <= 15 ? 1 : 2;
+  for (let s = 0; s < Math.abs(Number(offset)||0); s++) {
+    if (half === 2) { half = 1; }
+    else { half = 2; cm--; if (cm < 1) { cm = 12; cy--; } }
+  }
+  const lastDay = new Date(cy, cm, 0).getDate();
+  return {
+    startDate: cy + '-' + pad2(cm) + '-' + (half === 1 ? '01' : '16'),
+    endDate:   cy + '-' + pad2(cm) + '-' + (half === 1 ? '15' : pad2(lastDay)),
+    label: Utilities.formatDate(new Date(cy, cm-1, 1), HR_TZ, 'MMM') + ' '
+         + (half === 1 ? '1–15' : '16–' + lastDay) + ', ' + cy
+  };
+}
+
+// Staff pay setup keyed by lowercase username
+function hrStaffPay(ss) {
+  const map = {};
+  const sh = ss.getSheetByName('Staff');
+  if (!sh) return map;
+  sh.getDataRange().getValues().slice(1).forEach(function(r){
+    if (!r[0]) return;
+    const uname = String(r[0]).trim();
+    map[uname.toLowerCase()] = {
+      username:  uname,
+      role:      String(r[2]||'').trim(),
+      dailyRate: Number(r[20]) || 0,
+      payType:   String(r[21]||'daily').toLowerCase() === 'hourly' ? 'hourly' : 'daily',
+      found:     true
+    };
+  });
+  return map;
+}
+
+// All punches in the cutoff, grouped {usernameLower: {date: {timeIn,timeOut,late}}}
+// First IN of the day wins (carries the late flag); last OUT wins.
+function hrGroupAttendance(ss, startDate, endDate) {
+  const out = {};
+  const sh = ss.getSheetByName('Attendance');
+  if (!sh) return out;
+  sh.getDataRange().getValues().slice(1).forEach(function(r){
+    if (!r[0] || !r[1]) return;
+    const ts = r[0] instanceof Date
+      ? Utilities.formatDate(r[0], HR_TZ, 'yyyy-MM-dd HH:mm:ss') : String(r[0]);
+    const date = ts.slice(0,10);
+    if (date < startDate || date > endDate) return;
+    const uL = String(r[1]).trim().toLowerCase();
+    if (!out[uL]) out[uL] = {};
+    if (!out[uL][date]) out[uL][date] = { date:date, timeIn:'', timeOut:'', late:'' };
+    const time = ts.slice(11,19), act = String(r[2]).toUpperCase();
+    if (act === 'IN') {
+      if (!out[uL][date].timeIn) { out[uL][date].timeIn = time; out[uL][date].late = String(r[3]||''); }
+    } else if (act === 'OUT') { out[uL][date].timeOut = time; }
+  });
+  return out;
+}
+
+// Approved-but-unsettled cash advances per employee (Phase 2 fills this sheet)
+function hrCashAdvances(ss) {
+  const map = {};
+  const sh = ss.getSheetByName('Cash Advances');
+  if (!sh) return map;
+  sh.getDataRange().getValues().slice(1).forEach(function(r){
+    if (!r[0] || !r[2]) return;
+    if (String(r[5]||'').trim().toLowerCase() !== 'approved') return;
+    if (String(r[9]||'').trim().toUpperCase() === 'YES') return;   // settled already
+    const uL = String(r[2]).trim().toLowerCase();
+    map[uL] = (map[uL] || 0) + (Number(r[3]) || 0);
+  });
+  return map;
+}
+
+// The pay engine. byDay = {date:{timeIn,timeOut,late}}.
+//   HOURLY → pay = hours worked (IN→OUT, capped at 10h) × (rate ÷ 10).
+//            No late/half-day deduction: arriving late already shortens the
+//            hours, so deducting again would charge the same lost time twice.
+//   DAILY  → full rate, minus (rate ÷ 10) per hour late, or rate ÷ 2 for half day.
+function hrComputeDays(byDay, dailyRate, payType) {
+  const hourlyRate = dailyRate / HR_STD_HOURS;
+  const toSec = function(t){
+    const p = String(t||'').split(':');
+    if (p.length < 2) return NaN;
+    return Number(p[0])*3600 + Number(p[1])*60 + (Number(p[2])||0);
+  };
+  const lateMinsOf = function(flag){
+    const m = flag.match(/(\d+)\s*m/), s = flag.match(/(\d+)\s*s/);
+    return (m ? Number(m[1]) : 0) + (s ? Number(s[1])/60 : 0);
+  };
+
+  let daysWorked = 0, lateDays = 0, halfDays = 0, lateMinutes = 0;
+  let gross = 0, lateDeduction = 0, halfDayDeduction = 0;
+  let hoursPaid = 0, otHours = 0, fullDays = 0, incompleteDays = 0;
+
+  const days = Object.keys(byDay).sort().map(function(d){
+    const rec  = byDay[d];
+    const flag = String(rec.late||'');
+
+    if (payType === 'hourly') {
+      if (!rec.timeIn) {
+        return { date:rec.date, timeIn:'', timeOut:rec.timeOut, status:'No time-in',
+                 hours:0, ot:0, deduction:0, pay:0, incomplete:true };
+      }
+      const inS = toSec(rec.timeIn), outS = toSec(rec.timeOut);
+      if (!rec.timeOut || isNaN(outS) || outS <= inS) {
+        incompleteDays++;
+        if (/late/i.test(flag)) lateDays++;
+        return { date:rec.date, timeIn:rec.timeIn, timeOut:rec.timeOut,
+                 status: rec.timeOut ? 'Check times' : 'No time-out',
+                 hours:0, ot:0, deduction:0, pay:0, incomplete:true };
+      }
+      daysWorked++;
+      const rawHrs  = (outS - inS) / 3600;
+      const paidHrs = Math.min(rawHrs, HR_STD_HOURS);
+      const ot      = Math.max(0, rawHrs - HR_STD_HOURS);
+      const pay     = paidHrs * hourlyRate;
+      hoursPaid += paidHrs; otHours += ot; gross += pay;
+      if (rawHrs >= HR_STD_HOURS) fullDays++;
+      if (/late/i.test(flag)) { lateDays++; lateMinutes += lateMinsOf(flag); }
+      const hStr = Math.floor(paidHrs) + 'h ' + Math.round((paidHrs % 1) * 60) + 'm';
+      return { date:rec.date, timeIn:rec.timeIn, timeOut:rec.timeOut,
+               status: rawHrs >= HR_STD_HOURS ? 'Full day (' + hStr + ')' : hStr,
+               hours: Math.round(paidHrs*100)/100, ot: Math.round(ot*100)/100,
+               deduction:0, pay: Math.round(pay*100)/100, incomplete:false };
+    }
+
+    // DAILY
+    let status = 'On time', pay = dailyRate, ded = 0;
+    if (!rec.timeIn) {
+      status = 'No time-in'; pay = 0;
+    } else {
+      daysWorked++;
+      gross += dailyRate;
+      if (/half\s*day/i.test(flag)) {
+        halfDays++; status = 'Half day';
+        ded = dailyRate / 2; halfDayDeduction += ded;
+      } else if (/late/i.test(flag)) {
+        lateDays++; status = flag;
+        const mins = lateMinsOf(flag);
+        lateMinutes += mins;
+        ded = (dailyRate / HR_STD_HOURS) * (mins / 60);
+        lateDeduction += ded;
+      }
+      pay = dailyRate - ded;
+    }
+    return { date:rec.date, timeIn:rec.timeIn, timeOut:rec.timeOut, status:status,
+             hours:0, ot:0, deduction:Math.round(ded*100)/100,
+             pay:Math.round(pay*100)/100, incomplete:false };
+  });
+
+  return { daysWorked:daysWorked, lateDays:lateDays, halfDays:halfDays,
+           lateMinutes:lateMinutes, gross:gross,
+           lateDeduction:lateDeduction, halfDayDeduction:halfDayDeduction,
+           totalDeduction: lateDeduction + halfDayDeduction,
+           hoursPaid:hoursPaid, otHours:otHours, fullDays:fullDays,
+           incompleteDays:incompleteDays, days:days };
 }
 
 function getOrCreateSheet(ss, name, headers) {

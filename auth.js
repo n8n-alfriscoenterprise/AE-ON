@@ -92,6 +92,7 @@ function restoreScreen(screenId){
     case 'transfer-screen': openTransfer(); break;
     case 'pl-screen':       openPL();       break;
     case 'clock-screen':    openClock();    break;
+    case 'hr-screen':       openHR();       break;
     case 'prod-screen':     openProduction(); break;
     case 'driver-screen':   showDriver();   break;
     default:                showHome();     break;

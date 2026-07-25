@@ -48,6 +48,11 @@ function openEditStaff(idx){
   document.getElementById('edit-staff-username-label').textContent = '@' + s.username;
   document.getElementById('edit-role').value = s.role || 'staff';
   document.getElementById('edit-unit').value = s.assignedUnit || 'Bajaj1';
+  const rateEl = document.getElementById('edit-daily-rate');
+  if(rateEl) rateEl.value = s.dailyRate ? Number(s.dailyRate) : '';
+  const ptEl = document.getElementById('edit-pay-type');
+  if(ptEl) ptEl.value = (s.payType === 'hourly') ? 'hourly' : 'daily';
+  onEditPayTypeChange();
   onEditRoleChange();
 
   // Permissions — admin gets all locked ON, others use stored values
@@ -129,6 +134,22 @@ function onEditPlToggle(){
   }
 }
 
+// Shows what the entered daily rate means for an hourly employee (rate ÷ 10),
+// so there's no guessing about how the number will be used.
+function onEditPayTypeChange(){
+  const note = document.getElementById('edit-pay-type-note');
+  const ptEl = document.getElementById('edit-pay-type');
+  if(!note || !ptEl) return;
+  if(ptEl.value === 'hourly'){
+    const rate = Number((document.getElementById('edit-daily-rate')||{}).value) || 0;
+    note.innerHTML = 'Paid for actual duty hours (time in → time out), capped at 10h per day. '
+      + 'Late arrivals reduce hours automatically — no separate late deduction.'
+      + (rate > 0 ? '<br>Hourly rate = ₱' + (rate/10).toFixed(2) + ' (₱' + rate.toFixed(2) + ' ÷ 10h).' : '');
+  } else {
+    note.textContent = 'Full daily rate, minus late deductions (rate ÷ 10 per hour late) and half-day (rate ÷ 2).';
+  }
+}
+
 async function saveStaffEdit(){
   if(editingStaffIndex < 0) return;
   const s   = staff[editingStaffIndex];
@@ -180,16 +201,32 @@ async function saveStaffEdit(){
   const plViewEl = document.getElementById('edit-pl-view');
   const plView = plViewEl ? plViewEl.value : 'both';
 
+  // Daily rate drives the My HR pay estimate. Blank = leave whatever is on
+  // file untouched (the backend only overwrites when a value is supplied).
+  const rateEl  = document.getElementById('edit-daily-rate');
+  const rateRaw = rateEl ? String(rateEl.value).trim() : '';
+  if(rateRaw !== '' && (isNaN(Number(rateRaw)) || Number(rateRaw) < 0)){
+    errEl.textContent = 'Daily rate must be a number (or left blank).';
+    btn.disabled = false; btn.textContent = '💾 Save Changes';
+    return;
+  }
+
   try{
-    const r = await api(Object.assign(
+    const payload = Object.assign(
       { action:'updateStaff', username:s.username, role, assignedUnit:unit, plView },
       perms
-    ));
+    );
+    if(rateRaw !== '') payload.dailyRate = Number(rateRaw);
+    const ptEl2 = document.getElementById('edit-pay-type');
+    if(ptEl2) payload.payType = ptEl2.value;
+    const r = await api(payload);
 
     if(r.status === 'ok'){
       // Update local cache — merge new values over existing account
       staff[editingStaffIndex] = Object.assign({}, s,
-        { role, assignedUnit:unit, plView }, perms
+        { role, assignedUnit:unit, plView }, perms,
+        rateRaw !== '' ? { dailyRate: Number(rateRaw) } : {},
+        { payType: (document.getElementById('edit-pay-type')||{}).value || 'daily' }
       );
       LS.set('alf_staff_cache', staff);
       closeEditStaff();

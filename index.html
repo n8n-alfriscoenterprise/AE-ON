@@ -1810,13 +1810,11 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
     <div class="epm-title">🌴 Request Leave</div>
     <div class="epm-sub">Admin will review this. Approved leave is recorded on your attendance.</div>
 
+    <div id="lv-generic-note" style="display:none;font-size:11.5px;color:#8A5A00;background:#FFF6E5;border:1.5px solid #F0C36D;border-radius:8px;padding:9px 11px;margin-bottom:10px;line-height:1.5"></div>
+
     <label class="epm-label">Leave type</label>
-    <select class="epm-select" id="lv-type">
-      <option value="Sick Leave">Sick Leave</option>
-      <option value="Vacation Leave">Vacation Leave</option>
-      <option value="Emergency Leave">Emergency Leave</option>
-      <option value="Unpaid Leave">Unpaid Leave</option>
-    </select>
+    <select class="epm-select" id="lv-type" onchange="onLeaveTypeChange()"></select>
+    <div id="lv-rule-note" style="font-size:11px;color:#4A148C;background:#F6F1FA;border-radius:7px;padding:8px 10px;margin-top:6px;line-height:1.55"></div>
 
     <div class="inv-field-row" style="margin-top:10px">
       <div>

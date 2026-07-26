@@ -7,6 +7,7 @@
 let _hrOffset = 0;    // 0 = current cutoff, -1 = previous, …
 let _hrBusy   = false;
 let _hrReqs   = { advances: [], leaves: [] };   // this employee's own requests
+let _hrPolicy = null;                          // leave rules for this account
 
 function openHR(){
   showScreen('hr-screen');
@@ -44,7 +45,7 @@ async function _hrLoad(){
     ]);
     _hrReqs = (rq && rq.status==='ok') ? { advances: rq.advances||[], leaves: rq.leaves||[] }
                                        : { advances: [], leaves: [] };
-    if(r.status === 'ok') _hrRender(r);
+    if(r.status === 'ok'){ _hrPolicy = r.leavePolicy || null; _hrRender(r); }
     else if(content) content.innerHTML = '<div class="hr-empty">Could not load your HR record.</div>';
   }catch(e){
     if(content) content.innerHTML = '<div class="hr-empty">Network error — check your connection.</div>';
@@ -244,14 +245,58 @@ async function submitCashAdvance(){
 }
 
 function openLeaveModal(){
-  const today = (typeof phToday==='function') ? phToday() : new Date().toLocaleDateString('sv-SE');
-  document.getElementById('lv-type').value  = 'Sick Leave';
+  const p = _hrPolicy || {};
+  const today = p.today || ((typeof phToday==='function') ? phToday() : new Date().toLocaleDateString('sv-SE'));
+  // Only the types this account may file (shared logins → Unpaid Leave only)
+  const types = (p.types && p.types.length) ? p.types
+              : ['Sick Leave','Vacation Leave','Emergency Leave','Unpaid Leave'];
+  const sel = document.getElementById('lv-type');
+  sel.innerHTML = types.map(function(t){ return '<option value="'+t+'">'+t+'</option>'; }).join('');
+  const genericNote = document.getElementById('lv-generic-note');
+  if(genericNote){
+    genericNote.style.display = p.isGeneric ? 'block' : 'none';
+    genericNote.textContent = 'This is a shared account, so only Unpaid Leave can be filed. '
+      + 'Named employee accounts can file sick, vacation and emergency leave.';
+  }
   document.getElementById('lv-start').value = today;
   document.getElementById('lv-end').value   = today;
   document.getElementById('lv-reason').value = '';
   document.getElementById('lv-err').textContent = '';
-  _lvUpdateDays();
+  onLeaveTypeChange();
   document.getElementById('leave-modal').style.display = 'flex';
+}
+
+// Applies the filing window for the chosen type — same rules the server enforces
+function onLeaveTypeChange(){
+  const p = _hrPolicy || {};
+  const type  = document.getElementById('lv-type').value;
+  const start = document.getElementById('lv-start');
+  const end   = document.getElementById('lv-end');
+  const note  = document.getElementById('lv-rule-note');
+  const today = p.today || start.value;
+  start.min = ''; start.max = ''; end.min = ''; end.max = '';
+
+  if(type === 'Emergency Leave'){
+    start.min = today; start.max = today;
+    if(start.value !== today){ start.value = today; if(end.value < today) end.value = today; }
+    end.min = today;
+    if(note) note.innerHTML = '⚡ Emergency Leave is filed <strong>on the day itself</strong> — '
+      + 'the start date is locked to today. Limit: <strong>'+(p.emergencyPerMonth||1)
+      + ' per month</strong>.';
+  } else if(type === 'Vacation Leave'){
+    const earliest = p.vacationEarliest || today;
+    start.min = earliest; end.min = earliest;
+    if(start.value < earliest){ start.value = earliest; end.value = earliest; }
+    if(note) note.innerHTML = '🗓 Vacation Leave needs <strong>'+(p.vacationNoticeDays||14)
+      + ' days notice</strong> — the earliest you can start is <strong>'+earliest+'</strong>.';
+  } else if(type === 'Sick Leave'){
+    if(note) note.innerHTML = '🩺 Sick Leave is <strong>approved automatically</strong>, but you must '
+      + '<strong>present a medical certificate</strong> to Admin.';
+  } else {
+    if(note) note.innerHTML = '📄 Unpaid Leave is recorded as an absence with a reason — '
+      + 'those days are simply not paid.';
+  }
+  _lvUpdateDays();
 }
 function closeLeaveModal(){
   document.getElementById('leave-modal').style.display = 'none';
@@ -285,7 +330,11 @@ async function submitLeaveRequest(){
                           leaveType, startDate, endDate, reason });
     if(r.status === 'ok'){
       closeLeaveModal();
-      showToast('Leave request sent to Admin 📨','success',4500);
+      if(r.autoApproved){
+        showToast('Sick Leave approved ✓ — remember to present your medical certificate','success',7000);
+      } else {
+        showToast('Leave request sent to Admin 📨','success',4500);
+      }
       await _hrLoad();
     } else { err.textContent = 'Error: ' + (r.msg||'Could not send'); }
   }catch(e){ err.textContent = 'Network error: ' + e.message; }

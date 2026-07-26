@@ -120,7 +120,9 @@ function _hrRender(d){
       + (d.halfDayDeduction > 0
           ? '<div class="hr-pay-row ded"><span>Half-day deductions</span><span>− '+_hrPeso(d.halfDayDeduction)+'</span></div>' : '')
       + (d.cashAdvance > 0
-          ? '<div class="hr-pay-row ded"><span>Cash advance</span><span>− '+_hrPeso(d.cashAdvance)+'</span></div>' : '')
+          ? '<div class="hr-pay-row ded"><span>Cash advance'
+            + (d.advanceSettled > 0 && !d.advanceOutstanding ? ' <span style="font-size:10px;color:#888">(deducted)</span>' : '')
+            + '</span><span>− '+_hrPeso(d.cashAdvance)+'</span></div>' : '')
       + '<div class="hr-pay-total"><span>Expected pay</span><span>'+_hrPeso(d.expected)+'</span></div>'
       + '<div class="hr-note">Estimate only, based on time records so far this cutoff ('+d.startDate+' to '+d.endDate+'). '
       + 'Final pay is confirmed by Admin.</div>'

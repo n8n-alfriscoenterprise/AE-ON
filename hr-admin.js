@@ -110,14 +110,15 @@ function _hraRenderInbox(){
 
   // Outstanding advances — deducted from expected pay until you mark them settled
   if(owing.length){
-    html += '<div class="hr-card"><div class="hr-card-title">💵 Advances awaiting settlement ('+owing.length+')</div>'
-      + '<div class="hr-note" style="margin-top:0">These are already subtracted from the expected pay below. '
-      + 'Mark one settled once you\'ve actually deducted it from a payout.</div>';
+    html += '<div class="hr-card"><div class="hr-card-title">💵 Advances still to recover ('+owing.length+')</div>'
+      + '<div class="hr-note" style="margin-top:0">These are being subtracted from the expected pay below. '
+      + 'Once you\'ve actually taken one out of a payout, record it against that cutoff — '
+      + 'it stays a deduction there and stops carrying forward.</div>';
     owing.forEach(function(a){
       html += '<div class="hra-owing">'
         + '<div><div class="hra-owing-name">'+a.requestedBy+' · <strong>'+_hraPeso(a.amount)+'</strong></div>'
         + '<div class="hra-req-by">approved by '+a.resolvedBy+'</div></div>'
-        + '<button class="hra-settle-btn" onclick="settleAdvance(\''+a.requestId+'\')">Mark settled</button>'
+        + '<button class="hra-settle-btn" onclick="settleAdvance(\''+a.requestId+'\')">Deducted from this cutoff</button>'
       + '</div>';
     });
     html += '</div>';
@@ -143,11 +144,16 @@ async function resolveHRRequest(requestId, decision){
 }
 
 async function settleAdvance(requestId){
-  if(!confirm('Mark this advance as settled?\n\nIt will stop being deducted from their expected pay.')) return;
+  const period = (_hraData && _hraData.period) || 'this cutoff';
+  if(!confirm('Record this advance as deducted from '+period+'?\n\n'
+    + 'It stays as a deduction on '+period+' (so their payslip stays accurate) '
+    + 'and stops carrying over to later cutoffs.\n\n'
+    + 'Only do this once you have actually taken it out of their pay.')) return;
   try{
     const r = await api({ action:'settleCashAdvance', requestId, role: currentUser.role,
-                          by: currentUser.username, cutoff: (_hraData && _hraData.period) || '' });
-    if(r.status==='ok'){ showToast('Advance settled ✓','success',4000); await _hraLoad(); }
+                          by: currentUser.username,
+                          cutoffStart: (_hraData && _hraData.startDate) || '' });
+    if(r.status==='ok'){ showToast('Recorded as deducted from this cutoff ✓','success',4500); await _hraLoad(); }
     else alert('Error: '+(r.msg||'Could not settle'));
   }catch(e){ alert('Network error: '+e.message); }
 }
@@ -221,7 +227,9 @@ function _hraRender(){
           + (hourly ? ' ('+_hraPeso(e.dailyRate/d.stdHours)+'/hr)' : '')+'</span></div>'
         + '<div class="hra-detail-line"><span>'+(hourly?'Hours worked ('+e.hoursPaid+'h)':'Basic ('+e.daysWorked+' days)')+'</span><span>'+_hraPeso(e.gross)+'</span></div>'
         + (e.totalDeduction > 0 ? '<div class="hra-detail-line ded"><span>Deductions</span><span>− '+_hraPeso(e.totalDeduction)+'</span></div>' : '')
-        + (e.cashAdvance   > 0 ? '<div class="hra-detail-line ded"><span>Cash advance</span><span>− '+_hraPeso(e.cashAdvance)+'</span></div>' : '')
+        + (e.cashAdvance   > 0 ? '<div class="hra-detail-line ded"><span>Cash advance'
+            + (e.advanceSettled > 0 && !e.advanceOutstanding ? ' (already deducted)' : '')
+            + '</span><span>− '+_hraPeso(e.cashAdvance)+'</span></div>' : '')
         + (e.otHours > 0 ? '<div class="hr-note">'+e.otHours+'h beyond the '+d.stdHours+'-hour duty (not auto-paid).</div>' : '')
         + '<table class="hr-day-table" style="margin-top:8px"><thead><tr>'
           + '<th>Date</th><th>In</th><th>Out</th><th>Status</th><th class="r">Pay</th>'

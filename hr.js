@@ -6,6 +6,7 @@
 // ════════════════════════════════════════════════════════
 let _hrOffset = 0;    // 0 = current cutoff, -1 = previous, …
 let _hrBusy   = false;
+let _hrReqs   = { advances: [], leaves: [] };   // this employee's own requests
 
 function openHR(){
   showScreen('hr-screen');
@@ -35,7 +36,14 @@ async function _hrLoad(){
   const nextBtn = document.getElementById('hr-next-btn');
   if(nextBtn) nextBtn.disabled = (_hrOffset >= 0);
   try{
-    const r = await api({ action:'getMyHR', username: currentUser.username, offset: _hrOffset });
+    // Pay record + own requests in parallel — one wait, not two
+    const [r, rq] = await Promise.all([
+      api({ action:'getMyHR', username: currentUser.username, offset: _hrOffset }),
+      api({ action:'getHRRequests', username: currentUser.username, role: currentUser.role })
+        .catch(function(){ return { status:'error' }; })
+    ]);
+    _hrReqs = (rq && rq.status==='ok') ? { advances: rq.advances||[], leaves: rq.leaves||[] }
+                                       : { advances: [], leaves: [] };
     if(r.status === 'ok') _hrRender(r);
     else if(content) content.innerHTML = '<div class="hr-empty">Could not load your HR record.</div>';
   }catch(e){
@@ -148,5 +156,136 @@ function _hrRender(d){
   }
   html += '</div>';
 
+  // ── Requests: actions + my own history ──
+  html += _hrRenderRequests();
+
   el.innerHTML = html;
+}
+
+// ── CASH ADVANCE & LEAVE REQUESTS (employee side) ────────────
+function _hrStatusPill(st){
+  const s = String(st||'Pending');
+  const cls = s==='Approved' ? 'appr' : s==='Rejected' ? 'rej' : 'pend';
+  return '<span class="hr-req-status '+cls+'">'+s+'</span>';
+}
+
+function _hrRenderRequests(){
+  const adv = _hrReqs.advances || [], lv = _hrReqs.leaves || [];
+  let html = '<div class="hr-card">'
+    + '<div class="hr-card-title">Requests</div>'
+    + '<div class="hr-req-actions">'
+      + '<button class="hr-req-btn adv" onclick="openCashAdvanceModal()">💵 Request Cash Advance</button>'
+      + '<button class="hr-req-btn lv" onclick="openLeaveModal()">🌴 Request Leave</button>'
+    + '</div>';
+
+  if(!adv.length && !lv.length){
+    html += '<div class="hr-note">No requests yet. Anything you submit goes to Admin for approval and appears here.</div>';
+    return html + '</div>';
+  }
+
+  adv.slice(0,6).forEach(function(a){
+    html += '<div class="hr-req-row">'
+      + '<div class="hr-req-main">'
+        + '<div class="hr-req-title">💵 Cash advance · <strong>'+_hrPeso(a.amount)+'</strong>'
+          + (a.settled ? ' <span class="hr-req-settled">settled</span>' : '') + '</div>'
+        + '<div class="hr-req-meta">'+(typeof phDate==='function'?phDate(a.requestedAt.slice(0,10)):a.requestedAt)
+          + (a.resolvedBy ? ' · by '+a.resolvedBy : '') + '</div>'
+        + '<div class="hr-req-reason">“'+a.reason+'”</div>'
+      + '</div>' + _hrStatusPill(a.status)
+    + '</div>';
+  });
+
+  lv.slice(0,6).forEach(function(l){
+    const range = (typeof phDate==='function'?phDate(l.startDate):l.startDate)
+      + (l.endDate!==l.startDate ? ' – '+(typeof phDate==='function'?phDate(l.endDate):l.endDate) : '');
+    html += '<div class="hr-req-row">'
+      + '<div class="hr-req-main">'
+        + '<div class="hr-req-title">🌴 '+l.leaveType+' · <strong>'+l.days+' day'+(l.days!==1?'s':'')+'</strong></div>'
+        + '<div class="hr-req-meta">'+range+(l.resolvedBy ? ' · by '+l.resolvedBy : '')+'</div>'
+        + '<div class="hr-req-reason">“'+l.reason+'”</div>'
+      + '</div>' + _hrStatusPill(l.status)
+    + '</div>';
+  });
+
+  return html + '</div>';
+}
+
+function openCashAdvanceModal(){
+  document.getElementById('ca-amount').value = '';
+  document.getElementById('ca-reason').value = '';
+  document.getElementById('ca-err').textContent = '';
+  document.getElementById('cash-advance-modal').style.display = 'flex';
+}
+function closeCashAdvanceModal(){
+  document.getElementById('cash-advance-modal').style.display = 'none';
+}
+
+async function submitCashAdvance(){
+  const err = document.getElementById('ca-err');
+  const btn = document.getElementById('ca-save-btn');
+  err.textContent = '';
+  const amount = Number(document.getElementById('ca-amount').value) || 0;
+  const reason = document.getElementById('ca-reason').value.trim();
+  if(amount <= 0){ err.textContent = 'Enter the amount you need.'; return; }
+  if(!reason){ err.textContent = 'Please give a reason.'; return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try{
+    const r = await api({ action:'submitCashAdvance', requestedBy: currentUser.username,
+                          amount: amount, reason: reason });
+    if(r.status === 'ok'){
+      closeCashAdvanceModal();
+      showToast('Cash advance request sent to Admin 📨','success',4500);
+      await _hrLoad();
+    } else { err.textContent = 'Error: ' + (r.msg||'Could not send'); }
+  }catch(e){ err.textContent = 'Network error: ' + e.message; }
+  btn.disabled = false; btn.textContent = '📨 Submit Request';
+}
+
+function openLeaveModal(){
+  const today = (typeof phToday==='function') ? phToday() : new Date().toLocaleDateString('sv-SE');
+  document.getElementById('lv-type').value  = 'Sick Leave';
+  document.getElementById('lv-start').value = today;
+  document.getElementById('lv-end').value   = today;
+  document.getElementById('lv-reason').value = '';
+  document.getElementById('lv-err').textContent = '';
+  _lvUpdateDays();
+  document.getElementById('leave-modal').style.display = 'flex';
+}
+function closeLeaveModal(){
+  document.getElementById('leave-modal').style.display = 'none';
+}
+
+// Live day count so the employee sees exactly what they're asking for
+function _lvUpdateDays(){
+  const s = document.getElementById('lv-start').value;
+  const e = document.getElementById('lv-end').value;
+  const note = document.getElementById('lv-days-note');
+  if(!note) return;
+  if(!s || !e || e < s){ note.textContent = ''; return; }
+  const days = Math.round((new Date(e+'T00:00:00') - new Date(s+'T00:00:00'))/86400000) + 1;
+  note.textContent = days + ' day' + (days!==1?'s':'') + ' requested';
+}
+
+async function submitLeaveRequest(){
+  const err = document.getElementById('lv-err');
+  const btn = document.getElementById('lv-save-btn');
+  err.textContent = '';
+  const leaveType = document.getElementById('lv-type').value;
+  const startDate = document.getElementById('lv-start').value;
+  const endDate   = document.getElementById('lv-end').value;
+  const reason    = document.getElementById('lv-reason').value.trim();
+  if(!startDate || !endDate){ err.textContent = 'Pick your leave dates.'; return; }
+  if(endDate < startDate){ err.textContent = 'End date cannot be before the start date.'; return; }
+  if(!reason){ err.textContent = 'Please give a reason.'; return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try{
+    const r = await api({ action:'submitLeaveRequest', requestedBy: currentUser.username,
+                          leaveType, startDate, endDate, reason });
+    if(r.status === 'ok'){
+      closeLeaveModal();
+      showToast('Leave request sent to Admin 📨','success',4500);
+      await _hrLoad();
+    } else { err.textContent = 'Error: ' + (r.msg||'Could not send'); }
+  }catch(e){ err.textContent = 'Network error: ' + e.message; }
+  btn.disabled = false; btn.textContent = '📨 Submit Request';
 }

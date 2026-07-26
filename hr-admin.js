@@ -8,6 +8,7 @@ let _hraOffset   = 0;
 let _hraBusy     = false;
 let _hraData     = null;
 let _hraExpanded = {};    // username → daily detail open?
+let _hraReqs     = { advances: [], leaves: [] };   // all staff requests (admin view)
 
 function openHRAdmin(){
   showScreen('hr-admin-screen');
@@ -35,8 +36,15 @@ async function _hraLoad(){
   const nb = document.getElementById('hra-next-btn');
   if(nb) nb.disabled = (_hraOffset >= 0);
   try{
-    const r = await api({ action:'getHRSummary', role: currentUser.role,
-                          by: currentUser.username, offset: _hraOffset });
+    // Payroll + the approval inbox together — one wait
+    const [r, rq] = await Promise.all([
+      api({ action:'getHRSummary', role: currentUser.role,
+            by: currentUser.username, offset: _hraOffset }),
+      api({ action:'getHRRequests', role: currentUser.role, username: currentUser.username })
+        .catch(function(){ return { status:'error' }; })
+    ]);
+    _hraReqs = (rq && rq.status==='ok') ? { advances: rq.advances||[], leaves: rq.leaves||[] }
+                                        : { advances: [], leaves: [] };
     if(r.status === 'ok'){ _hraData = r; _hraRender(); }
     else if(body) body.innerHTML = '<div class="hr-empty">'+(r.msg||'Could not load payroll.')+'</div>';
   }catch(e){
@@ -54,6 +62,94 @@ function _hraPeso(n){
 function toggleHRAEmployee(uname){
   _hraExpanded[uname] = !_hraExpanded[uname];
   _hraRender();
+}
+
+// ── APPROVAL INBOX — cash advances & leave awaiting your decision ──
+function _hraRenderInbox(){
+  const adv = _hraReqs.advances || [], lv = _hraReqs.leaves || [];
+  const pendA = adv.filter(function(a){ return a.status==='Pending'; });
+  const pendL = lv.filter(function(l){ return l.status==='Pending'; });
+  // Approved advances still waiting to be deducted from a payout
+  const owing = adv.filter(function(a){ return a.status==='Approved' && !a.settled; });
+  if(!pendA.length && !pendL.length && !owing.length) return '';
+
+  let html = '';
+  if(pendA.length || pendL.length){
+    html += '<div class="hr-card">'
+      + '<div class="hr-card-title">📨 Pending requests ('+(pendA.length+pendL.length)+')</div>';
+
+    pendA.forEach(function(a){
+      html += '<div class="hra-req">'
+        + '<div class="hra-req-head"><span class="hra-req-type adv">💵 CASH ADVANCE</span>'
+          + '<span class="hra-req-amt">'+_hraPeso(a.amount)+'</span></div>'
+        + '<div class="hra-req-by"><strong>'+a.requestedBy+'</strong> · '
+          + (typeof phDate==='function'?phDate(a.requestedAt.slice(0,10)):a.requestedAt)+'</div>'
+        + '<div class="hra-req-reason">“'+a.reason+'”</div>'
+        + '<div class="hra-req-note">If approved, this is deducted in full from '+a.requestedBy+'’s next payout.</div>'
+        + '<div class="mov-req-actions">'
+          + '<button class="mov-req-approve" onclick="resolveHRRequest(\''+a.requestId+'\',\'approve\')">✓ Approve</button>'
+          + '<button class="mov-req-reject" onclick="resolveHRRequest(\''+a.requestId+'\',\'reject\')">✕ Reject</button>'
+        + '</div></div>';
+    });
+
+    pendL.forEach(function(l){
+      const range = (typeof phDate==='function'?phDate(l.startDate):l.startDate)
+        + (l.endDate!==l.startDate ? ' – '+(typeof phDate==='function'?phDate(l.endDate):l.endDate) : '');
+      html += '<div class="hra-req">'
+        + '<div class="hra-req-head"><span class="hra-req-type lv">🌴 '+l.leaveType.toUpperCase()+'</span>'
+          + '<span class="hra-req-amt">'+l.days+' day'+(l.days!==1?'s':'')+'</span></div>'
+        + '<div class="hra-req-by"><strong>'+l.requestedBy+'</strong> · '+range+'</div>'
+        + '<div class="hra-req-reason">“'+l.reason+'”</div>'
+        + '<div class="mov-req-actions">'
+          + '<button class="mov-req-approve" onclick="resolveHRRequest(\''+l.requestId+'\',\'approve\')">✓ Approve</button>'
+          + '<button class="mov-req-reject" onclick="resolveHRRequest(\''+l.requestId+'\',\'reject\')">✕ Reject</button>'
+        + '</div></div>';
+    });
+    html += '</div>';
+  }
+
+  // Outstanding advances — deducted from expected pay until you mark them settled
+  if(owing.length){
+    html += '<div class="hr-card"><div class="hr-card-title">💵 Advances awaiting settlement ('+owing.length+')</div>'
+      + '<div class="hr-note" style="margin-top:0">These are already subtracted from the expected pay below. '
+      + 'Mark one settled once you\'ve actually deducted it from a payout.</div>';
+    owing.forEach(function(a){
+      html += '<div class="hra-owing">'
+        + '<div><div class="hra-owing-name">'+a.requestedBy+' · <strong>'+_hraPeso(a.amount)+'</strong></div>'
+        + '<div class="hra-req-by">approved by '+a.resolvedBy+'</div></div>'
+        + '<button class="hra-settle-btn" onclick="settleAdvance(\''+a.requestId+'\')">Mark settled</button>'
+      + '</div>';
+    });
+    html += '</div>';
+  }
+  return html;
+}
+
+async function resolveHRRequest(requestId, decision){
+  const msg = decision==='approve'
+    ? (requestId.indexOf('CA-')===0
+        ? 'Approve this cash advance?\n\nIt will be deducted from their next payout automatically.'
+        : 'Approve this leave request?')
+    : 'Reject this request? Nothing will change.';
+  if(!confirm(msg)) return;
+  try{
+    const r = await api({ action:'resolveHRRequest', requestId, decision,
+                          role: currentUser.role, by: currentUser.username });
+    if(r.status==='ok'){
+      showToast(decision==='approve' ? 'Approved ✓' : 'Request rejected','success',4000);
+      await _hraLoad();
+    } else alert('Error: '+(r.msg||'Could not resolve request'));
+  }catch(e){ alert('Network error: '+e.message); }
+}
+
+async function settleAdvance(requestId){
+  if(!confirm('Mark this advance as settled?\n\nIt will stop being deducted from their expected pay.')) return;
+  try{
+    const r = await api({ action:'settleCashAdvance', requestId, role: currentUser.role,
+                          by: currentUser.username, cutoff: (_hraData && _hraData.period) || '' });
+    if(r.status==='ok'){ showToast('Advance settled ✓','success',4000); await _hraLoad(); }
+    else alert('Error: '+(r.msg||'Could not settle'));
+  }catch(e){ alert('Network error: '+e.message); }
 }
 
 function _hraRender(){
@@ -77,6 +173,9 @@ function _hraRender(){
           +' need attention (missing time-out or no daily rate set).</div>' : '')
     + '<div class="hr-note">Estimate for '+d.startDate+' to '+d.endDate+', based on time records so far.</div>'
     + '</div>';
+
+  // ── Approval inbox (pending first, then recently decided) ──
+  html += _hraRenderInbox();
 
   // ── Per-employee ──
   if(!d.employees || !d.employees.length){

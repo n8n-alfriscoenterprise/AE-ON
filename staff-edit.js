@@ -142,8 +142,8 @@ function onEditPayTypeChange(){
   if(!note || !ptEl) return;
   if(ptEl.value === 'hourly'){
     const rate = Number((document.getElementById('edit-daily-rate')||{}).value) || 0;
-    note.innerHTML = 'Paid for actual duty hours (time in → time out), capped at 10h per day. '
-      + 'Late arrivals reduce hours automatically — no separate late deduction.'
+    note.innerHTML = 'Paid only for hours inside the duty window (official start → +10h). '
+      + 'Late arrivals lose that time; working past the window is unpaid overtime.'
       + (rate > 0 ? '<br>Hourly rate = ₱' + (rate/10).toFixed(2) + ' (₱' + rate.toFixed(2) + ' ÷ 10h).' : '');
   } else {
     note.textContent = 'Full daily rate, minus late deductions (rate ÷ 10 per hour late) and half-day (rate ÷ 2).';

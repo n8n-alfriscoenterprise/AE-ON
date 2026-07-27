@@ -93,11 +93,11 @@ function _hrRender(d){
         ? '<div class="hr-note" style="color:#C0392B"><strong>'+d.incompleteDays+' day'+(d.incompleteDays!==1?'s':'')
           +' missing a time-out</strong> — those days pay ₱0.00 until corrected. Ask Admin to fix them.</div>' : '')
     + (hourly && d.otHours > 0
-        ? '<div class="hr-note">Beyond the '+d.stdHours+'-hour duty: <strong>'+d.otHours+' hour'+(d.otHours!==1?'s':'')
+        ? '<div class="hr-note">Worked outside the duty window: <strong>'+d.otHours+' hour'+(d.otHours!==1?'s':'')
           +'</strong> (not automatically paid).</div>' : '')
     + (d.lateMinutes > 0
         ? '<div class="hr-note">Total time late this cutoff: <strong>'+d.lateMinutes+' minute'+(d.lateMinutes!==1?'s':'')+'</strong>'
-          + (hourly ? ' — already reflected in your hours.' : '.') + '</div>'
+          + (hourly ? ' — deducted from your paid hours.' : '.') + '</div>'
         : '')
     + '</div>';
 

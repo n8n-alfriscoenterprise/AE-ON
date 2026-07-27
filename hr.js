@@ -118,6 +118,8 @@ function _hrRender(d){
           + '<div class="hr-pay-row"><span>Basic ('+d.daysWorked+' day'+(d.daysWorked!==1?'s':'')+' × rate)</span><span>'+_hrPeso(d.gross)+'</span></div>')
       + (d.lateDeduction > 0
           ? '<div class="hr-pay-row ded"><span>Late deductions</span><span>− '+_hrPeso(d.lateDeduction)+'</span></div>' : '')
+      + (d.undertimeDeduction > 0
+          ? '<div class="hr-pay-row ded"><span>Undertime ('+d.undertimeMinutes+' min)</span><span>− '+_hrPeso(d.undertimeDeduction)+'</span></div>' : '')
       + (d.halfDayDeduction > 0
           ? '<div class="hr-pay-row ded"><span>Half-day deductions</span><span>− '+_hrPeso(d.halfDayDeduction)+'</span></div>' : '')
       + (d.cashAdvance > 0

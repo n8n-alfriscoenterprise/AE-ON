@@ -64,6 +64,76 @@ function toggleHRAEmployee(uname){
   _hraRender();
 }
 
+// ── OPERATING HOURS — the basis for lateness, half day & undertime ──
+async function openOpHoursModal(){
+  document.getElementById('oph-err').textContent = '';
+  document.getElementById('ophours-modal').style.display = 'flex';
+  try{
+    const r = await api({ action:'getOperatingHours' });
+    if(r.status === 'ok'){
+      document.getElementById('oph-start').value   = r.officialStart;
+      document.getElementById('oph-end').value     = r.officialEnd;
+      document.getElementById('oph-cutoff').value  = r.staffCutoff;
+      document.getElementById('oph-halfday').value = r.halfDayAfter;
+      document.getElementById('oph-duty').value    = r.dutyHours;
+      _ophHint();
+    } else {
+      document.getElementById('oph-err').textContent = r.msg || 'Could not load settings.';
+    }
+  }catch(e){ document.getElementById('oph-err').textContent = 'Network error: '+e.message; }
+}
+function closeOpHoursModal(){
+  document.getElementById('ophours-modal').style.display = 'none';
+}
+
+// Spell out what the entered hours actually mean, so the effect is never a surprise
+function _ophHint(){
+  const el = document.getElementById('oph-hint');
+  if(!el) return;
+  const s = document.getElementById('oph-start').value;
+  const e = document.getElementById('oph-end').value;
+  const c = document.getElementById('oph-cutoff').value;
+  const h = document.getElementById('oph-halfday').value;
+  const d = Number(document.getElementById('oph-duty').value) || 0;
+  if(!s || !e || !c || !h || !d){ el.textContent = ''; return; }
+  const addH = function(t, hrs){
+    const p = t.split(':'); let m = (+p[0])*60 + (+p[1]) + Math.round(hrs*60);
+    m = ((m % 1440) + 1440) % 1440;
+    return ('0'+Math.floor(m/60)).slice(-2) + ':' + ('0'+(m%60)).slice(-2);
+  };
+  el.innerHTML = 'Arriving at/after <strong>'+c+'</strong> is LATE · at/after <strong>'+h+'</strong> is HALF DAY.<br>'
+    + 'Clocking out before <strong>'+e+'</strong> is UNDERTIME (daily-paid staff).<br>'
+    + 'Hourly staff are paid for hours inside <strong>'+s+'–'+addH(s,d)+'</strong> ('+d+'h duty window).';
+}
+
+async function saveOpHours(){
+  const err = document.getElementById('oph-err');
+  const btn = document.getElementById('oph-save-btn');
+  err.textContent = '';
+  const payload = {
+    action:'saveOperatingHours', role: currentUser.role, by: currentUser.username,
+    officialStart: document.getElementById('oph-start').value,
+    officialEnd:   document.getElementById('oph-end').value,
+    staffCutoff:   document.getElementById('oph-cutoff').value,
+    halfDayAfter:  document.getElementById('oph-halfday').value,
+    dutyHours:     Number(document.getElementById('oph-duty').value) || 0
+  };
+  if(!payload.officialStart || !payload.officialEnd || !payload.staffCutoff || !payload.halfDayAfter){
+    err.textContent = 'All four times are required.'; return;
+  }
+  if(!(payload.dutyHours > 0)){ err.textContent = 'Enter the duty hours in a full day.'; return; }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try{
+    const r = await api(payload);
+    if(r.status === 'ok'){
+      closeOpHoursModal();
+      showToast('Operating hours updated ✓','success',4500);
+      await _hraLoad();          // recompute payroll with the new basis
+    } else { err.textContent = r.msg || 'Could not save.'; }
+  }catch(e){ err.textContent = 'Network error: '+e.message; }
+  btn.disabled = false; btn.textContent = '💾 Save Hours';
+}
+
 // ── APPROVAL INBOX — cash advances & leave awaiting your decision ──
 function _hraRenderInbox(){
   const adv = _hraReqs.advances || [], lv = _hraReqs.leaves || [];
@@ -201,6 +271,7 @@ function _hraRender(){
         +(e.fullDays?' · '+e.fullDays+' full':'')
       : e.daysWorked+' day'+(e.daysWorked!==1?'s':'')
         +(e.lateDays?' · '+e.lateDays+' late':'')
+        +(e.undertimeDays?' · '+e.undertimeDays+' undertime':'')
         +(e.halfDays?' · '+e.halfDays+' half':'');
 
     html += '<div class="hra-emp'+(needsAttention?' warn':'')+'">'

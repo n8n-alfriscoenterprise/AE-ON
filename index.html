@@ -1852,7 +1852,48 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
       <div class="hr-period-label" id="hra-period-label">Loading…</div>
       <button class="hr-per-btn" id="hra-next-btn" onclick="hraShiftPeriod(1)">Next ›</button>
     </div>
+    <button class="hr-per-btn" style="width:100%;padding:9px" onclick="openOpHoursModal()">⚙ Operating Hours — basis for lateness &amp; undertime</button>
     <div id="hra-content"><div class="hr-loading">Loading payroll…</div></div>
+  </div>
+</div>
+
+<!-- ══ OPERATING HOURS (admin) ══ -->
+<div class="modal-overlay" id="ophours-modal" style="display:none">
+  <div class="modal-card">
+    <div class="epm-title">⚙ Operating Hours</div>
+    <div class="epm-sub">These drive lateness, half day, undertime and hourly pay for everyone. Changing them affects future calculations and how past cutoffs are displayed.</div>
+
+    <div class="inv-field-row" style="margin-top:6px">
+      <div>
+        <label class="epm-label" style="margin-top:0">Official start (time in)</label>
+        <input class="epm-input" id="oph-start" type="time">
+      </div>
+      <div>
+        <label class="epm-label" style="margin-top:0">Official end (time out)</label>
+        <input class="epm-input" id="oph-end" type="time">
+      </div>
+    </div>
+
+    <div class="inv-field-row" style="margin-top:10px">
+      <div>
+        <label class="epm-label" style="margin-top:0">Late from</label>
+        <input class="epm-input" id="oph-cutoff" type="time">
+      </div>
+      <div>
+        <label class="epm-label" style="margin-top:0">Half day from</label>
+        <input class="epm-input" id="oph-halfday" type="time">
+      </div>
+    </div>
+
+    <label class="epm-label">Duty hours in a full day</label>
+    <input class="epm-input" id="oph-duty" type="number" min="1" max="24" step="0.5">
+    <div id="oph-hint" style="font-size:11px;color:#4A148C;background:#F6F1FA;border-radius:7px;padding:8px 10px;margin-top:8px;line-height:1.55"></div>
+
+    <div class="modal-err" id="oph-err" style="margin-top:8px;margin-bottom:8px"></div>
+    <div class="epm-btns">
+      <button class="epm-cancel" onclick="closeOpHoursModal()">Cancel</button>
+      <button class="epm-save" id="oph-save-btn" onclick="saveOpHours()">💾 Save Hours</button>
+    </div>
   </div>
 </div>
 

@@ -888,6 +888,149 @@ function _buildReceiptHtml(){
     +'</div>';
 }
 
+// ── PAST INVOICE: DETAIL + REPRINT ────────────────────────────
+// Builds the same 58mm receipt from a SAVED invoice rather than the live form,
+// so any past transaction can be reprinted exactly as it was issued.
+let _invDetail = null;   // {invoice, lines, dealer}
+
+function _buildReceiptFromData(d){
+  const inv = d.invoice, dealer = d.dealer || {}, lines = d.lines || [];
+  const fmt  = v=>'₱'+(Number(v)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const fmtD = s=>phDate(s);
+  let subtotal = 0;
+  const itemsHtml = lines.map(function(l){
+    const lt = Number(l.lineTotal) || 0;
+    subtotal += lt;
+    const label = (l.description||l.skuCode||'')
+      + (l.description && l.skuCode ? ' <span class="rcp-sku">['+l.skuCode+']</span>' : '');
+    const calc = l.qty+' x '+fmt(l.unitPrice)
+      + (l.discount>0 ? ' (-'+l.discount+'%)' : '') + ' = <strong>'+fmt(lt)+'</strong>';
+    return '<div class="rcp-item-name">'+label+'</div>'
+         + '<div class="rcp-item-calc">'+calc+'</div>';
+  }).join('');
+  if(!subtotal) subtotal = Number(inv.subtotal) || Number(inv.total) || 0;
+
+  const dueLabel = inv.paymentTerms==='COD' ? 'COD' : fmtD(inv.dueDate)+' ('+inv.paymentTerms+')';
+  const _logoSrc = typeof LOGO_SMALL !== 'undefined' ? LOGO_SMALL : '';
+  const _logoHtml = _logoSrc ? '<img src="'+_logoSrc+'" style="display:block;margin:0 auto 4px;height:48px;width:48px;object-fit:contain;border-radius:6px">' : '';
+  const isVoid = inv.status === 'VOID';
+
+  return '<div class="rcp-wrap">'
+    +_logoHtml
+    +'<div class="rcp-biz-name">ALFRISCO ENTERPRISE</div>'
+    +'<div class="rcp-biz-sub">Animal Feed Distributor</div>'
+    +'<div class="rcp-biz-sub">Province of Pangasinan, Philippines</div>'
+    +'<div class="rcp-biz-sub">alfriscoenterprise@gmail.com</div>'
+    +'<div class="rcp-div"></div>'
+    +(isVoid?'<div class="rcp-inv-label" style="color:#C0392B">*** VOIDED ***</div>':'')
+    +'<div class="rcp-inv-label">Sales Invoice</div>'
+    +'<div class="rcp-inv-num">'+inv.invoiceNumber+'</div>'
+    +'<div class="rcp-row"><span>Date</span><span>'+fmtD(inv.invoiceDate)+'</span></div>'
+    +'<div class="rcp-row"><span>Due</span><span>'+dueLabel+'</span></div>'
+    +(inv.reference?'<div class="rcp-row"><span>Ref</span><span>'+inv.reference+'</span></div>':'')
+    +'<div class="rcp-div"></div>'
+    +'<div class="rcp-section-label">Bill To</div>'
+    +'<div class="rcp-dealer-name">'+(dealer.storeName||inv.contactName||'')+'</div>'
+    +(dealer.ownerName?'<div class="rcp-dealer-sub">'+dealer.ownerName+'</div>':'')
+    +(dealer.area?'<div class="rcp-dealer-sub">'+dealer.area+'</div>':'')
+    +(dealer.phone1?'<div class="rcp-dealer-sub">Tel: '+dealer.phone1+(dealer.phone2?' / '+dealer.phone2:'')+'</div>':'')
+    +'<div class="rcp-div"></div>'
+    +'<div class="rcp-section-label">Items</div>'
+    +itemsHtml
+    +'<div class="rcp-div"></div>'
+    +'<div class="rcp-total-row"><span>Subtotal</span><span>'+fmt(subtotal)+'</span></div>'
+    +'<div class="rcp-total-row rcp-grand"><span>TOTAL DUE</span><span>'+fmt(inv.total||subtotal)+'</span></div>'
+    +'<div class="rcp-div"></div>'
+    +'<div class="rcp-payment">Payment: <strong>'+(inv.paymentType||'Cash')+'</strong></div>'
+    +(inv.checkRef?'<div class="rcp-payment">Check Ref: <strong>'+inv.checkRef+'</strong></div>':'')
+    +'<div class="rcp-div"></div>'
+    +(inv.signature?'<img class="rcp-sig-img" src="'+inv.signature+'">':'<div class="rcp-sig-blank"></div>')
+    +'<div class="rcp-sig-label">Customer Signature</div>'
+    +'<div class="rcp-div"></div>'
+    +'<div class="rcp-footer">Thank you for your business!</div>'
+    +'<div class="rcp-footer">— Alfrisco Enterprise —</div>'
+    +'</div>';
+}
+
+async function openInvoiceDetail(invNum){
+  _invDetail = null;
+  document.getElementById('inv-detail-modal').style.display = 'flex';
+  const body = document.getElementById('inv-detail-body');
+  body.innerHTML = '<div style="text-align:center;color:#888;padding:24px;font-size:13px">Loading…</div>';
+  document.getElementById('inv-detail-title').textContent = invNum;
+  try{
+    const r = await api({action:'getInvoiceDetail', invoiceNumber: invNum});
+    if(r.status !== 'ok'){ body.innerHTML = '<div class="modal-err">'+(r.msg||'Could not load invoice')+'</div>'; return; }
+    _invDetail = r;
+    _renderInvoiceDetail(r);
+  }catch(e){ body.innerHTML = '<div class="modal-err">Network error: '+e.message+'</div>'; }
+}
+
+function closeInvoiceDetail(){
+  document.getElementById('inv-detail-modal').style.display = 'none';
+  _invDetail = null;
+}
+
+function _renderInvoiceDetail(d){
+  const inv = d.invoice, lines = d.lines||[], dealer = d.dealer||{};
+  const fmt = v=>'₱'+(Number(v)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const isVoid = inv.status === 'VOID';
+  let html = '';
+  if(isVoid){
+    html += '<div class="invd-void">*** VOIDED ***'
+      + (inv.voidReason?'<div class="invd-void-sub">'+inv.voidReason+'</div>':'')
+      + (inv.voidedBy?'<div class="invd-void-sub">by '+inv.voidedBy+(inv.voidedAt?' · '+phDateTime(inv.voidedAt):'')+'</div>':'')
+      + '</div>';
+  }
+  html += '<div class="invd-head">'
+    + '<div class="invd-dealer">'+(dealer.storeName||inv.contactName||'')+'</div>'
+    + (dealer.ownerName||dealer.area
+        ? '<div class="invd-sub">'+[dealer.ownerName,dealer.area].filter(Boolean).join(' · ')+'</div>' : '')
+    + '<div class="invd-meta">'+phDate(inv.invoiceDate)+' · '+inv.paymentTerms
+      + ' · <strong>'+(inv.paymentType||'Cash')+'</strong>'
+      + (inv.checkRef?' ('+inv.checkRef+')':'')+'</div>'
+    + (inv.reference?'<div class="invd-meta">Ref: '+inv.reference+'</div>':'')
+    + '<div class="invd-meta">Issued by '+inv.createdBy+'</div>'
+    + '</div>';
+
+  html += '<table class="invd-table"><thead><tr><th>Item</th><th class="r">Qty</th>'
+        + '<th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>';
+  if(!lines.length){
+    html += '<tr><td colspan="4" style="color:#888;text-align:center;padding:12px">No line items recorded.</td></tr>';
+  } else {
+    lines.forEach(function(l){
+      html += '<tr><td>'+(l.description||l.skuCode)
+        + (l.skuCode?'<div class="invd-sku">'+l.skuCode+'</div>':'')+'</td>'
+        + '<td class="r">'+l.qty+'</td>'
+        + '<td class="r">'+fmt(l.unitPrice)+(l.discount>0?'<div class="invd-sku">−'+l.discount+'%</div>':'')+'</td>'
+        + '<td class="r">'+fmt(l.lineTotal)+'</td></tr>';
+    });
+  }
+  html += '</tbody></table>'
+    + '<div class="invd-total"><span>TOTAL</span><span>'+fmt(inv.total)+'</span></div>'
+    + (inv.signature
+        ? '<div class="invd-sig-wrap"><div class="invd-sig-lbl">Customer signature</div>'
+          + '<img class="invd-sig" src="'+inv.signature+'"></div>'
+        : '<div class="invd-meta" style="margin-top:8px;color:#C0392B">⚠ No signature on file</div>');
+  document.getElementById('inv-detail-body').innerHTML = html;
+}
+
+// Reprint a past invoice — customer copy, then merchant copy on the second tap
+let _reprintStep = 0;
+function reprintInvoice(){
+  if(!_invDetail) return;
+  const rcpt = _buildReceiptFromData(_invDetail);
+  const pv = document.getElementById('inv-print-view');
+  if(!pv) return;
+  const copyLabel = _reprintStep === 0 ? 'CUSTOMER COPY' : 'MERCHANT COPY';
+  pv.innerHTML = rcpt.replace('<div class="rcp-div"></div>',
+    '<div class="rcp-copy-label">'+copyLabel+' (REPRINT)</div><div class="rcp-div"></div>');
+  window.print();
+  _reprintStep = _reprintStep === 0 ? 1 : 0;
+  const btn = document.getElementById('inv-reprint-btn');
+  if(btn) btn.textContent = _reprintStep === 1 ? '🖨 Print Merchant Copy' : '🖨 Reprint Receipt';
+}
+
 function _requireSignature(){
   if(sigHasData) return true;
   // Flash the signature pad red and scroll it into view
@@ -1125,6 +1268,13 @@ function renderInvoiceHistory(){
       : '';
     const card = document.createElement('div');
     card.className = 'inv-hist-card' + (isVoid ? ' inv-hist-voided' : '');
+    // Tapping the card opens the full record (line items, signature, reprint).
+    // The Void button stops propagation so it doesn't also open the detail.
+    card.style.cursor = 'pointer';
+    card.onclick = function(ev){
+      if(ev.target.closest('.inv-void-btn')) return;
+      openInvoiceDetail(inv.invoiceNumber);
+    };
     card.innerHTML =
       '<div class="inv-hist-row1">'
         +'<div>'

@@ -1277,6 +1277,16 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
 .hra-owing{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid #f2f2f2}
 .hra-owing-name{font-size:12.5px;color:#222}
 .hra-settle-btn{flex-shrink:0;padding:7px 11px;background:#fff;color:#00695C;border:1.5px solid #80CBC4;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer}
+/* ── per-day pay hold / void ── */
+.hra-day-act{margin-top:4px;display:flex;gap:4px;justify-content:flex-end}
+.hra-mini{padding:3px 7px;border-radius:6px;font-size:9.5px;font-weight:700;cursor:pointer;border:1.5px solid}
+.hra-mini.hold{background:#fff;color:#8A5A00;border-color:#F0C36D}
+.hra-mini.rel{background:#fff;color:#1B5E20;border-color:#A5D6A7}
+.hra-mini.cxl{background:#fff;color:#888;border-color:#ddd}
+.hra-adj-reply{font-size:10.5px;color:#1B5E20;background:#E8F5E9;border-radius:6px;padding:4px 7px;margin-top:4px;line-height:1.45}
+.hra-adj-wait{font-size:10px;color:#C0392B;font-weight:600;margin-top:4px}
+.hr-adj-btn{margin-top:5px;padding:5px 10px;background:#4A148C;color:#fff;border:none;border-radius:7px;font-size:10.5px;font-weight:700;cursor:pointer}
+.hr-adj-reply{font-size:10.5px;color:#1B5E20;background:#E8F5E9;border-radius:6px;padding:5px 8px;margin-top:5px;line-height:1.45}
 /* ── INVOICE DETAIL ── */
 .invd-void{background:#FDEDEC;border:1.5px solid #E6B0AA;color:#C0392B;border-radius:9px;padding:9px 12px;font-size:13px;font-weight:800;text-align:center;margin-bottom:10px}
 .invd-void-sub{font-size:11px;font-weight:600;margin-top:3px;font-style:italic}
@@ -1807,6 +1817,50 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
     <div class="epm-btns" style="margin-top:10px">
       <button class="epm-cancel" onclick="closeInvoiceDetail()">Close</button>
       <button class="epm-save" id="inv-reprint-btn" onclick="reprintInvoice()">🖨 Reprint Customer Receipt</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ HOLD / VOID A DAY'S PAY (admin) ══ -->
+<div class="modal-overlay" id="payadj-modal" style="display:none">
+  <div class="modal-card">
+    <div class="epm-title">⏸ Hold or Void a Day's Pay</div>
+    <div class="epm-sub" id="padj-who"></div>
+
+    <label class="epm-label">Action</label>
+    <select class="epm-select" id="padj-type" onchange="_payAdjHint()">
+      <option value="HOLD">Hold — withhold pending their answer</option>
+      <option value="VOID">Void — this day will not be paid</option>
+    </select>
+    <div id="padj-hint" style="font-size:11px;color:#4A148C;background:#F6F1FA;border-radius:7px;padding:8px 10px;margin-top:6px;line-height:1.55"></div>
+
+    <label class="epm-label">Reason — the employee will see this and must answer</label>
+    <textarea id="padj-reason" rows="3" placeholder="e.g. No delivery record for this day — please explain"
+      style="width:100%;padding:9px 11px;border:1.5px solid #d0d7dd;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
+
+    <div class="modal-err" id="padj-err" style="margin-top:8px;margin-bottom:8px"></div>
+    <div class="epm-btns">
+      <button class="epm-cancel" onclick="closePayAdjModal()">Cancel</button>
+      <button class="epm-save" id="padj-save-btn" onclick="savePayAdj()">💾 Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ EMPLOYEE ANSWERS A HELD DAY ══ -->
+<div class="modal-overlay" id="respond-modal" style="display:none">
+  <div class="modal-card">
+    <div class="epm-title">✍ Answer Admin</div>
+    <div class="epm-sub">Admin held this day's pay for the reason below. Your answer goes straight to them.</div>
+    <div id="resp-reason" style="font-size:12.5px;color:#8A5A00;background:#FFF6E5;border:1.5px solid #F0C36D;border-radius:8px;padding:10px 12px;margin:8px 0;line-height:1.5"></div>
+
+    <label class="epm-label">Your answer</label>
+    <textarea id="resp-text" rows="4" placeholder="Explain what happened on this day…"
+      style="width:100%;padding:9px 11px;border:1.5px solid #d0d7dd;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
+
+    <div class="modal-err" id="resp-err" style="margin-top:8px;margin-bottom:8px"></div>
+    <div class="epm-btns">
+      <button class="epm-cancel" onclick="closeRespondModal()">Cancel</button>
+      <button class="epm-save" id="resp-save-btn" onclick="submitAdjResponse()">📨 Send Answer</button>
     </div>
   </div>
 </div>

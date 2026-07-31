@@ -134,6 +134,66 @@ async function saveOpHours(){
   btn.disabled = false; btn.textContent = '💾 Save Hours';
 }
 
+// ── PER-DAY PAY VOID / HOLD ──────────────────────────────────────
+let _payAdjCtx = null;   // {employee, date, pay}
+
+function openPayAdjModal(employee, date, pay){
+  _payAdjCtx = { employee: employee, date: date, pay: pay };
+  document.getElementById('padj-who').textContent =
+    employee + ' · ' + (typeof phDate==='function' ? phDate(date) : date)
+    + (pay > 0 ? ' · ' + _hraPeso(pay) + ' at risk' : '');
+  document.getElementById('padj-type').value = 'HOLD';
+  document.getElementById('padj-reason').value = '';
+  document.getElementById('padj-err').textContent = '';
+  _payAdjHint();
+  document.getElementById('payadj-modal').style.display = 'flex';
+}
+function closePayAdjModal(){
+  document.getElementById('payadj-modal').style.display = 'none';
+  _payAdjCtx = null;
+}
+function _payAdjHint(){
+  const el = document.getElementById('padj-hint');
+  if(!el) return;
+  el.textContent = document.getElementById('padj-type').value === 'VOID'
+    ? 'VOID — this day will not be paid. Use when the day should not count at all.'
+    : 'HOLD — pay is withheld pending the employee’s answer. You can release it later and the day pays in full.';
+}
+
+async function savePayAdj(){
+  if(!_payAdjCtx) return;
+  const err = document.getElementById('padj-err');
+  const btn = document.getElementById('padj-save-btn');
+  err.textContent = '';
+  const reason = document.getElementById('padj-reason').value.trim();
+  if(!reason){ err.textContent = 'A reason is required — the employee will see and answer this.'; return; }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try{
+    const r = await api({ action:'setPayAdjustment', role: currentUser.role, by: currentUser.username,
+      employee: _payAdjCtx.employee, date: _payAdjCtx.date,
+      type: document.getElementById('padj-type').value, reason: reason });
+    if(r.status==='ok'){
+      closePayAdjModal();
+      showToast('Day pay held — the employee will be asked to answer','success',4500);
+      await _hraLoad();
+    } else { err.textContent = r.msg || 'Could not save.'; }
+  }catch(e){ err.textContent = 'Network error: '+e.message; }
+  btn.disabled = false; btn.textContent = '💾 Apply';
+}
+
+async function releasePayAdj(adjustmentId, decision){
+  const msg = decision === 'cancel'
+    ? 'Cancel this hold? The day goes back to normal pay and the record is closed as cancelled.'
+    : 'Release this hold?\n\nThe day will be paid in full again.';
+  if(!confirm(msg)) return;
+  try{
+    const r = await api({ action:'releasePayAdjustment', adjustmentId, decision,
+      role: currentUser.role, by: currentUser.username });
+    if(r.status==='ok'){ showToast('Day pay restored ✓','success',4000); await _hraLoad(); }
+    else alert('Error: '+(r.msg||'Could not update'));
+  }catch(e){ alert('Network error: '+e.message); }
+}
+
 // ── APPROVAL INBOX — cash advances & leave awaiting your decision ──
 function _hraRenderInbox(){
   const adv = _hraReqs.advances || [], lv = _hraReqs.leaves || [];
@@ -308,13 +368,25 @@ function _hraRender(){
         + '</tr></thead><tbody>';
       (e.days||[]).forEach(function(day){
         const bad = day.incomplete === true;
-        const cls = bad ? 'half' : /half/i.test(day.status) ? 'half' : /late/i.test(day.status) ? 'late' : 'ok';
+        const adj = day.adjustment;
+        const cls = adj ? 'half' : bad ? 'half'
+                  : /half/i.test(day.status) ? 'half' : /late/i.test(day.status) ? 'late' : 'ok';
         html += '<tr>'
           + '<td>'+(typeof phDate==='function' ? phDate(day.date) : day.date)+'</td>'
           + '<td>'+(day.timeIn||'—')+'</td>'
           + '<td>'+(day.timeOut||'—')+'</td>'
-          + '<td><span class="hr-flag '+cls+'">'+(bad?'⚠ ':'')+day.status+'</span></td>'
-          + '<td class="r">'+(e.rateSet?_hraPeso(day.pay):'—')+'</td>'
+          + '<td><span class="hr-flag '+cls+'">'+(bad&&!adj?'⚠ ':'')+day.status+'</span>'
+            + (adj && adj.response
+                ? '<div class="hra-adj-reply">💬 '+adj.response+'</div>'
+                : adj ? '<div class="hra-adj-wait">awaiting employee answer</div>' : '')
+            + '</td>'
+          + '<td class="r">'+(e.rateSet?_hraPeso(day.pay):'—')
+            + '<div class="hra-day-act">'
+            + (adj
+                ? '<button class="hra-mini rel" onclick="releasePayAdj(\''+adj.id+'\',\'release\')">Release</button>'
+                  +'<button class="hra-mini cxl" onclick="releasePayAdj(\''+adj.id+'\',\'cancel\')">Cancel</button>'
+                : '<button class="hra-mini hold" onclick="openPayAdjModal(\''+e.username.replace(/'/g,"\\'")+'\',\''+day.date+'\','+(day.pay||0)+')">Hold / Void</button>')
+            + '</div></td>'
           + '</tr>';
       });
       html += '</tbody></table></div>';

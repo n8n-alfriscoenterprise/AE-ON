@@ -146,15 +146,22 @@ function _hrRender(d){
     d.days.forEach(function(day){
       // Missing/invalid punches are the loudest signal for hourly staff
       const bad    = day.incomplete === true;
+      const adj    = day.adjustment;
       const isHalf = /half/i.test(day.status), isLate = /late/i.test(day.status);
-      const cls = bad ? 'half' : isHalf ? 'half' : isLate ? 'late' : 'ok';
-      const label = bad ? '⚠ '+day.status : day.status;
+      const cls = adj ? 'half' : bad ? 'half' : isHalf ? 'half' : isLate ? 'late' : 'ok';
+      const label = (bad && !adj) ? '⚠ '+day.status : day.status;
       html += '<tr>'
         + '<td>'+(typeof phDate==='function' ? phDate(day.date) : day.date)+'</td>'
         + '<td>'+_hrTime12(day.timeIn)+'</td>'
         + '<td>'+_hrTime12(day.timeOut)+'</td>'
         + '<td><span class="hr-flag '+cls+'">'+label+'</span>'
           + (day.ot > 0 ? '<div style="font-size:10px;color:#7B1FA2;margin-top:2px">+'+day.ot+'h beyond duty</div>' : '')
+          + (adj
+              ? (adj.response
+                  ? '<div class="hr-adj-reply">💬 You answered: “'+adj.response+'”</div>'
+                  : '<button class="hr-adj-btn" onclick="openRespondModal(\''+adj.id+'\',\''
+                      +String(adj.reason).replace(/'/g,"\\'").replace(/"/g,'&quot;')+'\')">✍ Answer this</button>')
+              : '')
           + '</td>'
         + (d.rateSet ? '<td class="r">'+_hrPeso(day.pay)+'</td>' : '')
         + '</tr>';
@@ -215,6 +222,38 @@ function _hrRenderRequests(){
   });
 
   return html + '</div>';
+}
+
+// ── ANSWER A HELD / VOIDED DAY ───────────────────────────────────
+let _respondAdjId = null;
+function openRespondModal(adjustmentId, reason){
+  _respondAdjId = adjustmentId;
+  document.getElementById('resp-reason').textContent = reason || '';
+  document.getElementById('resp-text').value = '';
+  document.getElementById('resp-err').textContent = '';
+  document.getElementById('respond-modal').style.display = 'flex';
+}
+function closeRespondModal(){
+  document.getElementById('respond-modal').style.display = 'none';
+  _respondAdjId = null;
+}
+async function submitAdjResponse(){
+  const err = document.getElementById('resp-err');
+  const btn = document.getElementById('resp-save-btn');
+  err.textContent = '';
+  const text = document.getElementById('resp-text').value.trim();
+  if(!text){ err.textContent = 'Please write your answer.'; return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try{
+    const r = await api({ action:'respondPayAdjustment', adjustmentId: _respondAdjId,
+                          response: text, by: currentUser.username });
+    if(r.status==='ok'){
+      closeRespondModal();
+      showToast('Your answer was sent to Admin ✓','success',4500);
+      await _hrLoad();
+    } else { err.textContent = 'Error: '+(r.msg||'Could not send'); }
+  }catch(e){ err.textContent = 'Network error: '+e.message; }
+  btn.disabled = false; btn.textContent = '📨 Send Answer';
 }
 
 function openCashAdvanceModal(){

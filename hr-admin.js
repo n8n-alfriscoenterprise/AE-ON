@@ -280,6 +280,7 @@ function _hraRender(){
           + '<div class="hra-emp-name">'+e.username
             + '<span class="hra-badge '+(hourly?'hourly':'daily')+'">'+(hourly?'HOURLY':'DAILY')+'</span>'
             + (e.role ? '<span class="hra-role">'+e.role+'</span>' : '')
+            + (e.scheduleStart ? '<span class="hra-role">'+e.scheduleStart+'–'+e.scheduleEnd+'</span>' : '')
           + '</div>'
           + '<div class="hra-emp-meta">'+meta+'</div>'
           + (e.incompleteDays > 0

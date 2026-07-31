@@ -52,6 +52,7 @@ function openEditStaff(idx){
   if(rateEl) rateEl.value = s.dailyRate ? Number(s.dailyRate) : '';
   const ptEl = document.getElementById('edit-pay-type');
   if(ptEl) ptEl.value = (s.payType === 'hourly') ? 'hourly' : 'daily';
+  _populateScheduleSelect(s.schedule || '');
   onEditPayTypeChange();
   onEditRoleChange();
 
@@ -132,6 +133,24 @@ function onEditPlToggle(){
   if(canPL && viewField){
     viewField.style.display = canPL.checked ? 'block' : 'none';
   }
+}
+
+// Work-schedule picker. Cached per session so opening the editor stays instant.
+let _workSchedules = null;
+async function _populateScheduleSelect(current){
+  const sel = document.getElementById('edit-schedule');
+  if(!sel) return;
+  if(!_workSchedules){
+    try{
+      const r = await api({action:'getWorkSchedules'});
+      _workSchedules = (r.status==='ok') ? (r.schedules||[]) : [];
+    }catch(e){ _workSchedules = []; }
+  }
+  sel.innerHTML = '<option value="">(Automatic by role)</option>'
+    + _workSchedules.map(function(s){
+        return '<option value="'+s.name+'">'+s.name+' · '+s.start+'–'+s.end+'</option>';
+      }).join('');
+  sel.value = current || '';
 }
 
 // Shows what the entered daily rate means for an hourly employee (rate ÷ 10),
@@ -219,6 +238,8 @@ async function saveStaffEdit(){
     if(rateRaw !== '') payload.dailyRate = Number(rateRaw);
     const ptEl2 = document.getElementById('edit-pay-type');
     if(ptEl2) payload.payType = ptEl2.value;
+    const schEl = document.getElementById('edit-schedule');
+    if(schEl) payload.schedule = schEl.value;   // '' = automatic by role
     const r = await api(payload);
 
     if(r.status === 'ok'){
@@ -226,7 +247,8 @@ async function saveStaffEdit(){
       staff[editingStaffIndex] = Object.assign({}, s,
         { role, assignedUnit:unit, plView }, perms,
         rateRaw !== '' ? { dailyRate: Number(rateRaw) } : {},
-        { payType: (document.getElementById('edit-pay-type')||{}).value || 'daily' }
+        { payType:  (document.getElementById('edit-pay-type')||{}).value || 'daily',
+          schedule: (document.getElementById('edit-schedule')||{}).value || '' }
       );
       LS.set('alf_staff_cache', staff);
       closeEditStaff();

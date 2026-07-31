@@ -1806,7 +1806,7 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
     <div id="inv-detail-body" style="max-height:58vh;overflow-y:auto;margin-top:6px"></div>
     <div class="epm-btns" style="margin-top:10px">
       <button class="epm-cancel" onclick="closeInvoiceDetail()">Close</button>
-      <button class="epm-save" id="inv-reprint-btn" onclick="reprintInvoice()">🖨 Reprint Receipt</button>
+      <button class="epm-save" id="inv-reprint-btn" onclick="reprintInvoice()">🖨 Reprint Customer Receipt</button>
     </div>
   </div>
 </div>
@@ -3181,6 +3181,12 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(10,92,70,.10)}
           <span class="edit-field-label">Daily Rate (₱) — used for My HR pay estimates</span>
           <input class="edit-select" id="edit-daily-rate" type="number" min="0" step="0.01"
                  placeholder="e.g. 500.00" inputmode="decimal">
+        </div>
+        <div style="margin-top:10px">
+          <span class="edit-field-label">Work Schedule — hours this person is judged against</span>
+          <select class="edit-select" id="edit-schedule">
+            <option value="">(Automatic by role)</option>
+          </select>
         </div>
         <div style="margin-top:10px">
           <span class="edit-field-label">Pay Type</span>

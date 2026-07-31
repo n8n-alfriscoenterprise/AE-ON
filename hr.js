@@ -77,7 +77,9 @@ function _hrRender(d){
   // ── Attendance standing (hourly counts hours & full days instead of late/half) ──
   let html = '<div class="hr-card">'
     + '<div class="hr-card-title">Attendance standing'
-      + (hourly ? ' <span style="color:#7B1FA2">· paid hourly</span>' : '') + '</div>'
+      + (hourly ? ' <span style="color:#7B1FA2">· paid hourly</span>' : '')
+      + (d.scheduleName ? ' <span style="color:#888;font-weight:600">· '+d.scheduleName
+          +' '+d.scheduleStart+'–'+d.scheduleEnd+'</span>' : '') + '</div>'
     + '<div class="hr-stat-grid">'
     + (hourly
       ? '<div class="hr-stat days"><span class="hr-stat-val">'+d.daysWorked+'</span><span class="hr-stat-lbl">Days</span></div>'
